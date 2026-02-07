@@ -38,3 +38,16 @@ class UserToken(SqliteBase):
     created_at = Column("created_at",DateTime, nullable=False)
     updated_at = Column("updated_at", DateTime, nullable=False)
     deleted_at = Column("deleted_at", DateTime, nullable=True)
+
+
+class LogData(SqliteBase):
+    """
+    Docstring for LogData
+    """
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    url = Column("url", Integer, nullable=False)
+    method = Column("method", String, nullable=False)
+    time = Column("time", Float, nullable=False)
+    status = Column("status", Integer, nullable=False)
+    response = Column("response", JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False)

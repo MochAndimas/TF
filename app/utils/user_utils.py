@@ -7,7 +7,7 @@ from sqlalchemy import select
 from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTError
 from app.db.models.user import TfUser, UserToken
 from app.db.session import get_db
-from app.core.security import verify_access_token, refresh_access_token
+from app.core.security import verify_access_token, refresh_access_token, pwd_context
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
@@ -175,4 +175,49 @@ async def user_token(
             return data
         
 
+async def create_account(
+        session: AsyncSession,
+        fullname: str,
+        email: str,
+        role: str,
+        password: str
+):
+    """
+    Docstring for create_account
+    
+    :param fullname: Description
+    :type fullname: str
+    :param email: Description
+    :type email: str
+    :param role: Description
+    :type role: str
+    :param password: Description
+    :type password: str
+    """
+    today = datetime.now()
+    user_id = str(uuid.uuid4())
+    hash_password = pwd_context.hash(password)
 
+    async with session.begin():
+        query = select(TfUser).filter_by(user_id=user_id)
+        user_data = await session.execute(query)
+        user = user_data.scalars().first()
+
+        if user:
+            return False
+        else:
+            new_account = TfUser(
+                user_id=user_id,
+                fullname=fullname,
+                email=email,
+                role=role,
+                password=hash_password,
+                created_at=today,
+                updated_at=today
+            )
+
+            session.add(new_account)
+            await session.commit()
+            await session.close()
+
+            return new_account
