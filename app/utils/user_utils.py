@@ -14,7 +14,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
 async def roles(
         email: str,
-        session: AsyncSession = Depends(get_db)
+        session: AsyncSession
         ):
     """
     Docstring for roles
@@ -24,10 +24,10 @@ async def roles(
     :param session: sqlite Session maker.
     :type session: AsyncSession
     """
-    user_query = select(UserToken).filter_by(email=email)
+    user_query = select(TfUser).filter_by(email=email)
     user_data = await session.execute(user_query)
     user = user_data.scalars().first()
-
+    
     if user:
         return user.role
     else:
@@ -35,7 +35,7 @@ async def roles(
     
 
 async def get_user_by_id(
-        id: int,
+        user_id: int,
         session: AsyncSession = Depends(get_db)
 ) -> TfUser | None:
     """
@@ -50,7 +50,7 @@ async def get_user_by_id(
     """
     return (
         (await session.execute(
-            select(TfUser).filter_by(id=id)
+            select(TfUser).filter_by(user_id=user_id)
         )).scalars().first()
     )
 
@@ -77,7 +77,7 @@ async def get_current_user(
     query_refresh_token = select(UserToken).filter_by(access_token=token)
     data_refresh_token = await session.execute(query_refresh_token)
     user_token = data_refresh_token.scalars().first()
-
+    
     if user_token is None:
         raise credentials_exception
     if user_token.is_revoked:
@@ -99,7 +99,7 @@ async def get_current_user(
         raise credentials_exception
     
     # fetch the user from the database
-    user = await get_user_by_id(id=token_data.id, session=session)
+    user = await get_user_by_id(user_id=token_data.id, session=session)
 
     if user is None:
         raise credentials_exception
@@ -130,27 +130,23 @@ async def user_token(
     """
     today = datetime.now()
     session_id = str(uuid.uuid4())
-    expiry = datetime.now() + timedelta(days=7)
+    expiry = today + timedelta(days=7)
 
-    if session is None:
-        async_gen = get_db()
-        session = await anext(async_gen)
+    query = select(UserToken).where(UserToken.user_id == user_id)
+    result = await session.execute(query)
+    user = result.scalars().first()
 
-    async with session.begin():
-        query = select(UserToken).filter_by(user_id=user_id)
-        user_data = await session.execute(query)
-        user = user_data.scalars().first()
-
-        if user:
-            user.session_id = session_id
-            user.logged_in = True
-            user.expiry = expiry
-            user.is_revoked = False
-            user.access_token = access_token
-            user.refresh_token = refresh_token
-            user.updated_at = today
-        else:
-            data = UserToken(
+    if user:
+        user.session_id = session_id
+        user.logged_in = True
+        user.expiry = expiry
+        user.is_revoked = False
+        user.access_token = access_token
+        user.refresh_token = refresh_token
+        user.updated_at = today
+    else:
+        session.add(
+            UserToken(
                 session_id=session_id,
                 user_id=user_id,
                 page="home",
@@ -161,18 +157,17 @@ async def user_token(
                 refresh_token=refresh_token,
                 is_revoked=False,
                 created_at=today,
-                updated_at=today
+                updated_at=today,
             )
-            session.add(data)
-            await session.commit()
-            await session.close()
+        )
+    await session.commit()
 
-            data= {
-                "access_token": access_token,
-                "refresh_token": refresh_token
-            }
+    data = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
 
-            return data
+    return data
         
 
 async def create_account(
@@ -194,30 +189,58 @@ async def create_account(
     :param password: Description
     :type password: str
     """
+    email = email.lower()
     today = datetime.now()
-    user_id = str(uuid.uuid4())
-    hash_password = pwd_context.hash(password)
 
     async with session.begin():
-        query = select(TfUser).filter_by(user_id=user_id)
+        query = select(TfUser).filter_by(email=email)
         user_data = await session.execute(query)
-        user = user_data.scalars().first()
+        user = user_data.scalar_one_or_none()
 
         if user:
-            return False
-        else:
-            new_account = TfUser(
-                user_id=user_id,
-                fullname=fullname,
-                email=email,
-                role=role,
-                password=hash_password,
-                created_at=today,
-                updated_at=today
-            )
+            return None
+        
+        new_account = TfUser(
+            user_id=str(uuid.uuid4()),
+            fullname=fullname,
+            email=email,
+            role=role,
+            password=pwd_context.hash(password),
+            created_at=today,
+            updated_at=today
+        )
 
-            session.add(new_account)
-            await session.commit()
-            await session.close()
+        session.add(new_account)
+        await session.commit()
+        await session.close()
 
-            return new_account
+        return new_account
+        
+
+async def logout(
+        session: AsyncSession,
+        user_id
+):
+    """
+    Function to Log out user and revoke all token
+    
+    :param session: Description
+    :type session: AsyncSession
+    :param user_id: Description
+    """
+    today = datetime.now()
+    if session is None:
+        async_gen = get_db()
+        session = await anext(async_gen)
+
+    query = select(UserToken).filter_by(user_id=user_id)
+    user_data = await session.execute(query)
+    user = user_data.scalars().first()
+
+    user.logged_in = False
+    user.is_revoked = True
+    user.expiry = today
+    user.updated_at = today
+
+    await session.commit()
+    await session.close()

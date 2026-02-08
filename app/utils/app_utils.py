@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.db.session import sqlite_engine,get_db
 from app.db.base import SqliteBase
 from app.db.models.user import LogData
+from app.api.v1.endpoint.auth import router as auth_router
 
 
 class FastApiApp:
@@ -282,4 +283,44 @@ class FastApiApp:
             )
 
             return response
+        
+        # Session middleware
+        self.app.add_middleware(
+            SessionMiddleware,
+            secret_key=config("CSRF_SECRET")
+        )
+
+    def _include_routers_v1(self):
+        """
+        Includes the API endpoint routers into the FastAPI app.
+
+        This method adds the routers for handling different aspects of the API, such as authentication, revenue, user activity, 
+        and data-related endpoints. By calling this method, the app will be able to handle requests routed to these modules.
+        
+        :param self: Description
+        """
+        # Include application routers
+        self.app.include_router(auth_router, tags=["Authentication"])
+
+    def run(sefl):
+        """
+        Runs the FastAPI app using Uvicorn with the specified settings.
+
+        This method configures and launches the app using Uvicorn, a high-performance ASGI server. 
+        It allows the app to run in local development or production environments, with adjustable settings for workers, 
+        reloading, and logging.
+
+        This method is typically called when the script is executed directly.
+        
+        :param sefl: Description
+        """
+        uvicorn_run(
+            "main:app_instance.app",
+            host=settings.HOST,
+            port=settings.PORT,
+            workers=config("WORKERS", default=5, cast=int),
+            reload=settings.DEBUG,
+            log_level="info" if not settings.DEBUG else "debug",
+            timeout_keep_alive=30
+        )
         

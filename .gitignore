@@ -147,6 +147,9 @@ venv.bak/
 bin/
 include/
 pyvenv.cfg
+share/
+etc/
+.DS_Store
 
 # Spyder project settings
 .spyderproject

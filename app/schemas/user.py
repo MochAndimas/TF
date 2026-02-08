@@ -1,13 +1,21 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
+
+
+class RegisterBase(BaseModel):
+    email: EmailStr
+    fullname: str
+    role: str
+    password: str
+    confirm_password: str
 
 
 class TfUser(BaseModel):
     """
     Docstring for TfUser
     """
-    user_id: int
+    user_id: str
     fullname: str
     email: str
     role: str
@@ -30,4 +38,4 @@ class TokenData(BaseModel):
     """
     Docstring for TokenData
     """
-    id: Optional[int] = None
+    id: Optional[str] = None

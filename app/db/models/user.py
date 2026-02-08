@@ -9,14 +9,14 @@ class TfUser(SqliteBase):
     """
     __tablename__ = "tf_user"
 
-    user_id = Column("user_id", Integer, primary_key=True, autoincrement=True)
-    fullname = Column("fullname", String,)
+    user_id = Column("user_id", String, primary_key=True)
+    fullname = Column("fullname", String, nullable= False)
     email = Column("email", String, nullable=False)
     role = Column("role", String, nullable=False)
     password = Column("password", String, nullable=False)
     created_at = Column("created_at", DateTime, nullable=False)
     updated_at = Column("updated_at", DateTime, nullable=False)
-    deleted_at = Column("deleted_at", DateTime, nullable=False)
+    deleted_at = Column("deleted_at", DateTime, nullable=True)
 
 
 class UserToken(SqliteBase):
@@ -44,6 +44,8 @@ class LogData(SqliteBase):
     """
     Docstring for LogData
     """
+    __tablename__ = "log_data"
+
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     url = Column("url", Integer, nullable=False)
     method = Column("method", String, nullable=False)

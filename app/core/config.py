@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # JWT TOKEN
     JWT_SECRET_KEY: str = config("JWT_SECRET_KEY", cast=str)
     JWT_REFRESH_SECRET_KEY: str = config("JWT_REFRESH_SECRET_KEY", cast=str)
-    ACCESS_TOKEN_EXPIRE_MINUTE: int = config("ACCESS_TOKEN_EXPIRE_MINUTE", cast=int)
+    ACCESS_TOKEN_EXPIRE_MINUTE: int = config("ACCESS_TOKEN_EXPIRE_MINUTES", cast=int)
     REFRESH_TOKEN_EXPIRE_DAYS: int = config("REFRESH_TOKEN_EXPIRE_DAYS", cast=int)
     ALGORITHM: str = "HS256"
 
@@ -25,7 +25,9 @@ class ProductionSettings(Settings):
     DEBUG: bool = False
 
     # SQLITE database
-    DB_URL: str = "sqlite+aiosqlite:///./app/db/campaign_data.db"
+    DB_URL: str = config("DB_URL", cast=str)
+    HOST: str = config("HOST", cast=str)
+    PORT: int = config("PORT", cast=int)
 
 
 class DevelopmentSettings(Settings):
@@ -35,7 +37,9 @@ class DevelopmentSettings(Settings):
     DEBUG: bool = True
 
     # SQLITE database
-    DB_URL: str = "sqlite+aiosqlite:///./app/db/campaign_data_dev.db"
+    DB_URL: str = config("DEV_DB_URL", cast=str)
+    HOST: str = config("HOST", cast=str)
+    PORT: int = config("PORT", cast=int)
 
 
 @lru_cache
