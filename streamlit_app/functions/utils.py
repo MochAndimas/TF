@@ -1,5 +1,7 @@
 import streamlit as st
 import httpx
+import re
+from decouple import config
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy import create_engine
@@ -14,7 +16,7 @@ cookie_controller = CookieController()
 
 # streamlit engine and sessionmaker
 streamlit_engine = create_engine(
-    st.secrets["db"]["DB_DEV"],
+    st.secrets["db"]["DB_DEV"] if config("ENV") == "development" else st.secrets["db"]["DB"],
     echo=False,
     poolclass=StaticPool,
     pool_pre_ping=True
@@ -165,6 +167,17 @@ def get_date_range(days, period='days', months=3):
         end_date = end_date - relativedelta(days=1)
         
     return start_date.date(), end_date.date()
+
+
+def is_valid_email(email):
+    """
+    Docstring for is_valid_email
+    
+    :param email: email account of an user
+    """
+    pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+
+    return re.match(pattern,email)
 
 
 

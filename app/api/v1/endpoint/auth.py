@@ -128,7 +128,7 @@ async def get_csrf_token(
     # retrieve user from the database by email
     query = await session.execute(select(TfUser).where(TfUser.email == creds.username))
     user = query.scalar()
-    user_role = roles(creds.username, session)
+    user_role = await roles(creds.username, session)
 
     if not user or not user_role or not verify_password(creds.password, user.password):
         raise HTTPException(

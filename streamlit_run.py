@@ -70,7 +70,7 @@ try:
     else:
         page_handlers = {
             overall_page: lambda: overall.show_overall_page(HOST),
-            register_page: lambda: register.create_account()
+            register_page: lambda: register.create_account(HOST)
         }
         if page in page_handlers:
             asyncio.run(page_handlers[page]())  # Call the appropriate function based on the page
