@@ -4,12 +4,12 @@ st.set_page_config(
     page_title="Traders Family Dashboard",
     page_icon="./streamlit_app/page/logotf.png",
     layout="wide",  # Optional: Use "wide" for full-width layout
-    initial_sidebar_state="collapsed", # Start with the sidebar opened 
+    initial_sidebar_state="collapsed"
 )
 import asyncio
 from decouple import config
 from streamlit_app.functions.utils import cookie_controller, get_session, footer, logout
-from streamlit_app.page import login, overall
+from streamlit_app.page import login, overall, register
 
 
 # --- App Settings ---
@@ -32,11 +32,18 @@ login_page = st.Page(page=login, title="Login")
 # Overview data page
 overall_page = st.Page(page=overall, title="Overall Data", url_path="/overall-page", icon="🗃")
 
+# Settings Page
+register_page = st.Page(page=register, title="Create Account", url_path="/create-account")
+
 # show menu only for spesific role
 if st.session_state.role in ['developer', 'superadmin']:
     menu_options = {
         "🗂 Overview Data" : [
-            overall_page]
+            overall_page
+        ],
+        "⚙️ Settings" : [
+            register_page
+        ]
     }
 
 # --- NAVIGATION ---
@@ -45,13 +52,15 @@ with st.sidebar:
         st.image("./streamlit_app/page/logotf.png", width=True)
         page = st.navigation(
             menu_options,
-            position='sidebar'
+            position='sidebar',
+            expanded=False
         )
         asyncio.run(logout(st, HOST, session_id))
     else:
         page = st.navigation(
             [login_page],
-            position='sidebar'
+            position='sidebar',
+            expanded=False
         )
 
 # --- PAGE CONTENT ---
@@ -60,7 +69,8 @@ try:
         asyncio.run(login.show_login_page(HOST))
     else:
         page_handlers = {
-            overall_page: lambda: overall.show_overall_page(HOST)
+            overall_page: lambda: overall.show_overall_page(HOST),
+            register_page: lambda: register.create_account()
         }
         if page in page_handlers:
             asyncio.run(page_handlers[page]())  # Call the appropriate function based on the page
