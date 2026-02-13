@@ -10,7 +10,7 @@ async def create_account(host):
     """
     st.title("Create Account", width="stretch", text_alignment="center")
 
-    with st.form("register", border=False):
+    with st.form("register", border=False, clear_on_submit=True):
         # Input Box
         fullname = st.text_input("Fullname", width="stretch")
         email = st.text_input("Email", width="stretch")

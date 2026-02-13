@@ -244,3 +244,42 @@ async def logout(
 
     await session.commit()
     await session.close()
+
+
+async def delete_account(
+        session: AsyncSession,
+        user_id: str,
+        current_user: TfUser
+):
+    """
+    Docstring for delete_account
+    
+    :param session: SQLite session maker.
+    :type session: AsyncSession
+    :param user_id: Unique id of an user account
+    :type user_id: str
+    :param current_user: Function to fetch current user log in.
+    :type current_user: TfUser
+    """
+    if current_user.role != "superadmin":
+        raise PermissionError("Not authorized!")
+    
+    if current_user.user_id == user_id:
+        raise ValueError("You cannot delete your own account!")
+    
+    async with session.begin():
+        query = await session.execute(
+            select(TfUser).where(
+                TfUser.user_id == user_id,
+                TfUser.deleted_at is not None
+            )
+        )
+        user = query.scalar_one_or_none()
+
+        if not user:
+            return None
+        
+        user.deleted_at = datetime.now()
+        user.updated_at = datetime.now()
+
+    return user

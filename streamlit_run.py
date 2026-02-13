@@ -36,7 +36,7 @@ overall_page = st.Page(page=overall, title="Overall Data", url_path="/overall-pa
 register_page = st.Page(page=register, title="Create Account", url_path="/create-account")
 
 # show menu only for spesific role
-if st.session_state.role in ['developer', 'superadmin']:
+if st.session_state.role in ['superadmin']:
     menu_options = {
         "🗂 Overview Data" : [
             overall_page
