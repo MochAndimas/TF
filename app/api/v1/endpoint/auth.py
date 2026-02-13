@@ -18,11 +18,12 @@ from app.schemas.user import TokenBase, RegisterBase
 router = APIRouter()
 
 
-@router.post("/api/register", status_code=201)
+@router.post("/api/register", response_model=RegisterBase)
 async def register(
     data: RegisterBase,
     session: AsyncSession = Depends(get_db)
 ):
+    print(data.fullname)
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
@@ -34,20 +35,25 @@ async def register(
         fullname=data.fullname,
         email=data.email,
         role=data.role,
-        password=data.password,
+        password=data.password
     )
 
     if not user:
         raise HTTPException(
+            success=False,
             status_code=409,
             detail="Email already registered",
         )
+    
+    response = JSONResponse(
+        content={
+            "success": True,
+            "message": "Account created successfully",
+            "user_id": user.user_id,
+        }
+    )
 
-    return {
-        "success": True,
-        "message": "Account created successfully",
-        "user_id": user.user_id,
-    }
+    return response
 
 
 @router.post("/api/login", response_model=TokenBase)

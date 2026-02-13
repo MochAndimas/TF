@@ -42,11 +42,12 @@ async def create_account(host):
                     async with httpx.AsyncClient(timeout=120) as client:
                         response = await client.post(
                             f"{host}/api/register",
-                            data={
+                            json={
                                 "fullname": fullname,
                                 "email": email,
                                 "role": role_options[role],
-                                "password": password
+                                "password": password,
+                                "confirm_password": confirm_password
                             }
                         )
                         response_data = response.json()
@@ -54,4 +55,4 @@ async def create_account(host):
                     if response_data["success"]:
                         st.info("Successfully created an account!")
                 except Exception as e:
-                    st.error(f"Error creating account: {e}")
+                    st.error(f"Error creating account: {response_data.get("detail", "Something error, please try again!")}")
