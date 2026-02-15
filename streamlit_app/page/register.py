@@ -59,6 +59,10 @@ async def create_account(host):
                                                 "role": role_options[role],
                                                 "password": password,
                                                 "confirm_password": confirm_password
+                                            },
+                                            headers={
+                                                "Authorization": f"Bearer {token.access_token}",
+                                                "X-CSRF-Token": st.session_state.csrf_token
                                             }
                                         )
                                         response_data = response.json()

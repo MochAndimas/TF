@@ -34,7 +34,8 @@ async def show_login_page(host):
                 response = await client.post(
                     f"{host}/api/login",
                     data={"username": email, "password": password},
-                    cookies={"csrf_token": csrf_token}
+                    cookies={"csrf_token": csrf_token},
+                    headers={"X-CSRF-Token": csrf_token}
                 )
                 response_data = response.json()
 
@@ -44,6 +45,7 @@ async def show_login_page(host):
                 st.session_state.logged_in = True
                 st.session_state.page = 'home'
                 st.session_state._user_id = response.headers['Authentication']
+                st.session_state.csrf_token = csrf_token
 
                 if remember:
                     cookie_controller.set(

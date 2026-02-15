@@ -2,7 +2,7 @@ import secrets
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends, APIRouter, HTTPException
-from fastapi import status, Response, Request
+from fastapi import status, Response, Request, Header
 from fastapi.responses import JSONResponse
 from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from app.core.config import settings
@@ -20,8 +20,11 @@ router = APIRouter()
 
 @router.post("/api/register", response_model=RegisterBase)
 async def register(
+    request: Request,
     data: RegisterBase,
-    session: AsyncSession = Depends(get_db)
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),
+    x_csrf_token: str = Header(None),
 ):
     """
     Docstring for register
@@ -31,6 +34,11 @@ async def register(
     :param session: Description
     :type session: AsyncSession
     """
+    csrf_cookie = request.headers.get("X-CSRF-Token")
+    print(csrf_cookie)
+
+    if not csrf_cookie or csrf_cookie != x_csrf_token:
+        raise HTTPException(status_code=403, detail="Invalid CSRF token")
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,

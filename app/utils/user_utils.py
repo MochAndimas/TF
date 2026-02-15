@@ -192,29 +192,28 @@ async def create_account(
     email = email.lower()
     today = datetime.now()
 
-    async with session.begin():
-        query = select(TfUser).filter_by(email=email)
-        user_data = await session.execute(query)
-        user = user_data.scalar_one_or_none()
+    query = select(TfUser).filter_by(email=email)
+    user_data = await session.execute(query)
+    user = user_data.scalar_one_or_none()
 
-        if user:
-            return None
+    if user:
+        return None
         
-        new_account = TfUser(
-            user_id=str(uuid.uuid4()),
-            fullname=fullname,
-            email=email,
-            role=role,
-            password=pwd_context.hash(password),
-            created_at=today,
-            updated_at=today
-        )
+    new_account = TfUser(
+        user_id=str(uuid.uuid4()),
+        fullname=fullname,
+        email=email,
+        role=role,
+        password=pwd_context.hash(password),
+        created_at=today,
+        updated_at=today
+    )
 
-        session.add(new_account)
-        await session.commit()
-        await session.close()
+    session.add(new_account)
+    await session.commit()
+    await session.close()
 
-        return new_account
+    return new_account
         
 
 async def logout(
