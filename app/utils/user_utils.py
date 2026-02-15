@@ -266,20 +266,20 @@ async def delete_account(
     
     if current_user.user_id == user_id:
         raise ValueError("You cannot delete your own account!")
-    
-    async with session.begin():
-        query = await session.execute(
-            select(TfUser).where(
-                TfUser.user_id == user_id,
-                TfUser.deleted_at is not None
-            )
-        )
-        user = query.scalar_one_or_none()
 
-        if not user:
-            return None
-        
-        user.deleted_at = datetime.now()
-        user.updated_at = datetime.now()
+    query = await session.execute(
+        select(TfUser).where(
+            TfUser.user_id == user_id,
+            TfUser.deleted_at is not None
+        )
+    )
+    user = query.scalar_one_or_none()
+
+    if not user:
+        return None
+
+    user.deleted_at = datetime.now()
+    user.updated_at = datetime.now()
+    await session.commit()
 
     return user

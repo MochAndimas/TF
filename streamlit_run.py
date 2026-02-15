@@ -45,6 +45,12 @@ if st.session_state.role in ['superadmin']:
             register_page
         ]
     }
+if st.session_state.role in ['admin', 'digital_marketing', 'sales']:
+    menu_options = {
+        "🗂 Overview Data" : [
+            overall_page
+        ]
+    }
 
 # --- NAVIGATION ---
 with st.sidebar:

@@ -1,5 +1,6 @@
 import streamlit as st
 import httpx
+import pandas as pd
 import re
 from decouple import config
 from datetime import datetime
@@ -7,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import Session, sessionmaker
-from app.db.models.user import UserToken
+from app.db.models.user import UserToken, TfUser
 from streamlit_cookies_controller import CookieController
 from requests.exceptions import RequestException
 from datetime import datetime, timedelta
@@ -44,6 +45,39 @@ def get_user(user_id):
         data = session.execute(query).scalars().first()
     session.close()
     return data
+
+
+def get_accounts(
+        data: str ="all",
+        user_id: str = None
+    ):
+    """
+    Docstring for get_accounts
+    """
+    session_gen = get_streamlit()
+    session = next(session_gen)
+    with session.begin():
+        if data == "all":
+            query = select(
+                TfUser.user_id, 
+                TfUser.fullname, 
+                TfUser.email, 
+                TfUser.role
+            ).where(
+                TfUser.deleted_at == None,
+            )
+        else:
+            query = select(
+                TfUser
+            ).where(
+                TfUser.user_id == user_id,
+                TfUser.deleted_at == None,
+            )
+        result = session.execute(query)
+
+    df = pd.DataFrame(result.fetchall()) if data == "all" else result.scalar_one_or_none()
+
+    return df
 
 
 def get_session(session_id):

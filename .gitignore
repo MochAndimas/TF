@@ -38,7 +38,8 @@ public-key.pem
 
 # MYSQl file
 app_data.db
-external_api.db
+app/db/*.db
+
 
 # Requirements library
 requirements.txt
@@ -178,6 +179,8 @@ cython_debug/
 # VScode Workspace
 fastapi.code-workspace
 googleads.yaml
+client_secret.json
+generate_refresh_token.py
 
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can

@@ -8,7 +8,7 @@ from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from app.core.config import settings
 from app.db.models.user import TfUser
 from app.db.session import get_db
-from app.utils.user_utils import get_current_user, user_token
+from app.utils.user_utils import get_current_user, user_token, delete_account
 from app.utils.user_utils import roles, logout, create_account
 from app.core.security import verify_password, create_access_token
 from app.core.security import create_refresh_token, verify_csrf_token
@@ -23,7 +23,14 @@ async def register(
     data: RegisterBase,
     session: AsyncSession = Depends(get_db)
 ):
-    print(data.fullname)
+    """
+    Docstring for register
+    
+    :param data: Description
+    :type data: RegisterBase
+    :param session: Description
+    :type session: AsyncSession
+    """
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
@@ -40,7 +47,6 @@ async def register(
 
     if not user:
         raise HTTPException(
-            success=False,
             status_code=409,
             detail="Email already registered",
         )
@@ -76,11 +82,19 @@ async def login_user(
         select(
             TfUser
         ).where(
-            TfUser.email == creds.username
+            TfUser.email == creds.username,
+            TfUser.deleted_at == None
         )
     )
     user = query.scalar()
     user_role = await roles(creds.username, session)
+    
+    if user == None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account has been deleted!",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
     if not user or not user_role or not verify_password(creds.password, user.password):
         raise HTTPException(
@@ -132,9 +146,16 @@ async def get_csrf_token(
     :type creds: OAuth2PasswordRequestForm
     """
     # retrieve user from the database by email
-    query = await session.execute(select(TfUser).where(TfUser.email == creds.username))
+    query = await session.execute(select(TfUser).where(TfUser.email == creds.username, TfUser.deleted_at == None))
     user = query.scalar()
     user_role = await roles(creds.username, session)
+
+    if user == None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account has been deleted!",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
 
     if not user or not user_role or not verify_password(creds.password, user.password):
         raise HTTPException(
@@ -186,3 +207,38 @@ async def logout_user(
         samesite="strict",  # Adjust as needed)
     )
     return response
+
+
+@router.delete("/api/delete_account/{user_id}", status_code=status.HTTP_200_OK)
+async def delete_user(
+    user_id: str,
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user)
+):  
+    try:
+        result = await delete_account(
+            session=session,
+            user_id=user_id,
+            current_user=current_user
+        )
+
+        if not result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found!"
+            )
+        return {
+            "message": "User Deleted Successfully!",
+            "deleted_user_id": user_id,
+            "success": True
+        }
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not Authorized"
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
