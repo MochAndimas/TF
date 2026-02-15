@@ -35,7 +35,6 @@ async def register(
     :type session: AsyncSession
     """
     csrf_cookie = request.headers.get("X-CSRF-Token")
-    print(csrf_cookie)
 
     if not csrf_cookie or csrf_cookie != x_csrf_token:
         raise HTTPException(status_code=403, detail="Invalid CSRF token")
