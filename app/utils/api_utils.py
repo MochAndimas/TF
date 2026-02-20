@@ -16,7 +16,7 @@ class GoogleSheetApi:
             token_uri=config("GSHEET_TOKEN_URI", cast=str),
             client_id=config("GSHEET_CLIENT_ID", cast=str),
             client_secret=config("GSHEET_CLIENT_SECRET", cast=str),
-            # scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+            scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
         )
 
         self.service = build("sheets", version="v4", credentials=creds)
