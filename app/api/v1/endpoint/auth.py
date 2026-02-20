@@ -1,4 +1,5 @@
 import secrets
+from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends, APIRouter, HTTPException
@@ -13,6 +14,7 @@ from app.utils.user_utils import roles, logout, create_account
 from app.core.security import verify_password, create_access_token
 from app.core.security import create_refresh_token, verify_csrf_token
 from app.schemas.user import TokenBase, RegisterBase
+from app.utils.api_utils import GoogleSheetApi
 
 
 router = APIRouter()
@@ -128,6 +130,8 @@ async def login_user(
             "success": True
         }
     )
+    test = GoogleSheetApi()
+    print(await test.read_sheet(range_name="Data Depo RAW!A1:F10000", session=session, date=datetime.now().date()))
     response.headers["Authentication"] = str(user.user_id)
 
     return response

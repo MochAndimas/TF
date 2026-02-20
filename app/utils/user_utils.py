@@ -50,7 +50,7 @@ async def get_user_by_id(
     """
     return (
         (await session.execute(
-            select(TfUser).filter_by(user_id=user_id)
+            select(TfUser).filter_by(user_id=user_id, deleted_at=None)
         )).scalars().first()
     )
 

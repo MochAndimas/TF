@@ -3,8 +3,8 @@ import asyncio
 import streamlit as st
 from datetime import datetime, timedelta
 from app.db.models.user import TfUser
-from streamlit_app.functions.utils import is_valid_email, get_accounts
-from streamlit_app.functions.utils import get_user, get_streamlit
+from streamlit_app.functions.utils import get_accounts, add_account_modal
+from streamlit_app.functions.utils import get_user, edit_account_modal
 
 
 async def create_account(host):
@@ -19,61 +19,7 @@ async def create_account(host):
         st.title("Accounts")
     with col2:
         if st.button("Create Account", type="primary"):
-            @st.dialog("Create Account")
-            def add_account_modal():
-                with st.form("register", border=False, clear_on_submit=True):
-                    # Input Box
-                    fullname = st.text_input("Fullname", width="stretch")
-                    email = st.text_input("Email", width="stretch")
-                    password = st.text_input("Password", type="password", width="stretch")
-                    confirm_password = st.text_input("Confirm Password", type="password", width="stretch")
-                    role_options = {
-                        "Super Admin": "superadmin",
-                        "Admin": "admin",
-                        "Digital Marketing" : "digital_marketing",
-                        "Sales": "sales",
-
-                    }
-                    role = st.selectbox("Role", list(role_options.keys()))
-                    submit = st.form_submit_button("Create Account")
-
-                    if submit:
-                        email_valid = is_valid_email(email)
-                        password_match = password == confirm_password and password != ""
-
-                        if not email_valid:
-                            st.warning("Please input a real format email!")
-                                
-                        elif not password_match:
-                            st.warning("Please check if passwords are the same!")
-                                
-                        else:
-                            with st.spinner("Creating account!"):
-                                try:
-                                    with httpx.Client(timeout=120) as client:
-                                        response = client.post(
-                                            f"{host}/api/register",
-                                            json={
-                                                "fullname": fullname,
-                                                "email": email,
-                                                "role": role_options[role],
-                                                "password": password,
-                                                "confirm_password": confirm_password
-                                            },
-                                            headers={
-                                                "Authorization": f"Bearer {token.access_token}",
-                                                "X-CSRF-Token": st.session_state.csrf_token
-                                            }
-                                        )
-                                        response_data = response.json()
-
-                                    if response_data["success"]:
-                                        st.info("Successfully created an account!")
-                                        st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error creating account: {response_data.get("detail", "Something error, please try again!")}")
-
-            add_account_modal()
+            add_account_modal(host, token)
 
     # -------- STYLE --------
     st.markdown("""
@@ -120,44 +66,7 @@ async def create_account(host):
         )
 
         with col6:
-            if st.button("Manage", key=f"manage_{user.user_id}"):
-                @st.dialog("Manage Account")
-                def edit_account_modal():
-                    with st.form("edit", border=False, clear_on_submit=True):
-                        # Input Box
-                        fullname = st.text_input("Fullname", placeholder=user.fullname, width="stretch")
-                        email = st.text_input("Email", placeholder=user.email, width="stretch")
-                        role_options = {
-                            "":"",
-                            "Super Admin": "superadmin",
-                            "Admin": "admin",
-                            "Digital Marketing" : "digital_marketing",
-                            "Sales": "sales"
-                        }
-                        role = st.selectbox("Role", placeholder=user.role, options=list(role_options.keys()))
-                        submit = st.form_submit_button("Edit")
-                        
-                        if submit:
-                            acc = get_accounts(data="one", user_id=user.user_id)
-                            session_gen = get_streamlit()
-                            session = next(session_gen)
-                            acc.fullname = fullname if  fullname else user.fullname
-                            acc.email = email if email else user.email
-                            acc.role = role_options[role] if role else user.role
-                            session.add(acc)
-                            session.commit()
-                            st.rerun()
-
-                    if st.button("Delete User", type="primary"):
-                        with httpx.Client(timeout=120) as client:
-                            client.delete(
-                                f"{host}/api/delete_account/{user.user_id}",
-                                headers = {
-                                    "Authorization": f"Bearer {token.access_token}"
-                                }
-                            )
-                        st.rerun()
-
-                edit_account_modal()
+            if st.button("Manage", key=f"manage_{user.user_id}", type="primary"):
+                edit_account_modal(host, user, token)
 
         st.markdown('<div class="table-divider"></div>', unsafe_allow_html=True)
