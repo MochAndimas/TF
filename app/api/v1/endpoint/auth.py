@@ -131,7 +131,8 @@ async def login_user(
         }
     )
     test = GoogleSheetApi()
-    print(await test.read_sheet(range_name="Data Depo RAW!A1:F10000", session=session, date=datetime.now().date()))
+    test_print = await test.google_ads(range_name="Google Ads Campaign!A1:H10", session=session)
+    print(test_print)
     response.headers["Authentication"] = str(user.user_id)
 
     return response
