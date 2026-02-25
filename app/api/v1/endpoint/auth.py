@@ -15,6 +15,7 @@ from app.core.security import verify_password, create_access_token
 from app.core.security import create_refresh_token, verify_csrf_token
 from app.schemas.user import TokenBase, RegisterBase
 from app.utils.api_utils import GoogleSheetApi
+from app.db.models.external_api import FacebookAds
 
 
 router = APIRouter()
@@ -131,7 +132,7 @@ async def login_user(
         }
     )
     test = GoogleSheetApi()
-    test_print = await test.google_ads(range_name="Google Ads Campaign!A1:H10", session=session)
+    test_print = await test.campaign_ads(range_name="'Meta Ads Campaign'!A:I", session=session, classes=FacebookAds)
     print(test_print)
     response.headers["Authentication"] = str(user.user_id)
 

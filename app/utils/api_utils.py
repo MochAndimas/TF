@@ -75,16 +75,17 @@ class GoogleSheetApi:
             raise HTTPException(500, f"Google Sheets error: {str(e)}")
 
 
-    async def google_ads(
+    async def campaign_ads(
             self, 
             range_name: str,
             session: AsyncSession,
-            types: str = "auto",
+            classes: classmethod,
+            types: str = "auto"
         ):
         """
         """
         try:
-            query = select(GoogleAds).where(GoogleAds.date == datetime.now().date())
+            query = select(classes).where(classes.date == datetime.now().date())
             result_query = await session.execute(query)
             gsheet_data = result_query.fetchall()
 
@@ -93,7 +94,7 @@ class GoogleSheetApi:
                     return "Data is already updated!"
                 else:
                     await session.execute(
-                        delete(GoogleAds).filter(GoogleAds.date == datetime.now().today())
+                        delete(classes).filter(classes.pull_date == datetime.now().date())
                     )
 
                     result = self.service.spreadsheets().values().get(
@@ -111,15 +112,16 @@ class GoogleSheetApi:
                     ]
 
                     for row in values:
-                        gsheet = GoogleAds(
-                            date=row["date"],
+                        gsheet = classes(
+                            date=datetime.strptime(row["date"], "%Y-%m-%d"),
                             campaign_name=row["campaign_name"],
                             ad_group=row["ad_group"],
                             ad_name=row["ad_name"],
                             cost=row["cost"],
                             impressions=row["impressions"],
                             clicks=row["clicks"],
-                            leads=row["leads"]
+                            leads=row["leads"],
+                            pull_date=datetime.now().date()
                         )
                         session.add(gsheet)
                 

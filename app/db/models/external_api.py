@@ -24,7 +24,7 @@ class GoogleAds(SqliteBase):
     __tablename__ = "google_ads"
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
-    date = Column("date", DateTime, nullable=False)
+    date = Column("date", Date, nullable=False)
     campaign_name = Column("campaign_name", String, nullable=False)
     ad_group = Column("ad_group", String, nullable=False)
     ad_name = Column("ad_name", String, nullable=False)
@@ -32,3 +32,21 @@ class GoogleAds(SqliteBase):
     impressions = Column("impressions", Integer, nullable=True)
     clicks = Column("clicks", Integer, nullable=True)
     leads = Column("leads", Integer, nullable=True)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
+class FacebookAds(SqliteBase):
+    """
+    """
+    __tablename__ = "facebook_ads"
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    campaign_name = Column("campaign_name", String, nullable=False)
+    ad_group = Column("ad_group", String, nullable=False)
+    ad_name = Column("ad_name", String, nullable=False)
+    cost = Column("cost", Integer, nullable=True)
+    impressions = Column("impressions", Integer, nullable=True)
+    clicks = Column("clicks", Integer, nullable=True)
+    leads = Column("leads", Integer, nullable=True)
+    pull_date = Column("pull_date", Date, nullable=False)
