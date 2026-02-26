@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from fastapi import HTTPException
@@ -50,15 +50,17 @@ class GoogleSheetApi:
                     ).execute()
 
                     data = result.get("values", [])
-                    headers = data[0]
-                    rows = data[1:]
+                    df = pd.DataFrame(data[1:], columns=data[0])
+                    df = df.fillna(0)
 
-                    values = [
-                        dict(zip(headers, row))
-                        for row in rows
-                    ]
+                    df["campaign_id"] = df["campaign_id"].astype(str)
+                    df["campaign_name"] = df["campaign_name"].astype(str)
+                    df["status"] = df["status"].astype(str)
+                    df["email"] = df["email"].astype(str)
+                    df["first_depo"] = df["first_depo"].astype(float)
+                    df["bulan"] = pd.to_datetime(df["bulan"], format="%b-%Y").dt.date
 
-                    for row in values:
+                    for head,row in df.iterrows():
                         gsheet = DataDepo(
                             campaign_id=row["campaign_id"],
                             campaign_name=row["campaign_name"],
@@ -87,7 +89,8 @@ class GoogleSheetApi:
         """
         """
         try:
-            query = select(classes).where(classes.date == datetime.now().date())
+            yesterday = datetime.now().date() - timedelta(1)
+            query = select(classes).where(classes.date == yesterday)
             result_query = await session.execute(query)
             gsheet_data = result_query.fetchall()
 
@@ -96,7 +99,7 @@ class GoogleSheetApi:
                     return "Data is already updated!"
                 else:
                     await session.execute(
-                        delete(classes).filter(classes.pull_date == datetime.now().date())
+                        delete(classes).filter(classes.date == yesterday)
                     )
 
                     result = self.service.spreadsheets().values().get(
@@ -109,6 +112,7 @@ class GoogleSheetApi:
 
                     df = df.fillna(0)
                     df["date"] = pd.to_datetime(df["date"]).dt.date
+                    df["campaign_id"] = df["campaign_id"].astype(str)
                     df["cost"] = pd.to_numeric(df["cost"])
                     df["impressions"] = pd.to_numeric(df["impressions"])
                     df["clicks"] = pd.to_numeric(df["clicks"])
@@ -118,6 +122,7 @@ class GoogleSheetApi:
                     for head,row in df.iterrows():
                         gsheet = classes(
                             date=row["date"],
+                            campaign_id=row["campaign_id"],
                             campaign_name=row["campaign_name"],
                             ad_group=row["ad_group"],
                             ad_name=row["ad_name"],

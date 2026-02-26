@@ -13,8 +13,8 @@ class DataDepo(SqliteBase):
     campaign_name = Column("campaign_name", String, nullable=False)
     status = Column("status", String, nullable=False)
     email = Column("email", String, nullable=False)
-    first_depo = Column("first_depo", String, nullable=False)
-    bulan = Column("bulan", String, nullable=False)
+    first_depo = Column("first_depo", Float, nullable=False)
+    bulan = Column("bulan", Date, nullable=False)
     pull_date = Column("pull_date", Date, nullable=False)
 
 
@@ -25,6 +25,7 @@ class GoogleAds(SqliteBase):
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     date = Column("date", Date, nullable=False)
+    campaign_id = Column("campaign_id", String, nullable=False)
     campaign_name = Column("campaign_name", String, nullable=False)
     ad_group = Column("ad_group", String, nullable=False)
     ad_name = Column("ad_name", String, nullable=False)
@@ -42,6 +43,25 @@ class FacebookAds(SqliteBase):
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     date = Column("date", Date, nullable=False)
+    campaign_id = Column("campaign_id", String, nullable=False)
+    campaign_name = Column("campaign_name", String, nullable=False)
+    ad_group = Column("ad_group", String, nullable=False)
+    ad_name = Column("ad_name", String, nullable=False)
+    cost = Column("cost", Integer, nullable=True)
+    impressions = Column("impressions", Integer, nullable=True)
+    clicks = Column("clicks", Integer, nullable=True)
+    leads = Column("leads", Integer, nullable=True)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
+class TikTokAds(SqliteBase):
+    """
+    """
+    __tablename__ = "tiktok_ads"
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    campaign_id = Column("campaign_id", String, nullable=False)
     campaign_name = Column("campaign_name", String, nullable=False)
     ad_group = Column("ad_group", String, nullable=False)
     ad_name = Column("ad_name", String, nullable=False)
