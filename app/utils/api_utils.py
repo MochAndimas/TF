@@ -1,3 +1,4 @@
+import pandas as pd
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -5,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from decouple import config
 from sqlalchemy import select, delete
+from app.db.session import sqlite_engine
 from app.db.models.external_api import DataDepo, GoogleAds
 
 
@@ -103,17 +105,19 @@ class GoogleSheetApi:
                     ).execute()
 
                     data = result.get("values", [])
-                    headers = data[0]
-                    rows = data[1:]
+                    df = pd.DataFrame(data[1:], columns=data[0])
 
-                    values = [
-                        dict(zip(headers, row))
-                        for row in rows
-                    ]
+                    df = df.fillna(0)
+                    df["date"] = pd.to_datetime(df["date"]).dt.date
+                    df["cost"] = pd.to_numeric(df["cost"])
+                    df["impressions"] = pd.to_numeric(df["impressions"])
+                    df["clicks"] = pd.to_numeric(df["clicks"])
+                    df["leads"] = pd.to_numeric(df["leads"])
+                    df["pull_date"] = pd.Timestamp.now().date()
 
-                    for row in values:
+                    for head,row in df.iterrows():
                         gsheet = classes(
-                            date=datetime.strptime(row["date"], "%Y-%m-%d"),
+                            date=row["date"],
                             campaign_name=row["campaign_name"],
                             ad_group=row["ad_group"],
                             ad_name=row["ad_name"],
@@ -128,6 +132,6 @@ class GoogleSheetApi:
                     await session.commit()
 
             return "Data is being updated!"
-        except ZeroDivisionError as e:
+        except Exception as e:
             raise HTTPException(500, f"Google Sheets error: {str(e)}")
 
