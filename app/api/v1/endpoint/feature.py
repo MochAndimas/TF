@@ -15,24 +15,27 @@ router = APIRouter()
 
 @router.get("/api/feature-data/update-external-api", response_model=UpdateData)
 async def update_data(
+    response: UpdateData,
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),
-    data: str = Query(..., description="External data to update!")
+    current_user: TfUser = Depends(get_current_user)
 ):
     """
     """
     try:
+        start_date = response.start_date
+        end_date = response.end_date
+        types = response.types
         gsheet = GoogleSheetApi()
         message = ""
 
-        if data == "data_depo":
+        if response.data == "data_depo":
             message = await gsheet.data_depo(range_name="'Data Depo RAW'!A:F", session=session)
-        elif data == "google_ads":
-            message = await gsheet.campaign_ads(range_name="'Google Ads Campaign'!A:I", session=session, classes=GoogleAds)
-        elif data == "facebook_ads":
-            message = await gsheet.campaign_ads(range_name="'Meta Ads Campaign'!A:I", session=session, classes=FacebookAds)
-        elif data == "tiktok_ads":
-            message = await gsheet.campaign_ads(range_name="'TikTok Ads Campaign'!A:I", session=session, classes=TikTokAds)
+        elif response.data == "google_ads":
+            message = await gsheet.campaign_ads(types=types, range_name="'Google Ads Campaign'!A:I", start_date=start_date, end_date=end_date, session=session, classes=GoogleAds)
+        elif response.data == "facebook_ads":
+            message = await gsheet.campaign_ads(types=types, range_name="'Meta Ads Campaign'!A:I", start_date=start_date, end_date=end_date, session=session, classes=FacebookAds)
+        elif response.data == "tiktok_ads":
+            message = await gsheet.campaign_ads(types=types, range_name="'TikTok Ads Campaign'!A:I", start_date=start_date, end_date=end_date, session=session, classes=TikTokAds)
         else:
             raise HTTPException(
                 status_code=404,

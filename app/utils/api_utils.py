@@ -32,6 +32,7 @@ class GoogleSheetApi:
         """
         """
         try:
+            yesterday = datetime.now().date() - timedelta(1)
             query = select(DataDepo).where(DataDepo.pull_date == datetime.now().date())
             result_query = await session.execute(query)
             gsheet_data = result_query.fetchall()
@@ -41,7 +42,7 @@ class GoogleSheetApi:
                     return "Data is already updated!"
                 else:
                     await session.execute(
-                        delete(DataDepo).filter(DataDepo.pull_date == datetime.now().today())
+                        delete(DataDepo)
                     )
 
                     result = self.service.spreadsheets().values().get(
@@ -84,17 +85,19 @@ class GoogleSheetApi:
             range_name: str,
             session: AsyncSession,
             classes: classmethod,
+            start_date: datetime = datetime.now().date() - timedelta(1),
+            end_date: datetime = datetime.now().date() - timedelta(1),
             types: str = "auto"
         ):
         """
         """
         try:
-            yesterday = datetime.now().date() - timedelta(1)
-            query = select(classes).where(classes.date == yesterday)
-            result_query = await session.execute(query)
-            gsheet_data = result_query.fetchall()
-
             if types == "auto":
+                yesterday = datetime.now().date() - timedelta(1)
+                query = select(classes).where(classes.date == yesterday)
+                result_query = await session.execute(query)
+                gsheet_data = result_query.fetchall()
+
                 if gsheet_data:
                     return "Data is already updated!"
                 else:
@@ -119,7 +122,9 @@ class GoogleSheetApi:
                     df["leads"] = pd.to_numeric(df["leads"])
                     df["pull_date"] = pd.Timestamp.now().date()
 
-                    for head,row in df.iterrows():
+                    df_filter = df[df["date"] == yesterday]
+
+                    for head,row in df_filter.iterrows():
                         gsheet = classes(
                             date=row["date"],
                             campaign_id=row["campaign_id"],
@@ -133,8 +138,49 @@ class GoogleSheetApi:
                             pull_date=datetime.now().date()
                         )
                         session.add(gsheet)
-                
+
                     await session.commit()
+
+            elif types == "manual":
+                await session.execute(
+                    delete(classes).filter(classes.date.between(start_date.date(), end_date.date()))
+                )
+
+                result = self.service.spreadsheets().values().get(
+                    spreadsheetId=self.sheet_id,
+                    range=range_name
+                ).execute()
+
+                data = result.get("values", [])
+                df = pd.DataFrame(data[1:], columns=data[0])
+
+                df = df.fillna(0)
+                df["date"] = pd.to_datetime(df["date"]).dt.date
+                df["campaign_id"] = df["campaign_id"].astype(str)
+                df["cost"] = pd.to_numeric(df["cost"])
+                df["impressions"] = pd.to_numeric(df["impressions"])
+                df["clicks"] = pd.to_numeric(df["clicks"])
+                df["leads"] = pd.to_numeric(df["leads"])
+                df["pull_date"] = pd.Timestamp.now().date()
+                
+                df_filter = df[(df["date"] >= start_date.date()) & (df["date"] <= end_date.date())]
+
+                for head,row in df_filter.iterrows():
+                    gsheet = classes(
+                        date=row["date"],
+                        campaign_id=row["campaign_id"],
+                        campaign_name=row["campaign_name"],
+                        ad_group=row["ad_group"],
+                        ad_name=row["ad_name"],
+                        cost=row["cost"],
+                        impressions=row["impressions"],
+                        clicks=row["clicks"],
+                        leads=row["leads"],
+                        pull_date=datetime.now().date()
+                    )
+                    session.add(gsheet)
+                    
+                await session.commit()
 
             return "Data is being updated!"
         except Exception as e:
