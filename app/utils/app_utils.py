@@ -16,6 +16,7 @@ from app.db.session import sqlite_engine,get_db
 from app.db.base import SqliteBase
 from app.db.models.user import LogData
 from app.api.v1.endpoint.auth import router as auth_router
+from app.api.v1.endpoint.feature import router as feature_router
 
 
 class FastApiApp:
@@ -301,8 +302,9 @@ class FastApiApp:
         """
         # Include application routers
         self.app.include_router(auth_router, tags=["Authentication"])
+        self.app.include_router(feature_router, tags=["Update Data"])
 
-    def run(sefl):
+    def run(self):
         """
         Runs the FastAPI app using Uvicorn with the specified settings.
 
