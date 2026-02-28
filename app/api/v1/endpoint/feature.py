@@ -29,13 +29,32 @@ async def update_data(
         message = ""
 
         if response.data == "data_depo":
-            message = await gsheet.data_depo(range_name="'Data Depo RAW'!A:F", session=session)
+            message = await gsheet.data_depo(
+                range_name="'Data Depo RAW'!A:F", 
+                session=session)
         elif response.data == "google_ads":
-            message = await gsheet.campaign_ads(types=types, range_name="'Google Ads Campaign'!A:I", start_date=start_date, end_date=end_date, session=session, classes=GoogleAds)
+            message = await gsheet.campaign_ads(
+                types=types, 
+                range_name="'Google Ads Campaign'!A:I", 
+                start_date=start_date, end_date=end_date, 
+                session=session, 
+                classes=GoogleAds)
         elif response.data == "facebook_ads":
-            message = await gsheet.campaign_ads(types=types, range_name="'Meta Ads Campaign'!A:I", start_date=start_date, end_date=end_date, session=session, classes=FacebookAds)
+            message = await gsheet.campaign_ads(
+                types=types, 
+                range_name="'Meta Ads Campaign'!A:I", 
+                start_date=start_date, 
+                end_date=end_date, 
+                session=session, 
+                classes=FacebookAds)
         elif response.data == "tiktok_ads":
-            message = await gsheet.campaign_ads(types=types, range_name="'TikTok Ads Campaign'!A:I", start_date=start_date, end_date=end_date, session=session, classes=TikTokAds)
+            message = await gsheet.campaign_ads(
+                types=types, 
+                range_name="'TikTok Ads Campaign'!A:I", 
+                start_date=start_date, 
+                end_date=end_date, 
+                session=session, 
+                classes=TikTokAds)
         else:
             raise HTTPException(
                 status_code=404,

@@ -1,18 +1,21 @@
-import streamlit as st
+import logging
+import re
 import httpx
 import pandas as pd
-import re
+import streamlit as st
 from decouple import config
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
-from sqlalchemy.orm import Session, sessionmaker
+from jose import jwt
 from app.db.models.user import UserToken, TfUser
+from jose.exceptions import ExpiredSignatureError, JWTError
+from sqlalchemy.orm import Session, sessionmaker
 from streamlit_cookies_controller import CookieController
-from requests.exceptions import RequestException
-from datetime import datetime, timedelta
+from requests.exceptions import HTTPError, ConnectionError, Timeout, RequestException
 from dateutil.relativedelta import relativedelta
+import plotly.io as pio
 cookie_controller = CookieController()
 
 # streamlit engine and sessionmaker
@@ -27,13 +30,6 @@ streamlit_session = sessionmaker(
     expire_on_commit=False,
     class_=Session
 )
-def get_streamlit():
-    """ """
-    with streamlit_session() as session:
-        try:
-            yield session
-        finally:
-            session.close()
 
 
 def get_user(user_id):
@@ -45,6 +41,53 @@ def get_user(user_id):
         data = session.execute(query).scalars().first()
     session.close()
     return data
+
+
+async def fetch_data(st, host, uri, params):
+    """
+    Fetches data from a protected API endpoint, handling token refresh and errors gracefully.
+    
+    Args:
+        st: The session state or application state object.
+        host (str): The base URL of the API host.
+        uri (str): The specific endpoint URI.
+        data (dict): Data to be sent in the request.
+    
+    Returns:
+        dict: The JSON response from the API or an error message.
+    """
+    try:
+        user = get_user(st.session_state._user_id)
+        url = f"{host}/api/{uri}"
+        headers = {
+            "Authorization": f"Bearer {user.access_token}",
+        }
+        async with httpx.AsyncClient(timeout=120) as client:
+            response = await client.get(url, headers=headers, params=params)
+            response.raise_for_status()  # Raise exception for HTTP errors (4xx, 5xx)
+            return response.json()
+        
+    except HTTPError as http_error:
+        logging.error(f"HTTP error occurred: {http_error}")
+        return {"message": f"HTTP error: {http_error}"}
+    except (ConnectionError, Timeout) as conn_error:
+        logging.error(f"Connection error or timeout: {conn_error}")
+        return {"message": f"Connection error or timeout: {conn_error}"}
+    except RequestException as req_error:
+        logging.error(f"Request failed: {req_error}")
+        return {"message": f"Request failed: {req_error}"}
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+        return {"message": f"An unexpected error occurred: {e}"}
+
+
+def get_streamlit():
+    """ """
+    with streamlit_session() as session:
+        try:
+            yield session
+        finally:
+            session.close()
 
 
 def get_accounts(

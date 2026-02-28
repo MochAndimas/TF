@@ -153,8 +153,16 @@ class GoogleSheetApi:
 
                 data = result.get("values", [])
                 df = pd.DataFrame(data[1:], columns=data[0])
-
-                df = df.fillna(0)
+                df.replace(["null", "None", "NaN", ""], None, inplace=True)
+                df.fillna(
+                    {
+                        "campaign_id": "-",
+                        "cost": 0,
+                        "impressions": 0,
+                        "clicks": 0,
+                        "leads": 0
+                    }, inplace=True
+                )
                 df["date"] = pd.to_datetime(df["date"]).dt.date
                 df["campaign_id"] = df["campaign_id"].astype(str)
                 df["cost"] = pd.to_numeric(df["cost"])
@@ -164,7 +172,6 @@ class GoogleSheetApi:
                 df["pull_date"] = pd.Timestamp.now().date()
                 
                 df_filter = df[(df["date"] >= start_date.date()) & (df["date"] <= end_date.date())]
-
                 for head,row in df_filter.iterrows():
                     gsheet = classes(
                         date=row["date"],
