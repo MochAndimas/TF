@@ -13,7 +13,7 @@ from app.db.models.external_api import GoogleAds, FacebookAds, TikTokAds
 router = APIRouter()
 
 
-@router.get("/api/feature-data/update-external-api", response_model=UpdateData)
+@router.post("/api/feature-data/update-external-api", response_model=UpdateData)
 async def update_data(
     response: UpdateData,
     session: AsyncSession = Depends(get_db),

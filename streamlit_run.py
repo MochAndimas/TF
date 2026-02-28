@@ -9,7 +9,7 @@ st.set_page_config(
 import asyncio
 from decouple import config
 from streamlit_app.functions.utils import cookie_controller, get_session, footer, logout
-from streamlit_app.page import login, overall, register
+from streamlit_app.page import login, overall, register, update_data
 
 
 # --- App Settings ---
@@ -34,6 +34,7 @@ overall_page = st.Page(page=overall, title="Overall Data", url_path="/overall-pa
 
 # Settings Page
 register_page = st.Page(page=register, title="Create Account", url_path="/create-account")
+update_page = st.Page(page=update_data, title="Update Data", url_path="/update-data")
 
 # show menu only for spesific role
 if st.session_state.role in ['superadmin']:
@@ -42,7 +43,8 @@ if st.session_state.role in ['superadmin']:
             overall_page
         ],
         "⚙️ Settings" : [
-            register_page
+            register_page,
+            update_page
         ]
     }
 if st.session_state.role in ['admin', 'digital_marketing', 'sales']:
@@ -76,7 +78,8 @@ try:
     else:
         page_handlers = {
             overall_page: lambda: overall.show_overall_page(HOST),
-            register_page: lambda: register.create_account(HOST)
+            register_page: lambda: register.create_account(HOST),
+            update_page: lambda: update_data.show_update_page(HOST)
         }
         if page in page_handlers:
             asyncio.run(page_handlers[page]())  # Call the appropriate function based on the page

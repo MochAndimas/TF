@@ -43,6 +43,35 @@ def get_user(user_id):
     return data
 
 
+def get_date_range(days, period='days', months=3):
+    """
+    Returns the date range from today minus the specified number of days to yesterday, or from the start of the month
+    a specified number of months ago to the last day of the previous month.
+
+    Args:
+        days (int): The number of days to go back from today to determine the start date when period is 'days'.
+        period (str): The period type, either 'days' or 'months'. Default is 'days'.
+        months (int): The number of months to go back from the current month to determine the start date when period is 'months'. Default is 3.
+
+    Returns:
+        tuple: A tuple containing the start date and end date (both in datetime.date format).
+    """
+    if period == 'days':
+        # Calculate the end date as yesterday
+        end_date = datetime.today() - timedelta(days=1)
+        # Calculate the start date based on the number of days specified
+        start_date = datetime.today() - timedelta(days=days)
+    elif period == 'months':
+        # Get the first day of the current month
+        end_date = datetime.today().replace(day=1)
+        # Calculate the start date based on the number of months specified
+        start_date = end_date - relativedelta(months=months)
+        # Adjust the end date to be the last day of the previous month
+        end_date = end_date - relativedelta(days=1)
+        
+    return start_date.date(), end_date.date()
+
+
 async def fetch_data(st, host, uri, params):
     """
     Fetches data from a protected API endpoint, handling token refresh and errors gracefully.
