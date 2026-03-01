@@ -4,10 +4,75 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from decouple import config
-from sqlalchemy import select, delete
-from app.db.session import sqlite_engine
-from app.db.models.external_api import DataDepo, GoogleAds
+from sqlalchemy import select, delete, union_all, case, insert, func, literal
+from app.db.models.external_api import Campaign, DataDepo
+from app.db.models.external_api import  GoogleAds, FacebookAds, TikTokAds
+
+
+async def unique_campaign(
+        session: AsyncSession
+):
+    """
+    Docstring for unique_campaign
+    
+    :param session: Description
+    :type session: AsyncSession
+    """
+    campaign_union = union_all(
+        select(
+            GoogleAds.campaign_id,
+            GoogleAds.campaign_name
+        ),
+        select(
+            FacebookAds.campaign_id,
+            FacebookAds.campaign_name
+        ),
+        select(
+            TikTokAds.campaign_id,
+            TikTokAds.campaign_name
+        )
+    ).subquery()
+
+    query = select(
+        campaign_union.c.campaign_id.distinct().label("campaign_id"),
+        campaign_union.c.campaign_name,
+        case(
+            (campaign_union.c.campaign_name.like("GG%"), "google_ads"),
+            (campaign_union.c.campaign_name.like("FB%"), "facebook_ads"),
+            (campaign_union.c.campaign_name.like("TT%"), "tiktok_ads"),
+            else_="unknown"
+        ).label("ad_source"),
+        case(
+            (campaign_union.c.campaign_name.like("%- UA -%"), "user_acquisition"),
+            (campaign_union.c.campaign_name.like("%- BA -%"), "brand_awareness"),
+            else_="unknown"
+        ).label("ad_type"),
+        literal(datetime.now()).label("created_at")
+    )
+    try :
+        insert_query = insert(Campaign).from_select(
+            ["campaign_id", "campaign_name", "ad_source", "ad_type", "created_at"],
+            query
+        )
+
+        await session.execute(insert_query)
+        await session.commit()
+    except IntegrityError:
+        await session.execute(
+            delete(Campaign)
+        )
+
+        insert_query = insert(Campaign).from_select(
+            ["campaign_id", "campaign_name", "ad_source", "ad_type", "created_at"],
+            query
+        )
+
+        await session.execute(insert_query)
+        await session.commit()
+
+    return "Data is being updated!"
 
 
 class GoogleSheetApi:
@@ -156,33 +221,33 @@ class GoogleSheetApi:
                 df.replace(["null", "None", "NaN", ""], None, inplace=True)
                 df.fillna(
                     {
-                        "campaign_id": "-",
-                        "cost": 0,
-                        "impressions": 0,
-                        "clicks": 0,
-                        "leads": 0
+                        "Campaign ID": "-",
+                        "Cost": 0,
+                        "Impressions": 0,
+                        "Clicks": 0,
+                        "Leads": 0
                     }, inplace=True
                 )
-                df["date"] = pd.to_datetime(df["date"]).dt.date
-                df["campaign_id"] = df["campaign_id"].astype(str)
-                df["cost"] = pd.to_numeric(df["cost"])
-                df["impressions"] = pd.to_numeric(df["impressions"])
-                df["clicks"] = pd.to_numeric(df["clicks"])
-                df["leads"] = pd.to_numeric(df["leads"])
+                df["Date"] = pd.to_datetime(df["Date"]).dt.date
+                df["Campaign ID"] = df["Campaign ID"].astype(str)
+                df["Cost"] = pd.to_numeric(df["Cost"])
+                df["Impressions"] = pd.to_numeric(df["Impressions"])
+                df["Clicks"] = pd.to_numeric(df["Clicks"])
+                df["Leads"] = pd.to_numeric(df["Leads"])
                 df["pull_date"] = pd.Timestamp.now().date()
                 
-                df_filter = df[(df["date"] >= start_date.date()) & (df["date"] <= end_date.date())]
+                df_filter = df[(df["Date"] >= start_date.date()) & (df["Date"] <= end_date.date())]
                 for head,row in df_filter.iterrows():
                     gsheet = classes(
-                        date=row["date"],
-                        campaign_id=row["campaign_id"],
-                        campaign_name=row["campaign_name"],
-                        ad_group=row["ad_group"],
-                        ad_name=row["ad_name"],
-                        cost=row["cost"],
-                        impressions=row["impressions"],
-                        clicks=row["clicks"],
-                        leads=row["leads"],
+                        date=row["Date"],
+                        campaign_id=row["Campaign ID"],
+                        campaign_name=row["Campaign name"],
+                        ad_group=row["Ad Group"],
+                        ad_name=row["Ad Name"],
+                        cost=row["Cost"],
+                        impressions=row["Impressions"],
+                        clicks=row["Clicks"],
+                        leads=row["Leads"],
                         pull_date=datetime.now().date()
                     )
                     session.add(gsheet)

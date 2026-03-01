@@ -6,7 +6,7 @@ from app.db.session import get_db
 from app.utils.user_utils import get_current_user
 from app.db.models.user import TfUser
 from app.schemas.feature import UpdateData
-from app.utils.api_utils import GoogleSheetApi
+from app.utils.api_utils import GoogleSheetApi, unique_campaign
 from app.db.models.external_api import GoogleAds, FacebookAds, TikTokAds
 
 
@@ -28,7 +28,9 @@ async def update_data(
         gsheet = GoogleSheetApi()
         message = ""
 
-        if response.data == "data_depo":
+        if response.data == "unique_campaign":
+            message = await unique_campaign(session=session)
+        elif response.data == "data_depo":
             message = await gsheet.data_depo(
                 range_name="'Data Depo RAW'!A:F", 
                 session=session)

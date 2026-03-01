@@ -18,6 +18,7 @@ async def show_update_page(host):
     with st.container(border=True):
         update_data = {
             None : "",
+            "Unique Campaign": "unique_campaign",
             "GSheet Google Ads": "google_ads",
             "Gsheet Facebook Ads": "facebook_ads",
             "Gsheet Tiktok Ads": "tiktok_ads",
@@ -39,7 +40,7 @@ async def show_update_page(host):
             "Last Month" : (last_month_start, last_month_end),
             "Custom Range" : "custom_range"
         }
-        period_options = st.selectbox("Periods", list(preset_date.keys()), placeholder="Choose a Periods", index=None, key=f"period_new_install")
+        period_options = st.selectbox("Periods", list(preset_date.keys()), placeholder="Choose a Periods (Optional)", index=None, key=f"period_new_install",)
         if preset_date[period_options] != "custom_range":
             from_date, to_date = preset_date[period_options]
         else : 
