@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 import plotly.graph_objects as go
 from sqlalchemy import func, select
+from app.db.models.external_api import Campaign, GoogleAds, DataDepo 
+from app.db.models.external_api import FacebookAds, TikTokAds
 
 
 class CampaignData:
@@ -76,14 +78,17 @@ class CampaignData:
             from_date (datetime.date): The start date of data to fetch.
             to_date (datetime.date): The end date of data to fetch.
         """
-        pass
+        await self._read_db(data=GoogleAds, from_date=self.from_date, to_date=self.to_date)
+        await self._read_db(data=FacebookAds, from_date=self.from_date, to_date=self.to_date)
+        await self._read_db(data=TikTokAds, from_date=self.from_date, to_date=self.to_date)
+        
 
     async def _read_db(
             self, 
             data: classmethod, 
             from_date: datetime.date, 
-            to_date: datetime.date, 
-            list_campaign: list = []):
+            to_date: datetime.date
+        ):
         """
         Reads and processes campaign data for a specific platform within the specified date range,
         optionally filtering by a list of campaign names.
@@ -103,4 +108,68 @@ class CampaignData:
         Raises:
             ValueError: If an unsupported data source is provided.
         """
-        pass
+        if data != DataDepo:
+            query = select(
+                data.date.label("date"),
+                data.campaign_id.label("campaign_id"),
+                data.campaign_name.label("campaign_name"),
+                data.ad_group.label("ad_group"),
+                data.ad_name.label("ad_name"),
+                Campaign.ad_source.label("campaign_source"),
+                Campaign.ad_type.label("campaign_type"),
+                func.sum(data.cost).label("cost"),
+                func.sum(data.impressions).label("impressions"),
+                func.sum(data.clicks).label("clicks"),
+                func.sum(data.leads).label("leads")
+            ).join(
+                data.campaign
+            ).filter(
+                func.date(data.date).between(from_date, to_date)
+            ).group_by(
+                "date"
+            )
+
+            result = await self.session.execute(query)
+            fetch = result.fetchall()
+            df = pd.DataFrame(fetch)
+
+            if df.empty:
+                df = pd.DataFrame({
+                    "date": pd.date_range(self.to_date, self.to_date).date,
+                    "campaign_id": "No data",
+                    "campaign_name": "No data",
+                    "ad_group": "No data",
+                    "ad_name": "No data",
+                    "campaign_source": "No data",
+                    "campaign_type": "No data",
+                    "cost": 0,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "leads": 0
+                })
+            
+            df["date"] = await asyncio.to_thread(pd.to_datetime, df["date"])
+            df["date"] = await asyncio.to_thread(lambda: df["date"].dt.date)
+
+            if data == GoogleAds:
+                self.df_google = df.copy()
+            elif data == FacebookAds:
+                self.df_facebook = df.copy()
+            elif data == TikTokAds:
+                self.df_tiktok = df.copy()
+
+        else:
+            query = select(
+                DataDepo.bulan.label("bulan"),
+                DataDepo.campaign_id.label("campaign_id"),
+                DataDepo.campaign_name.label("campaign_name"),
+                Campaign.ad_source.label("campaign_source"),
+                Campaign.ad_type.label("campaign_type"),
+                DataDepo.status.label("user_status"),
+                DataDepo.email.label("email"),
+                DataDepo.first_depo("first_depo")
+            ).join(
+                DataDepo.campaign
+            ).filter(
+                DataDepo.bulan.between(from_date, to_date)
+            )

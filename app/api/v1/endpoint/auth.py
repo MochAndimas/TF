@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Depends, APIRouter, HTTPException
@@ -14,6 +14,7 @@ from app.utils.user_utils import roles, logout, create_account
 from app.core.security import verify_password, create_access_token
 from app.core.security import create_refresh_token, verify_csrf_token
 from app.schemas.user import TokenBase, RegisterBase
+from app.utils.campaign_utils import CampaignData
 
 
 router = APIRouter()
@@ -131,7 +132,10 @@ async def login_user(
     )
 
     response.headers["Authentication"] = str(user.user_id)
-
+    from_date = datetime.now().date() - timedelta(3)
+    to_date = datetime.now().date() - timedelta(2)
+    test = await CampaignData.load_data(session=session, from_date=from_date, to_date=to_date)
+    print(test.df_google)
     return response
 
 
