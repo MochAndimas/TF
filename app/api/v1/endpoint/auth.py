@@ -132,10 +132,7 @@ async def login_user(
     )
 
     response.headers["Authentication"] = str(user.user_id)
-    from_date = datetime.now().date() - timedelta(3)
-    to_date = datetime.now().date() - timedelta(2)
-    test = await CampaignData.load_data(session=session, from_date=from_date, to_date=to_date)
-    print(test.df_google)
+
     return response
 
 

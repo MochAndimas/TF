@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import requests
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,7 +74,7 @@ async def update_data(
                 "message": message
             }
         )
-    except Exception as e:
+    except ZeroDivisionError as e:
         raise HTTPException(
             status_code=500,
             detail=f"an error occured: {str(e)}"
