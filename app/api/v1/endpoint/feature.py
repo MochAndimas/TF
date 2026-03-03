@@ -33,7 +33,9 @@ async def update_data(
             message = await unique_campaign(session=session)
         elif response.data == "data_depo":
             message = await gsheet.data_depo(
-                range_name="'Data Depo RAW'!A:F", 
+                types=types,
+                start_date=start_date, 
+                end_date=end_date, 
                 session=session)
         elif response.data == "google_ads":
             message = await gsheet.campaign_ads(

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import requests
 import uuid
 from datetime import datetime, timedelta
@@ -91,72 +92,55 @@ class GoogleSheetApi:
         self.sheet_id = config("GSHEET_SHEET_ID", cast=str)
 
     async def data_depo(
-            self, 
-            range_name: str,
+            self,
             session: AsyncSession,
+            start_date: datetime = datetime.now().date() - timedelta(1),
+            end_date: datetime = datetime.now().date() - timedelta(1),
             types: str = "auto",
         ):
         """
         """
         try:
-            yesterday = datetime.now().date() - timedelta(1)
-            query = select(DataDepo).where(DataDepo.pull_date == datetime.now().date())
-            result_query = await session.execute(query)
-            gsheet_data = result_query.fetchall()
-
             if types == "auto":
+                yesterday = datetime.now().date() - timedelta(1)
+                query = select(DataDepo).where(DataDepo.tanggal_regis.between(yesterday, yesterday))
+                result_query = await session.execute(query)
+                gsheet_data = result_query.fetchall()
                 if gsheet_data:
                     return "Data is already updated!"
                 else:
                     await session.execute(
-                        delete(DataDepo)
+                        delete(DataDepo).filter(DataDepo.tanggal_regis.between(yesterday, yesterday))
                     )
 
-                    # result = self.service.spreadsheets().values().get(
-                    #     spreadsheetId=self.sheet_id,
-                    #     range=range_name
-                    # ).execute()
+                    URL = "https://script.googleusercontent.com/macros/echo?user_content_key=AY5xjrTjdihXxTA5m1lfYwe5_8C9SGIK6Z95X4LtG9s5KT5tF_5-6iY1zwHLI16hdXFCudT2CueRQ2OccG7qM_a5wHVEAGAMXpIClsE1jpruGO8l0GwHFHdDcAFUyRws2G4E_ChFM62UL_bGfkUsWK0wyIBVZMb7eIu5oNR20HhxEYLLwlPp8WD4gpXF3mYnC9LchGTvoeKfR_KiBhq78s8_dgKUvw4S_Rr0h0bqgXz7EsbwZ-JYsmPGNPt_HxLTKGLRIAEf9lzrlEcThO6L8b2HSBzhB7yG7g&lib=M2A7k1cML9_qiTb3aF9ZIZKiUcBrFPiXa"
+                    response = requests.get(URL)
+                    data = response.json()
 
-                    # data = result.get("values", [])
-                    # df = pd.DataFrame(data[1:], columns=data[0])
-                    # df = df.fillna(0)
-
-                    # df["campaign_id"] = df["campaign_id"].astype(str)
-                    # df["campaign_name"] = df["campaign_name"].astype(str)
-                    # df["status"] = df["status"].astype(str)
-                    # df["email"] = df["email"].astype(str)
-                    # df["first_depo"] = df["first_depo"].astype(float)
-                    # df["bulan"] = pd.to_datetime(df["bulan"], format="%b-%Y").dt.date
-
-                    # URL = "https://script.googleusercontent.com/macros/echo?user_content_key=AY5xjrTjdihXxTA5m1lfYwe5_8C9SGIK6Z95X4LtG9s5KT5tF_5-6iY1zwHLI16hdXFCudT2CueRQ2OccG7qM_a5wHVEAGAMXpIClsE1jpruGO8l0GwHFHdDcAFUyRws2G4E_ChFM62UL_bGfkUsWK0wyIBVZMb7eIu5oNR20HhxEYLLwlPp8WD4gpXF3mYnC9LchGTvoeKfR_KiBhq78s8_dgKUvw4S_Rr0h0bqgXz7EsbwZ-JYsmPGNPt_HxLTKGLRIAEf9lzrlEcThO6L8b2HSBzhB7yG7g&lib=M2A7k1cML9_qiTb3aF9ZIZKiUcBrFPiXa"
-                    # response = requests.get(URL)
-                    # data = response.json()
-
-                    # df = pd.DataFrame(data)
-                    # df.to_csv("depo.csv", index=False)
-                    df = pd.read_csv("depo.csv")
-                    df.replace(["null", "None", "NaN", ""], None, inplace=True)
+                    df = pd.DataFrame(data)
+                    df.replace(["null", "None", "NaN", "", "nan"], 0, inplace=True)
                     df = df[df["tag"].notna()]
                     df.fillna({
                         "id": 0,
+                        "campaignid": 0,
                         "protection": 0,
                         "Analyst": 0,
                         "NMI": 0,
                         "Lot": 0,
-                        "First Depo $": 0
+                        "First Depo $": 0.0
                     }, inplace=True)
-                    print(df.info())
 
                     df["id"] = df["id"].astype(int)
-                    df["tgl_regis"] = pd.to_datetime(df["tgl_regis"], format="%Y-%m-%dT%H:%M:%S.%fZ").dt.date
+                    df["tgl_regis"] = pd.to_datetime(df["tgl_regis"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True, errors="coerce").dt.tz_localize(None).dt.date
                     df["fullname"] = df["fullname"].astype(str)
                     df["email"] = df["email"].astype(str)
                     df["phone"] = df["phone"].astype(str)
                     df["Status\nNew / Existing"] = df["Status\nNew / Existing"].astype(str)
+                    df["campaignid"] = df["campaignid"].astype(int)
                     df["campaignid"] = df["campaignid"].astype(str)
                     df["tag"] = df["tag"].astype(str)
                     df["protection"] = df["protection"].astype(int)
-                    df["Assign Date"] = pd.to_datetime(df["Assign Date"]).dt.date
+                    df["Assign Date"] = pd.to_datetime(df["Assign Date"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True, errors="coerce").dt.tz_localize(None).dt.date
                     df["Analyst"] = df["Analyst"].astype(int)
                     df["First Depo Date"] = pd.to_datetime(df["First Depo Date"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True, errors="coerce").dt.tz_localize(None)
                     df["First Depo $"] = df["First Depo $"].astype(float)
@@ -165,35 +149,107 @@ class GoogleSheetApi:
                     df["Lot"] = df["Lot"].astype(int)
                     df["Cabang"] = df["Cabang"].astype(str)
                     df["Pool"] = df["Pool"].astype(bool)
-                    print(df.info())
+                    df.replace({np.nan: None}, inplace=True)
+                    df = df[(df["tgl_regis"] >= start_date.date()) & (df["tgl_regis"] <= end_date.date())]
 
-                    # for head,row in df.iterrows():
-                    #     gsheet = DataDepo(
-                    #         user_id=row["id"],
-                    #         tanggal_regis=row["tgl_regis"],
-                    #         fullname=row["fullname"],
-                    #         email=row["email"],
-                    #         phone=row["phone"],
-                    #         user_status=row["Status\nNew / Existing"],
-                    #         campaign_id=row["campaignid"],
-                    #         tag=row["tag"],
-                    #         protection=row["protection"],
-                    #         assign_date=row["Assign Date"],
-                    #         analyst=row["Analyst"],
-                    #         first_depo_date=row["First Depo Date"],
-                    #         first_depo=row["First Depo $"],
-                    #         time_to_closing=row["Time To Closing"],
-                    #         nmi=row["NMI"],
-                    #         lot=row["Lot"],
-                    #         cabang=row["Cabang"],
-                    #         pool=row["Pool"]
-                    #     )
-                    #     session.add(gsheet)
+                    for head,row in df.iterrows():
+                        gsheet = DataDepo(
+                            user_id=row["id"],
+                            tanggal_regis=row["tgl_regis"],
+                            fullname=row["fullname"],
+                            email=row["email"],
+                            phone=row["phone"],
+                            user_status=row["Status\nNew / Existing"],
+                            campaign_id=row["campaignid"],
+                            tag=row["tag"],
+                            protection=row["protection"],
+                            assign_date=row["Assign Date"],
+                            analyst=row["Analyst"],
+                            first_depo_date=row["First Depo Date"],
+                            first_depo=row["First Depo $"],
+                            time_to_closing=row["Time To Closing"],
+                            nmi=row["NMI"],
+                            lot=row["Lot"],
+                            cabang=row["Cabang"],
+                            pool=row["Pool"],
+                            pull_date=datetime.now().date()
+                        )
+                        session.add(gsheet)
                 
-                    # await session.commit()
+                    await session.commit()
+
+            elif types == "manual":
+                await session.execute(
+                    delete(DataDepo).filter(DataDepo.tanggal_regis.between(start_date.date(), end_date.date()))
+                )
+
+                URL = "https://script.googleusercontent.com/macros/echo?user_content_key=AY5xjrTjdihXxTA5m1lfYwe5_8C9SGIK6Z95X4LtG9s5KT5tF_5-6iY1zwHLI16hdXFCudT2CueRQ2OccG7qM_a5wHVEAGAMXpIClsE1jpruGO8l0GwHFHdDcAFUyRws2G4E_ChFM62UL_bGfkUsWK0wyIBVZMb7eIu5oNR20HhxEYLLwlPp8WD4gpXF3mYnC9LchGTvoeKfR_KiBhq78s8_dgKUvw4S_Rr0h0bqgXz7EsbwZ-JYsmPGNPt_HxLTKGLRIAEf9lzrlEcThO6L8b2HSBzhB7yG7g&lib=M2A7k1cML9_qiTb3aF9ZIZKiUcBrFPiXa"
+                response = requests.get(URL)
+                data = response.json()
+
+                df = pd.DataFrame(data)
+                df.replace(["null", "None", "NaN", "", "nan"], 0, inplace=True)
+                df = df[df["tag"].notna()]
+                df.fillna({
+                    "id": 0,
+                    "campaignid": 0,
+                    "protection": 0,
+                    "Analyst": 0,
+                    "NMI": 0,
+                    "Lot": 0,
+                    "First Depo $": 0.0
+                }, inplace=True)
+
+                df["id"] = df["id"].astype(int)
+                df["tgl_regis"] = pd.to_datetime(df["tgl_regis"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True, errors="coerce").dt.tz_localize(None).dt.date
+                df["fullname"] = df["fullname"].astype(str)
+                df["email"] = df["email"].astype(str)
+                df["phone"] = df["phone"].astype(str)
+                df["Status\nNew / Existing"] = df["Status\nNew / Existing"].astype(str)
+                df["campaignid"] = df["campaignid"].astype(int)
+                df["campaignid"] = df["campaignid"].astype(str)
+                df["tag"] = df["tag"].astype(str)
+                df["protection"] = df["protection"].astype(int)
+                df["Assign Date"] = pd.to_datetime(df["Assign Date"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True, errors="coerce").dt.tz_localize(None).dt.date
+                df["Analyst"] = df["Analyst"].astype(int)
+                df["First Depo Date"] = pd.to_datetime(df["First Depo Date"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True, errors="coerce").dt.tz_localize(None)
+                df["First Depo $"] = df["First Depo $"].astype(float)
+                df["Time To Closing"] = df["Time To Closing"].astype(str)
+                df["NMI"] = df["NMI"].astype(int)
+                df["Lot"] = df["Lot"].astype(int)
+                df["Cabang"] = df["Cabang"].astype(str)
+                df["Pool"] = df["Pool"].astype(bool)
+                df.replace({np.nan: None}, inplace=True)
+                df = df[(df["tgl_regis"] >= start_date.date()) & (df["tgl_regis"] <= end_date.date())]
+
+                for head,row in df.iterrows():
+                    gsheet = DataDepo(
+                        user_id=row["id"],
+                        tanggal_regis=row["tgl_regis"],
+                        fullname=row["fullname"],
+                        email=row["email"],
+                        phone=row["phone"],
+                        user_status=row["Status\nNew / Existing"],
+                        campaign_id=row["campaignid"],
+                        tag=row["tag"],
+                        protection=row["protection"],
+                        assign_date=row["Assign Date"],
+                        analyst=row["Analyst"],
+                        first_depo_date=row["First Depo Date"],
+                        first_depo=row["First Depo $"],
+                        time_to_closing=row["Time To Closing"],
+                        nmi=row["NMI"],
+                        lot=row["Lot"],
+                        cabang=row["Cabang"],
+                        pool=row["Pool"],
+                        pull_date=datetime.now().date()
+                    )
+                    session.add(gsheet)
+                
+            await session.commit()
 
             return "Data is being updated!"
-        except ZeroDivisionError as e:
+        except Exception as e:
             raise HTTPException(500, f"Google Sheets error: {str(e)}")
 
 
@@ -229,8 +285,17 @@ class GoogleSheetApi:
 
                     data = result.get("values", [])
                     df = pd.DataFrame(data[1:], columns=data[0])
+                    df.replace(["null", "None", "NaN", ""], None, inplace=True)
+                    df.fillna(
+                        {
+                            "Campaign ID": "-",
+                            "Cost": 0,
+                            "Impressions": 0,
+                            "Clicks": 0,
+                            "Leads": 0
+                        }, inplace=True
+                    )
 
-                    df = df.fillna(0)
                     df["date"] = pd.to_datetime(df["date"]).dt.date
                     df["campaign_id"] = df["campaign_id"].astype(str)
                     df["cost"] = pd.to_numeric(df["cost"])
