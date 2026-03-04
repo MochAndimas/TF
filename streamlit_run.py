@@ -26,6 +26,12 @@ PAGE_LABELS: dict[str, str] = {
     "update_data": "Update Data",
 }
 
+PAGE_BUTTON_TYPES: dict[str, str] = {
+    "overall": "tertiary",
+    "register": "tertiary",
+    "update_data": "tertiary",
+}
+
 NAV_GROUPS: dict[str, list[str]] = {
     "Overall": ["overall"],
     "Settings": ["register", "update_data"],
@@ -89,6 +95,9 @@ def _initialize_session_state() -> None:
 
 def _restore_login_state_from_cookie() -> None:
     """Restore login/session state from persisted browser cookie when available."""
+    if st.session_state.get("logged_in") and st.session_state.get("_user_id"):
+        return
+
     session_cookie = cookie_controller.get("session_id")
     get_session(session_cookie)
     _initialize_session_state()
@@ -146,7 +155,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
                     if st.button(
                         PAGE_LABELS.get(page_key, page_key),
                         key=f"nav_{page_key}",
-                        type="secondary",
+                        type=PAGE_BUTTON_TYPES.get(page_key, "secondary"),
                         use_container_width=True,
                     ):
                         selected_page = page_key
