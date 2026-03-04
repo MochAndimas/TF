@@ -7,26 +7,87 @@ from sqlalchemy import select
 from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTError
 from app.db.models.user import TfUser, UserToken
 from app.db.session import get_db
-from app.core.security import verify_access_token, refresh_access_token, pwd_context
+from app.core.security import verify_access_token, refresh_access_token, pwd_context, verify_password
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
+
+
+def _credential_exception(detail: str = "Invalid email or Password!") -> HTTPException:
+    """Build a consistent HTTP 401 exception for authentication failures."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def get_user_by_email(
+        email: str,
+        session: AsyncSession,
+        include_deleted: bool = False
+) -> TfUser | None:
+    """Fetch user by email with optional soft-deleted rows.
+
+    Args:
+        email (str): User email used for lookup.
+        session (AsyncSession): Async database session.
+        include_deleted (bool): Include rows with non-null `deleted_at`.
+
+    Returns:
+        TfUser | None: Matching user model or `None`.
+    """
+    normalized_email = email.lower().strip()
+    query = select(TfUser).where(TfUser.email == normalized_email)
+    if not include_deleted:
+        query = query.where(TfUser.deleted_at == None)
+
+    result = await session.execute(query)
+    return result.scalars().first()
+
+
+async def authenticate_user(
+        email: str,
+        password: str,
+        session: AsyncSession
+) -> tuple[TfUser, str]:
+    """Validate user credentials and return active user + role.
+
+    Args:
+        email (str): Login email value.
+        password (str): Raw password provided by user.
+        session (AsyncSession): Async database session.
+
+    Returns:
+        tuple[TfUser, str]: Authenticated user and role string.
+
+    Raises:
+        HTTPException: Raised when credentials are invalid or account is deleted.
+    """
+    active_user = await get_user_by_email(email=email, session=session, include_deleted=False)
+    if active_user and verify_password(password, active_user.password):
+        return active_user, active_user.role
+
+    deleted_user = await get_user_by_email(email=email, session=session, include_deleted=True)
+    if deleted_user and deleted_user.deleted_at is not None:
+        raise _credential_exception("Account has been deleted!")
+
+    raise _credential_exception()
 
 async def roles(
         email: str,
         session: AsyncSession
         ):
+    """Retrieve role value for a user by email.
+
+    Args:
+        email (str): User email used for lookup.
+        session (AsyncSession): Async database session.
+
+    Returns:
+        str | bool: User role string when found, otherwise `False`.
     """
-    Docstring for roles
-    
-    :param email: Give user email.
-    :type email: str
-    :param session: sqlite Session maker.
-    :type session: AsyncSession
-    """
-    user_query = select(TfUser).filter_by(email=email)
-    user_data = await session.execute(user_query)
-    user = user_data.scalars().first()
+    user = await get_user_by_email(email=email, session=session, include_deleted=True)
     
     if user:
         return user.role
@@ -35,18 +96,17 @@ async def roles(
     
 
 async def get_user_by_id(
-        user_id: int,
+        user_id: str,
         session: AsyncSession = Depends(get_db)
 ) -> TfUser | None:
-    """
-    Docstring for get_user_by_id
-    
-    :param id: user id of a user account
-    :type id: int
-    :param session: sqlite session maker
-    :type session: AsyncSession
-    :return: User data
-    :rtype: TfUser | None
+    """Fetch active user record by ID.
+
+    Args:
+        user_id (str): User identifier.
+        session (AsyncSession): Async database session.
+
+    Returns:
+        TfUser | None: Active user object or `None` if not found.
     """
     return (
         (await session.execute(
@@ -59,13 +119,17 @@ async def get_current_user(
         token: str = Depends(oauth2_scheme),
         session: AsyncSession = Depends(get_db)
 ):
-    """
-    Docstring for get_current_user
-    
-    :param token: user access token
-    :type token: str
-    :param session: sqlite session maker
-    :type session: AsyncSession
+    """Resolve authenticated user from bearer token.
+
+    Args:
+        token (str): Access token from OAuth2 bearer dependency.
+        session (AsyncSession): Async database session.
+
+    Returns:
+        TfUser: Authenticated user model.
+
+    Raises:
+        HTTPException: Raised when token is invalid, revoked, or user is missing.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -109,24 +173,22 @@ async def get_current_user(
 
 async def user_token(
         session: AsyncSession,
-        user_id: int,
+        user_id: str,
         role: str,
         access_token: str,
         refresh_token: str
 ):
-    """
-    Docstring for user_token
-    
-    :param session: sqlite session maker.
-    :type session: AsyncSession
-    :param user_id: user_id of a user account
-    :type user_id: int
-    :param role: role of a user account
-    :type role: str
-    :param access_token: access token of a user account
-    :type access_token: str
-    :param refresh_token: refresh token of a user account
-    :type refresh_token: str
+    """Create or update token/session row for a user login.
+
+    Args:
+        session (AsyncSession): Async database session.
+        user_id (str): User identifier.
+        role (str): Role assigned to the user.
+        access_token (str): Newly issued access token.
+        refresh_token (str): Newly issued refresh token.
+
+    Returns:
+        dict[str, str]: Access and refresh token pair.
     """
     today = datetime.now()
     session_id = str(uuid.uuid4())
@@ -177,17 +239,17 @@ async def create_account(
         role: str,
         password: str
 ):
-    """
-    Docstring for create_account
-    
-    :param fullname: Description
-    :type fullname: str
-    :param email: Description
-    :type email: str
-    :param role: Description
-    :type role: str
-    :param password: Description
-    :type password: str
+    """Create a new user account record.
+
+    Args:
+        session (AsyncSession): Async database session.
+        fullname (str): User full name.
+        email (str): User email address.
+        role (str): Role assigned at creation.
+        password (str): Raw password that will be hashed before persisting.
+
+    Returns:
+        TfUser | None: Created user object, or `None` when email already exists.
     """
     email = email.lower()
     today = datetime.now()
@@ -211,7 +273,6 @@ async def create_account(
 
     session.add(new_account)
     await session.commit()
-    await session.close()
 
     return new_account
         
@@ -220,21 +281,18 @@ async def logout(
         session: AsyncSession,
         user_id
 ):
-    """
-    Function to Log out user and revoke all token
-    
-    :param session: Description
-    :type session: AsyncSession
-    :param user_id: Description
+    """Revoke active token row and set user session as logged out.
+
+    Args:
+        session (AsyncSession): Async database session.
+        user_id: User identifier associated with token row.
     """
     today = datetime.now()
-    if session is None:
-        async_gen = get_db()
-        session = await anext(async_gen)
-
     query = select(UserToken).filter_by(user_id=user_id)
     user_data = await session.execute(query)
     user = user_data.scalars().first()
+    if user is None:
+        return False
 
     user.logged_in = False
     user.is_revoked = True
@@ -242,7 +300,7 @@ async def logout(
     user.updated_at = today
 
     await session.commit()
-    await session.close()
+    return True
 
 
 async def delete_account(
@@ -250,15 +308,19 @@ async def delete_account(
         user_id: str,
         current_user: TfUser
 ):
-    """
-    Docstring for delete_account
-    
-    :param session: SQLite session maker.
-    :type session: AsyncSession
-    :param user_id: Unique id of an user account
-    :type user_id: str
-    :param current_user: Function to fetch current user log in.
-    :type current_user: TfUser
+    """Soft-delete a user account after authorization checks.
+
+    Args:
+        session (AsyncSession): Async database session.
+        user_id (str): Target user identifier to delete.
+        current_user (TfUser): Authenticated actor performing the operation.
+
+    Returns:
+        TfUser | None: Updated user object when deleted, otherwise `None`.
+
+    Raises:
+        PermissionError: Raised when current user is not `superadmin`.
+        ValueError: Raised when attempting to delete own account.
     """
     if current_user.role != "superadmin":
         raise PermissionError("Not authorized!")
@@ -269,7 +331,7 @@ async def delete_account(
     query = await session.execute(
         select(TfUser).where(
             TfUser.user_id == user_id,
-            TfUser.deleted_at is not None
+            TfUser.deleted_at == None
         )
     )
     user = query.scalar_one_or_none()

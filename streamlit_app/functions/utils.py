@@ -33,7 +33,14 @@ streamlit_session = sessionmaker(
 
 
 def get_user(user_id):
-    """ """
+    """Fetch persisted token/session row by user ID.
+
+    Args:
+        user_id: User identifier used to query token table.
+
+    Returns:
+        UserToken | None: Matching token/session row if available.
+    """
     session_gen = get_streamlit()
     session = next(session_gen)
     with session.begin():
@@ -77,13 +84,13 @@ async def fetch_data(st, host, uri, params):
     Fetches data from a protected API endpoint, handling token refresh and errors gracefully.
     
     Args:
-        st: The session state or application state object.
+        st: Streamlit module/state object.
         host (str): The base URL of the API host.
         uri (str): The specific endpoint URI.
-        data (dict): Data to be sent in the request.
+        params (dict): Query parameters sent with GET request.
     
     Returns:
-        dict: The JSON response from the API or an error message.
+        dict: JSON payload from API, or error payload on failure.
     """
     try:
         user = get_user(st.session_state._user_id)
@@ -111,7 +118,11 @@ async def fetch_data(st, host, uri, params):
 
 
 def get_streamlit():
-    """ """
+    """Yield synchronous SQLAlchemy session for Streamlit components.
+
+    Yields:
+        Session: Active SQLAlchemy session bound to Streamlit DB engine.
+    """
     with streamlit_session() as session:
         try:
             yield session
@@ -123,8 +134,14 @@ def get_accounts(
         data: str ="all",
         user_id: str = None
     ):
-    """
-    Docstring for get_accounts
+    """Retrieve account records for admin pages.
+
+    Args:
+        data (str): Retrieval mode, `all` for list or any other value for single user.
+        user_id (str | None): User identifier used when fetching single account.
+
+    Returns:
+        pd.DataFrame | TfUser | None: All users as DataFrame or single user entity.
     """
     session_gen = get_streamlit()
     session = next(session_gen)
@@ -153,7 +170,14 @@ def get_accounts(
 
 
 def get_session(session_id):
-    """Retrieve session details from the SQLite database."""
+    """Restore Streamlit state from persisted backend session.
+
+    Args:
+        session_id: Session identifier stored in browser cookie.
+
+    Returns:
+        UserToken | None: Matching session row if present.
+    """
     session_generator = get_streamlit()
     session = next(session_generator)
     with session.begin():
@@ -176,13 +200,19 @@ def get_session(session_id):
                 del st.session_state.page
                 del st.session_state._user_id
                 del st.session_state.role
+                if "server_session" in st.session_state:
+                    del st.session_state.server_session
                 st.toast("Session is expired! Please Re Log In.")
             session.close()
         return user
     
 
 def footer(st):
-    """Renders a styled footer at the bottom of the Streamlit app."""
+    """Render fixed footer element at the bottom of Streamlit page.
+
+    Args:
+        st: Streamlit module instance used to render markdown/html.
+    """
 
     # Using a template string for better readability
     footer_html = f"""
@@ -208,11 +238,12 @@ def footer(st):
 
 async def logout(st, host, session_id):
     """
-    Handles the logout process, clearing session state and redirecting the user.
+    Handle logout button action and clear client/session state.
 
     Args:
-        st: Streamlit object for interacting with the app.
+        st: Streamlit module instance.
         host (str): Base URL of the API.
+        session_id: Persisted session identifier (currently unused in request payload).
     """
     
     if st.button("Log Out", use_container_width=True):
@@ -235,6 +266,8 @@ async def logout(st, host, session_id):
                     del st.session_state.page
                     del st.session_state._user_id
                     del st.session_state.role
+                    if "server_session" in st.session_state:
+                        del st.session_state.server_session
                         
                     st.success("Logged out successfully!")
                     st.rerun()  # Redirect to login page (or home page)
@@ -276,10 +309,13 @@ def get_date_range(days, period='days', months=3):
 
 
 def is_valid_email(email):
-    """
-    Docstring for is_valid_email
-    
-    :param email: email account of an user
+    """Validate email string against a basic regex pattern.
+
+    Args:
+        email: Email value to validate.
+
+    Returns:
+        Match[str] | None: Regex match object when valid, otherwise `None`.
     """
     pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
 
@@ -288,6 +324,12 @@ def is_valid_email(email):
 
 @st.dialog("Create Account")
 def add_account_modal(host, token):
+    """Render and process create-account modal form.
+
+    Args:
+        host (str): Base URL of backend API.
+        token: Current authenticated token object for authorization header.
+    """
     with st.form("register", border=False, clear_on_submit=True):
         # Input Box
         fullname = st.text_input("Fullname", width="stretch")
@@ -328,6 +370,10 @@ def add_account_modal(host, token):
                                     "password": password,
                                     "confirm_password": confirm_password,
                                 },
+                                cookies={
+                                    "csrf_token": st.session_state.get("csrf_token", ""),
+                                    "session": st.session_state.get("server_session", ""),
+                                },
                                 headers={
                                     "Authorization": f"Bearer {token.access_token}",
                                     "X-CSRF-Token": st.session_state.csrf_token,
@@ -351,7 +397,12 @@ def edit_account_modal(
     user, 
     token
 ):
-    """
+    """Render and process account edit/delete modal actions.
+
+    Args:
+        host (str): Base URL of backend API.
+        user: Selected user row for edit/delete operations.
+        token: Current authenticated token object for authorization header.
     """
     with st.form("edit", border=False, clear_on_submit=True):
         # Input Box

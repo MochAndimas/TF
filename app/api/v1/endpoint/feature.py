@@ -1,12 +1,10 @@
-from datetime import datetime, timedelta
-import requests
 from fastapi.responses import JSONResponse
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.utils.user_utils import get_current_user
 from app.db.models.user import TfUser
-from app.schemas.feature import UpdateData
+from app.schemas.feature import UpdateData, UpdateDataResponse
 from app.utils.api_utils import GoogleSheetApi, unique_campaign
 from app.db.models.external_api import GoogleAds, FacebookAds, TikTokAds
 
@@ -14,13 +12,24 @@ from app.db.models.external_api import GoogleAds, FacebookAds, TikTokAds
 router = APIRouter()
 
 
-@router.post("/api/feature-data/update-external-api", response_model=UpdateData)
+@router.post("/api/feature-data/update-external-api", response_model=UpdateDataResponse)
 async def update_data(
     response: UpdateData,
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user)
 ):
-    """
+    """Run data update jobs for selected external source and date range.
+
+    Args:
+        response (UpdateData): Request payload containing source type and period.
+        session (AsyncSession): Database session injected by FastAPI.
+        current_user (TfUser): Authenticated user allowed to trigger update.
+
+    Returns:
+        JSONResponse: Message describing update status.
+
+    Raises:
+        HTTPException: Raised when source type is invalid or update process fails.
     """
     try:
         start_date = response.start_date
@@ -76,8 +85,10 @@ async def update_data(
                 "message": message
             }
         )
-    except ZeroDivisionError as e:
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"an error occured: {str(e)}"
+            detail=f"An error occurred while updating data: {str(e)}"
         )

@@ -5,8 +5,15 @@ from app.db.base import SqliteBase
 
 
 class Campaign(SqliteBase):
-    """
-    Docstring for caampaign
+    """Master campaign mapping model used across ad sources.
+
+    Attributes:
+        campaign_id (str): Primary key campaign identifier.
+        campaign_name (str): Human-readable campaign name.
+        ad_source (str): Advertising platform source label.
+        ad_type (str): Campaign objective type.
+        created_at (DateTime): Creation timestamp.
+        deleted_at (DateTime | None): Soft-delete timestamp.
     """
     __tablename__ = "campaign"
     
@@ -46,7 +53,15 @@ class Campaign(SqliteBase):
     )
 
 class DataDepo(SqliteBase):
-    """
+    """Model for imported deposit/user records tied to campaigns.
+
+    Attributes:
+        id (int): Primary key.
+        user_id (int): External user identifier.
+        tanggal_regis (Date): Registration date.
+        campaign_id (str): Foreign key to campaign table.
+        first_depo (float | None): First deposit amount.
+        pull_date (Date): Data import date.
     """
     __tablename__ = "data_depo"
     __table_args__ = (
@@ -87,7 +102,17 @@ class DataDepo(SqliteBase):
 
 
 class GoogleAds(SqliteBase):
-    """
+    """Model for daily Google Ads campaign metrics.
+
+    Attributes:
+        id (int): Primary key.
+        date (Date): Metric date.
+        campaign_id (str): Foreign key to campaign table.
+        cost (int | None): Advertising cost.
+        impressions (int | None): Impression count.
+        clicks (int | None): Click count.
+        leads (int | None): Lead count.
+        pull_date (Date): Data import date.
     """
     __tablename__ = "google_ads"
     __table_args__ = (
@@ -119,7 +144,17 @@ class GoogleAds(SqliteBase):
 
 
 class FacebookAds(SqliteBase):
-    """
+    """Model for daily Meta/Facebook Ads campaign metrics.
+
+    Attributes:
+        id (int): Primary key.
+        date (Date): Metric date.
+        campaign_id (str): Foreign key to campaign table.
+        cost (int | None): Advertising cost.
+        impressions (int | None): Impression count.
+        clicks (int | None): Click count.
+        leads (int | None): Lead count.
+        pull_date (Date): Data import date.
     """
     __tablename__ = "facebook_ads"
     __table_args__ = (
@@ -151,7 +186,17 @@ class FacebookAds(SqliteBase):
 
 
 class TikTokAds(SqliteBase):
-    """
+    """Model for daily TikTok Ads campaign metrics.
+
+    Attributes:
+        id (int): Primary key.
+        date (Date): Metric date.
+        campaign_id (str): Foreign key to campaign table.
+        cost (int | None): Advertising cost.
+        impressions (int | None): Impression count.
+        clicks (int | None): Click count.
+        leads (int | None): Lead count.
+        pull_date (Date): Data import date.
     """
     __tablename__ = "tiktok_ads"
     __table_args__ = (

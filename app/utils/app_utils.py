@@ -1,328 +1,322 @@
+"""Application bootstrap utilities for FastAPI service wiring."""
+
+from __future__ import annotations
+
+import json
 import logging
 import secrets
-import time
-import json
+from contextlib import asynccontextmanager
 from datetime import datetime
+from time import perf_counter
+from typing import Any, Awaitable, Callable
+
 from fastapi import FastAPI, Response
-from fastapi.requests import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.requests import Request
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
-from decouple import config
-from contextlib import asynccontextmanager
 
-from app.core.config import settings
-from app.db.session import sqlite_engine,get_db
-from app.db.base import SqliteBase
-from app.db.models.user import LogData
 from app.api.v1.endpoint.auth import router as auth_router
 from app.api.v1.endpoint.feature import router as feature_router
+from app.core.config import settings
+from app.db.base import SqliteBase
+from app.db.models.user import LogData
+from app.db.session import sqlite_async_session, sqlite_engine
+
+NextHandler = Callable[[Request], Awaitable[Response]]
 
 
 class FastApiApp:
-    """
-    A class to create and configure a FastAPI application instance with middleware, routers, and logging.
+    """Create and configure the FastAPI application instance.
 
-    This class encapsulates the setup and configuration of the FastAPI app, including:
-    - Initialization of logging for structured output.
-    - A lifespan context manager to handle startup and shutdown tasks, such as database initialization.
-    - Middleware for session management, CORS, security headers, and CSRF protection.
-    - Routing of all endpoint modules.
+    This wrapper centralizes FastAPI bootstrap concerns such as:
+    - application metadata and lifespan wiring
+    - middleware registration (CORS, session, security, CSRF, request logging)
+    - API router registration
+    - Uvicorn runtime startup configuration
 
     Attributes:
-        CSRF_TOKEN_NAME (str): The name of the CSRF token to be used in session storage.
-
-    Methods:
-        __init__(): Initializes the FastAPI application, configures logging, adds middleware, and includes routers.
-        _configure_logging(): Configures logging with a structured format.
-        _lifespan(app: FastAPI): A context manager for handling startup and shutdown tasks.
-        _add_middleware(): Adds necessary middleware for CORS, security headers, session management, and CSRF protection.
-        _include_routers(): Includes all endpoint routers in the FastAPI app.
-        run(): Runs the FastAPI app using Uvicorn with configurable settings.
+        CSRF_TOKEN_NAME (str): Session and cookie key used to store CSRF token value.
+        app_version (str): API version exposed in OpenAPI metadata.
+        logger (logging.Logger): Logger used for lifecycle and runtime diagnostics.
+        app (FastAPI): Configured FastAPI application instance.
     """
-    def __init__(self, version: str = "1.0.0"):
-        """
-        Initializes the FastAPI application by configuring logging, adding middleware, 
-        and including routers for all endpoints.
 
-        This method configures logging for structured output, initializes the FastAPI app instance,
-        adds necessary middleware for session management, CORS, security headers, and CSRF protection,
-        and finally includes the routers for handling API endpoints.
-        
-        :param version: The version of API
-        :type version: str
+    CSRF_TOKEN_NAME = "csrf_token"
+
+    def __init__(self, version: str = "1.0.0") -> None:
+        """Initialize app, middleware, routes, and runtime configuration.
+
+        Args:
+            version (str): API version string shown in OpenAPI metadata.
+
+        Returns:
+            None: This constructor initializes instance attributes in place.
         """
         self.app_version = version
+        self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logging()
 
-        # Initialize FastAPI App
         self.app = FastAPI(
-            Title="Traders Family Campaign Data API",
-            description="API fro handling Traders Family Campaign Data",
+            title="Traders Family Campaign Data API",
+            description="API for handling Traders Family campaign data.",
             version=self.app_version,
             docs_url=None if not settings.DEBUG else "/docs",
             redoc_url="/redoc",
-            lifespan=self._lifespan
+            lifespan=self._lifespan,
         )
 
-        # Add Middleware
-        self._add_middleware()
-
-        # Include Routes
+        self._add_middlewares()
         self._include_routers_v1()
 
-    def _configure_logging(self):
-        """
-        Configures logging for the FastAPI app.
+    @staticmethod
+    def _configure_logging() -> None:
+        """Configure process-wide logging format once.
 
-        Sets up logging to output messages in a structured format with 
-        the following attributes:
-        - Log level: INFO
-        - Format: Timestamp, logger name, log level, and message
-
-        This method ensures that logs are formatted in a consistent way, 
-        making it easier to track and analyze logs in production.
+        Returns:
+            None: Applies logging configuration to the root logger if needed.
         """
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            )
 
     @asynccontextmanager
-    async def _lifespan(self, app: FastAPI):
-        """
-        A context manager for handling startup and shutdown tasks for the FastAPI app.
+    async def _lifespan(self, app: FastAPI):  # noqa: ARG002
+        """Handle application startup and shutdown tasks.
 
-        This method handles the following tasks:
-        - **Startup**: Initializes the database by creating the necessary tables.
-        - **Shutdown**: Disposes of the database connection after the application shuts down.
+        Args:
+            app (FastAPI): Active FastAPI application instance passed by framework.
 
-        It is invoked automatically by FastAPI when the app starts up and shuts down.
-        
-        :param app: Fast API Application
-        :type app: FastAPI
+        Yields:
+            None: Control is yielded back to FastAPI during normal runtime.
+
+        Returns:
+            None: Disposes database engine after shutdown sequence.
         """
-        print("Starting up...")
-        async with sqlite_engine.begin() as conn:
-            await conn.run_sync(SqliteBase.metadata.create_all)
+        self.logger.info("Application startup: preparing database schema")
+        async with sqlite_engine.begin() as connection:
+            await connection.run_sync(SqliteBase.metadata.create_all)
         yield
-        print("Shutting down...")
+        self.logger.info("Application shutdown: disposing database engine")
         await sqlite_engine.dispose()
 
-    def _add_middleware(self):
+    def _add_middlewares(self) -> None:
+        """Register HTTP middleware stack for the API service.
+
+        Returns:
+            None: Middleware handlers are attached to ``self.app``.
         """
-        Adds necessary middleware to the FastAPI app for security, CORS, session management, and CSRF protection.
+        self._add_cors_middleware()
 
-        - Configures CORS for different environments (allowing all origins in development or specific origins in production).
-        - Adds security headers (e.g., X-Content-Type-Options, X-Frame-Options).
-        - Manages sessions and generates CSRF tokens for secure user interaction.
+        @self.app.middleware("http")
+        async def request_logger(request: Request, call_next: NextHandler) -> Response:
+            return await self._request_logging_middleware(request, call_next)
 
-        This method ensures that the app adheres to best practices for security and resource sharing.
+        @self.app.middleware("http")
+        async def security_headers(request: Request, call_next: NextHandler) -> Response:
+            return await self._security_headers_middleware(request, call_next)
+
+        @self.app.middleware("http")
+        async def csrf_cookie(request: Request, call_next: NextHandler) -> Response:
+            return await self._csrf_cookie_middleware(request, call_next)
+
+        # Add SessionMiddleware after decorator-based middleware registration
+        # so it wraps outermost and initializes request.session first.
+        self._add_session_middleware()
+
+    def _add_cors_middleware(self) -> None:
+        """Attach CORS middleware using environment-specific origin policy.
+
+        Returns:
+            None: CORS middleware is registered on ``self.app``.
         """
-        # Add CORS Middleware
-        if settings.DEBUG:
-            self.app.add_middleware(
-                CORSMiddleware,
-                allow_origins=["*"],
-                allow_credentials=True,
-                allow_methods=["*"],
-                allow_headers=["*"]
-            )
-        else:
-            self.app.add_middleware(
-                CORSMiddleware,
-                allow_origins=[config("FRONTEND_URL")],
-                allow_credentials=True,
-                allow_methods=["GET", "POST"],
-                allow_headers=["Authorization", "Content-Type"]
-            )
-
-        @self.app.middleware("http")
-        async def log_request(request: Request, call_next):
-            """
-            Middleware to log HTTP request and response details in a FastAPI application.
-
-            This middleware intercepts all incoming HTTP requests and outgoing responses, 
-            capturing metrics such as processing time and response content for logging purposes.
-
-            Args:
-                request (Request): The incoming HTTP request object.
-                call_next (Callable): The next middleware or endpoint to call in the request-response cycle.
-
-            Returns:
-                Response: A reconstructed HTTP response with the same content and properties as the original.
-
-            Functionality:
-                - Captures the start time of the request processing.
-                - Processes the request and captures the original response.
-                - Reads the response body by iterating over the response's body iterator.
-                - Reconstructs the response with the captured content to ensure the response integrity is maintained.
-                - Attempts to parse the response body as JSON; falls back to plain text if parsing fails.
-                - Logs the following details:
-                    - Request URL
-                    - HTTP method
-                    - Processing time in seconds
-                    - HTTP status code of the response
-                    - Response body content (JSON or plain text)
-                - Returns the reconstructed response to the client.
-
-            Notes:
-                - Handles both JSON and plain-text response bodies.
-                - Adds performance overhead due to buffering the response content.
-                - Ensure sensitive information is not logged unintentionally.
-                - May not be suitable for very large or streamed responses.
-            
-            :param request: Description
-            :type request: Request
-            :param call_next: Description
-            """
-            start_time = time.time()
-            
-            # Process the request and get the original response
-            original_response = await call_next(request)
-
-            # Clone the original response content
-            content = b""
-            async for chunk in original_response.body_iterator:
-                content += chunk
-
-            # Create a new Response with the same content
-            new_response = Response(
-                content=content,
-                status_code=original_response.status_code,
-                headers=dict(original_response.headers),
-                media_type=original_response.media_type
-            )
-
-            # attemp to parse JSON if possible
-            try:
-                response_body = json.loads(content.decode())
-            except json.JSONDecodeError:
-                response_body = content.decode()
-
-            process_time = time.time() - start_time
-
-            # Log details
-            async_gen = get_db()
-            session = await anext(async_gen)
-
-            data = LogData(
-                url=str(request.url),
-                method=request.method,
-                time=process_time,
-                status=new_response.status_code,
-                response=response_body,
-                created_at=datetime.now()
-            )
-
-            session.add(data)
-            await session.commit()
-            await session.close()
-
-            return new_response
-        
-        # Security headers middleware
-        @self.app.middleware("http")
-        async def security_headers_middleware(
-            request: Request,
-            call_next
-        ):
-            """
-            Adds security headers to the HTTP response for enhanced protection.
-
-            The headers added are:
-            - X-Content-Type-Options: Prevents MIME type sniffing.
-            - X-Frame-Options: Prevents the app from being embedded in iframes.
-            - Strict-Transport-Security: Enforces HTTPS connections.
-            - Referrer-Policy: Restricts referer information sent in requests.
-            - Permissions-Policy: Blocks access to features like geolocation, microphone, and camera.
-
-            This middleware is essential for securing the app from common web vulnerabilities.
-            
-            :param request: JSON reuquest Form
-            :type request: Request
-            :param call_next: Caller next JSON response
-            """
-            response = await call_next(request)
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-            response.headers["Referrer-Policy"] = "same-origin"
-            response.headers["Permissions-Policy"] = ("geolocation=(), microphone=(), camera=()")
-
-            return response
-        
-        # CSRF token middleware
-        @self.app.middleware("http")
-        async def add_csrf_token_middleware(
-            request: Request,
-            call_next
-        ):
-            """
-            Generates and attaches a CSRF token to the session and response.
-
-            If a CSRF token is not found in the session, it is generated and added to the session.
-            The token is then sent as an HTTP-only cookie to the client to ensure secure transfer.
-            
-            :param request: JSON request form
-            :type request: Request
-            :param call_next: JSON caller next response
-            """
-            CSRF_TOKEN_NAME = "csrf_token"
-            
-            if CSRF_TOKEN_NAME not in request.session:
-                csrf_token = secrets.token_hex(16)
-                request.session[CSRF_TOKEN_NAME] = csrf_token
-
-            response = await call_next(request)
-            csrf_token = request.session[CSRF_TOKEN_NAME]
-            response.set_cookie(
-                key=CSRF_TOKEN_NAME,
-                value=csrf_token,
-                httponly=True,
-                secure=True
-            )
-
-            return response
-        
-        # Session middleware
         self.app.add_middleware(
-            SessionMiddleware,
-            secret_key=config("CSRF_SECRET")
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
         )
 
-    def _include_routers_v1(self):
-        """
-        Includes the API endpoint routers into the FastAPI app.
+    def _add_session_middleware(self) -> None:
+        """Attach server-side session middleware.
 
-        This method adds the routers for handling different aspects of the API, such as authentication, revenue, user activity, 
-        and data-related endpoints. By calling this method, the app will be able to handle requests routed to these modules.
-        
-        :param self: Description
+        Returns:
+            None: Session middleware is registered on ``self.app``.
         """
-        # Include application routers
+        self.app.add_middleware(
+            SessionMiddleware,
+            secret_key=settings.CSRF_SECRET,
+            same_site="lax",
+            https_only=settings.cookie_secure,
+        )
+
+    async def _request_logging_middleware(self, request: Request, call_next: NextHandler) -> Response:
+        """Log request/response summary into database in a fail-safe way.
+
+        Args:
+            request (Request): Incoming HTTP request.
+            call_next (NextHandler): Next handler in middleware chain.
+
+        Returns:
+            Response: Response object returned by downstream handler.
+        """
+        started_at = perf_counter()
+        original_response = await call_next(request)
+        replay_response, content = await self._clone_response(original_response)
+
+        process_time = perf_counter() - started_at
+        response_body = self._parse_response_body(content)
+        await self._persist_request_log(
+            request=request,
+            status_code=replay_response.status_code,
+            response_body=response_body,
+            process_time=process_time,
+        )
+        return replay_response
+
+    async def _clone_response(self, response: Response) -> tuple[Response, bytes]:
+        """Clone streamed response body for safe logging and replay.
+
+        Args:
+            response (Response): Original downstream response object.
+
+        Returns:
+            tuple[Response, bytes]: Reconstructed response and raw buffered body bytes.
+        """
+        content = b""
+        async for chunk in response.body_iterator:
+            content += chunk
+
+        replay_response = Response(
+            content=content,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+            media_type=response.media_type,
+            background=response.background,
+        )
+        return replay_response, content
+
+    @staticmethod
+    def _parse_response_body(content: bytes) -> Any:
+        """Parse response body bytes into JSON-like structure or text.
+
+        Args:
+            content (bytes): Raw response body bytes.
+
+        Returns:
+            Any: Decoded JSON object/list/dict, empty dict for blank body, or UTF-8 text.
+        """
+        if not content:
+            return {}
+        try:
+            return json.loads(content.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return content.decode("utf-8", errors="replace")
+
+    async def _persist_request_log(
+        self,
+        request: Request,
+        status_code: int,
+        response_body: Any,
+        process_time: float,
+    ) -> None:
+        """Persist request/response audit record to database.
+
+        Args:
+            request (Request): Incoming HTTP request metadata source.
+            status_code (int): HTTP status code returned to client.
+            response_body (Any): Parsed response payload snapshot for auditing.
+            process_time (float): Request processing duration in seconds.
+
+        Returns:
+            None: Logging failures are swallowed and only written to application logger.
+        """
+        try:
+            async with sqlite_async_session() as session:
+                session.add(
+                    LogData(
+                        url=str(request.url),
+                        method=request.method,
+                        time=process_time,
+                        status=status_code,
+                        response=response_body,
+                        created_at=datetime.now(),
+                    )
+                )
+                await session.commit()
+        except Exception:
+            self.logger.exception("Failed to persist request log")
+
+    @staticmethod
+    async def _security_headers_middleware(request: Request, call_next: NextHandler) -> Response:
+        """Attach baseline security headers to every HTTP response.
+
+        Args:
+            request (Request): Incoming HTTP request.
+            call_next (NextHandler): Next middleware/route callable in chain.
+
+        Returns:
+            Response: Response enriched with security-related HTTP headers.
+        """
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        return response
+
+    async def _csrf_cookie_middleware(self, request: Request, call_next: NextHandler) -> Response:
+        """Ensure CSRF token exists in session and mirrored cookie.
+
+        Args:
+            request (Request): Incoming HTTP request that carries session context.
+            call_next (NextHandler): Next middleware/route callable in chain.
+
+        Returns:
+            Response: Downstream response augmented with CSRF cookie.
+        """
+        if "session" not in request.scope:
+            self.logger.error("Session scope missing in request; CSRF cookie middleware skipped.")
+            return await call_next(request)
+
+        if self.CSRF_TOKEN_NAME not in request.session:
+            request.session[self.CSRF_TOKEN_NAME] = secrets.token_hex(16)
+
+        response = await call_next(request)
+        response.set_cookie(
+            key=self.CSRF_TOKEN_NAME,
+            value=request.session[self.CSRF_TOKEN_NAME],
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="lax",
+        )
+        return response
+
+    def _include_routers_v1(self) -> None:
+        """Register API routers for versioned endpoints.
+
+        Returns:
+            None: Routers are attached to ``self.app``.
+        """
         self.app.include_router(auth_router, tags=["Authentication"])
         self.app.include_router(feature_router, tags=["Update Data"])
 
-    def run(self):
-        """
-        Runs the FastAPI app using Uvicorn with the specified settings.
+    def run(self) -> None:
+        """Start Uvicorn server with environment-aware runtime options.
 
-        This method configures and launches the app using Uvicorn, a high-performance ASGI server. 
-        It allows the app to run in local development or production environments, with adjustable settings for workers, 
-        reloading, and logging.
-
-        This method is typically called when the script is executed directly.
-        
-        :param sefl: Description
+        Returns:
+            None: Blocks current process while ASGI server is running.
         """
         uvicorn_run(
             "main:app_instance.app",
             host=settings.HOST,
             port=settings.PORT,
-            workers=config("WORKERS", default=5, cast=int),
+            workers=settings.WORKERS,
             reload=settings.DEBUG,
-            log_level="info" if not settings.DEBUG else "debug",
-            timeout_keep_alive=30
+            log_level="debug" if settings.DEBUG else "info",
+            timeout_keep_alive=30,
         )
-        

@@ -1,88 +1,209 @@
+"""Main Streamlit entrypoint for Traders Family dashboard navigation."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Awaitable, Callable
+
 import streamlit as st
-# --- PAGE CONFIGURATION ---
+from decouple import config
+
+from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
+from streamlit_app.page import login, overall, register, update_data
+
 st.set_page_config(
     page_title="Traders Family Dashboard",
     page_icon="./streamlit_app/page/logotf.png",
-    layout="wide",  # Optional: Use "wide" for full-width layout
-    initial_sidebar_state="collapsed"
+    layout="wide",
+    initial_sidebar_state="collapsed",
 )
-import asyncio
-from decouple import config
-from streamlit_app.functions.utils import cookie_controller, get_session, footer, logout
-from streamlit_app.page import login, overall, register, update_data
+
+PageHandler = Callable[[str], Awaitable[None]]
+
+PAGE_LABELS: dict[str, str] = {
+    "overall": "Overall Data",
+    "register": "Create Account",
+    "update_data": "Update Data",
+}
+
+NAV_GROUPS: dict[str, list[str]] = {
+    "Overall": ["overall"],
+    "Settings": ["register", "update_data"],
+}
+
+ROLE_PAGE_ACCESS: dict[str, list[str]] = {
+    "superadmin": ["overall", "register", "update_data"],
+    "admin": ["overall"],
+    "digital_marketing": ["overall"],
+    "sales": ["overall"],
+}
 
 
-# --- App Settings ---
-session_id = get_session(cookie_controller.get("session_id"))
-HOST = st.secrets["api"]["HOST"] if config("ENV") == "production" else st.secrets["api"]["DEV_HOST"]
-footer(st)
+def _inject_navigation_style() -> None:
+    """Render minimal sidebar style for cleaner navigation hierarchy."""
+    st.markdown(
+        """
+        <style>
+            .tf-nav-title {
+                font-size: 0.78rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                opacity: 0.72;
+                margin-top: 0.35rem;
+                margin-bottom: 0.2rem;
+            }
+            .tf-nav-divider {
+                border-bottom: 1px solid var(--secondary-background-color);
+                margin-top: 0.45rem;
+                margin-bottom: 0.55rem;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
-# --- Initialize session state ---
-if 'page' not in st.session_state:
-    st.session_state.page = 'login'
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'role' not in st.session_state:
-    st.session_state.role = None
+def _resolve_host() -> str:
+    """Resolve backend host URL from environment-aware Streamlit secrets.
 
-# Login Page
-login_page = st.Page(page=login, title="Login")
+    Returns:
+        str: API base URL used by all Streamlit page handlers.
+    """
+    env_name = config("ENV", default="development", cast=str).lower()
+    if env_name == "production":
+        return st.secrets["api"]["HOST"]
+    return st.secrets["api"]["DEV_HOST"]
 
-# Overview data page
-overall_page = st.Page(page=overall, title="Overall Data", url_path="/overall-page", icon="🗃")
 
-# Settings Page
-register_page = st.Page(page=register, title="Create Account", url_path="/create-account")
-update_page = st.Page(page=update_data, title="Update Data", url_path="/update-data")
-
-# show menu only for spesific role
-if st.session_state.role in ['superadmin']:
-    menu_options = {
-        "🗂 Overview Data" : [
-            overall_page
-        ],
-        "⚙️ Settings" : [
-            register_page,
-            update_page
-        ]
+def _initialize_session_state() -> None:
+    """Initialize required Streamlit state keys with safe defaults."""
+    defaults = {
+        "page": "overall",
+        "logged_in": False,
+        "role": None,
     }
-if st.session_state.role in ['admin', 'digital_marketing', 'sales']:
-    menu_options = {
-        "🗂 Overview Data" : [
-            overall_page
-        ]
+    for key, default_value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+
+
+def _restore_login_state_from_cookie() -> None:
+    """Restore login/session state from persisted browser cookie when available."""
+    session_cookie = cookie_controller.get("session_id")
+    get_session(session_cookie)
+    _initialize_session_state()
+
+
+def _allowed_pages_for_role(role: str | None) -> list[str]:
+    """Get allowed page keys based on active authenticated role.
+
+    Args:
+        role (str | None): Current authenticated user role from session state.
+
+    Returns:
+        list[str]: Ordered page keys allowed for current role.
+    """
+    return ROLE_PAGE_ACCESS.get(role or "", [])
+
+
+def _render_sidebar_navigation(host: str) -> str | None:
+    """Render sidebar navigation and return selected page key.
+
+    Args:
+        host (str): API base URL used by logout flow.
+
+    Returns:
+        str | None: Selected page key for dispatcher, or ``None`` when not logged in.
+    """
+    with st.sidebar:
+        if not st.session_state.logged_in:
+            st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
+            st.info("Please sign in to access dashboard pages.")
+            return None
+
+        st.image("./streamlit_app/page/logotf.png", width=96)
+        available_pages = _allowed_pages_for_role(st.session_state.role)
+        if not available_pages:
+            st.warning("No page access configured for your account role.")
+            asyncio.run(logout(st, host, None))
+            return None
+
+        current_page = st.session_state.page
+        if current_page not in available_pages:
+            current_page = available_pages[0]
+            st.session_state.page = current_page
+
+        st.markdown('<p class="tf-nav-title">Navigation</p>', unsafe_allow_html=True)
+        selected_page = current_page
+
+        for group_title, group_pages in NAV_GROUPS.items():
+            visible_pages = [page_key for page_key in group_pages if page_key in available_pages]
+            if not visible_pages:
+                continue
+
+            with st.expander(group_title, expanded=(current_page in visible_pages)):
+                for page_key in visible_pages:
+                    if st.button(
+                        PAGE_LABELS.get(page_key, page_key),
+                        key=f"nav_{page_key}",
+                        type="secondary",
+                        use_container_width=True,
+                    ):
+                        selected_page = page_key
+
+        st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
+        asyncio.run(logout(st, host, None))
+        return selected_page
+
+
+async def _dispatch_page(host: str, selected_page: str | None) -> None:
+    """Dispatch selected page handler.
+
+    Args:
+        host (str): API base URL for backend page calls.
+        selected_page (str | None): Selected page key from sidebar.
+
+    Returns:
+        None: Renders page UI as side effect.
+    """
+    if not st.session_state.logged_in:
+        await login.show_login_page(host)
+        return
+
+    if not selected_page:
+        st.error("Unable to determine page selection.")
+        return
+
+    page_handlers: dict[str, PageHandler] = {
+        "overall": overall.show_overall_page,
+        "register": register.create_account,
+        "update_data": update_data.show_update_page,
     }
 
-# --- NAVIGATION ---
-with st.sidebar:
-    if st.session_state["logged_in"]:
-        st.image("./streamlit_app/page/logotf.png", width=True)
-        page = st.navigation(
-            menu_options,
-            position='sidebar',
-            expanded=False
-        )
-        asyncio.run(logout(st, HOST, session_id))
-    else:
-        page = st.navigation(
-            [login_page],
-            position='sidebar',
-            expanded=False
-        )
+    handler = page_handlers.get(selected_page)
+    if handler is None:
+        st.error("Page is not available.")
+        return
 
-# --- PAGE CONTENT ---
-try:
-    if not st.session_state['logged_in']:
-        asyncio.run(login.show_login_page(HOST))
-    else:
-        page_handlers = {
-            overall_page: lambda: overall.show_overall_page(HOST),
-            register_page: lambda: register.create_account(HOST),
-            update_page: lambda: update_data.show_update_page(HOST)
-        }
-        if page in page_handlers:
-            asyncio.run(page_handlers[page]())  # Call the appropriate function based on the page
-            st.session_state.page = page.url_path
-except Exception as e:
-    st.error(f"Error Fetching Data! {e}")
+    st.session_state.page = selected_page
+    await handler(host)
+
+
+def main() -> None:
+    """Run Streamlit dashboard app with role-based navigation."""
+    _inject_navigation_style()
+    _initialize_session_state()
+    _restore_login_state_from_cookie()
+    host = _resolve_host()
+    footer(st)
+
+    selected_page = _render_sidebar_navigation(host=host)
+
+    try:
+        asyncio.run(_dispatch_page(host=host, selected_page=selected_page))
+    except Exception as error:
+        st.error(f"Error fetching data: {error}")
+
+
+if __name__ == "__main__":
+    main()

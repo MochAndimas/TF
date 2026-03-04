@@ -72,11 +72,13 @@ class CampaignData:
     
     async def _fetch_data(self):
         """
-        Fetch the data from database.
+        Fetch campaign data from each configured ad-source table.
 
-        Parameters:
-            from_date (datetime.date): The start date of data to fetch.
-            to_date (datetime.date): The end date of data to fetch.
+        Args:
+            self: CampaignData instance containing date range and session.
+
+        Returns:
+            None: DataFrames are populated on instance attributes.
         """
         await self._read_db(data=GoogleAds, from_date=self.from_date, to_date=self.to_date)
         await self._read_db(data=FacebookAds, from_date=self.from_date, to_date=self.to_date)

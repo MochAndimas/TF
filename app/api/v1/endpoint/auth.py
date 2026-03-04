@@ -1,45 +1,58 @@
 import secrets
-from datetime import datetime, timedelta
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends, APIRouter, HTTPException
-from fastapi import status, Response, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from app.core.config import settings
 from app.db.models.user import TfUser
 from app.db.session import get_db
-from app.utils.user_utils import get_current_user, user_token, delete_account
-from app.utils.user_utils import roles, logout, create_account
-from app.core.security import verify_password, create_access_token
-from app.core.security import create_refresh_token, verify_csrf_token
-from app.schemas.user import TokenBase, RegisterBase
-from app.utils.campaign_utils import CampaignData
+from app.utils.user_utils import (
+    authenticate_user,
+    create_account,
+    delete_account,
+    get_current_user,
+    logout,
+    user_token,
+)
+from app.core.security import create_access_token, create_refresh_token, verify_csrf_token
+from app.schemas.user import LoginResponse, MessageResponse, RegisterBase, RegisterResponse
 
 
 router = APIRouter()
 
 
-@router.post("/api/register", response_model=RegisterBase)
+def _set_csrf_cookie(response: Response, csrf_token: str) -> None:
+    """Attach CSRF token cookie with environment-aware security flags."""
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+    )
+
+
+@router.post("/api/register", response_model=RegisterResponse)
 async def register(
-    request: Request,
     data: RegisterBase,
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),
-    x_csrf_token: str = Header(None),
+    csrf_token: str = Depends(verify_csrf_token),
 ):
-    """
-    Docstring for register
-    
-    :param data: Description
-    :type data: RegisterBase
-    :param session: Description
-    :type session: AsyncSession
-    """
-    csrf_cookie = request.headers.get("X-CSRF-Token")
+    """Register a new user account.
 
-    if not csrf_cookie or csrf_cookie != x_csrf_token:
-        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+    Args:
+        data (RegisterBase): Registration payload containing profile and password fields.
+        session (AsyncSession): Database session injected by FastAPI.
+        current_user (TfUser): Authenticated user performing the action.
+        csrf_token (str): Verified CSRF token from cookie/session check.
+
+    Returns:
+        JSONResponse: Success payload with created user identifier.
+
+    Raises:
+        HTTPException: Raised when password confirmation fails or email already exists.
+    """
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
@@ -60,7 +73,7 @@ async def register(
             detail="Email already registered",
         )
     
-    response = JSONResponse(
+    return JSONResponse(
         content={
             "success": True,
             "message": "Account created successfully",
@@ -68,49 +81,31 @@ async def register(
         }
     )
 
-    return response
 
-
-@router.post("/api/login", response_model=TokenBase)
+@router.post("/api/login", response_model=LoginResponse)
 async def login_user(
     creds: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_db),
     csrf_token: str = Depends(verify_csrf_token)
 ):
-    """
-    Docstring for login_user
-    
-    :param creds: Oauth2 password request Form
-    :type creds: OAuth2PasswordRequestForm
-    :param session: Sqlite AsyncSession Maker
-    :type session: AsyncSession
-    :param csrf_token: csrf security token for http form.
-    :type csrf_token: str
-    """
-    query = await session.execute(
-        select(
-            TfUser
-        ).where(
-            TfUser.email == creds.username,
-            TfUser.deleted_at == None
-        )
-    )
-    user = query.scalar()
-    user_role = await roles(creds.username, session)
-    
-    if user == None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account has been deleted!",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+    """Authenticate user credentials and issue access/refresh tokens.
 
-    if not user or not user_role or not verify_password(creds.password, user.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or Password!",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+    Args:
+        creds (OAuth2PasswordRequestForm): Login form with username/email and password.
+        session (AsyncSession): Database session injected by FastAPI.
+        csrf_token (str): Verified CSRF token from cookie/session check.
+
+    Returns:
+        JSONResponse: Authentication payload containing access token and role.
+
+    Raises:
+        HTTPException: Raised when account is deleted or credentials are invalid.
+    """
+    user, user_role = await authenticate_user(
+        email=creds.username,
+        password=creds.password,
+        session=session,
+    )
     
     # Create JWT token and store it to database
     personal_token = await user_token(
@@ -131,90 +126,79 @@ async def login_user(
         }
     )
 
-    response.headers["Authentication"] = str(user.user_id)
+    response.headers["Authentication"] = str(user.user_id)  # consumed by Streamlit client
 
     return response
 
 
-@router.post("/api/login/csrf-token")
+@router.post("/api/login/csrf-token", response_model=MessageResponse)
 async def get_csrf_token(
     response: Response,
     request: Request,
     session: AsyncSession = Depends(get_db),
     creds: OAuth2PasswordRequestForm = Depends()
 ):
-    """
-    This endpoint initializes the CSRF token by setting it as an HTTP-only cookie.
-    
-    :param response: Fast API HTTPS response Form
-    :type response: Response
-    :param request: Fast API HTTPS response Form
-    :type request: Request
-    :param session: Sqlite AsyncSession Maker
-    :type session: AsyncSession
-    :param creds: Oauth2 password request Form
-    :type creds: OAuth2PasswordRequestForm
-    """
-    # retrieve user from the database by email
-    query = await session.execute(select(TfUser).where(TfUser.email == creds.username, TfUser.deleted_at == None))
-    user = query.scalar()
-    user_role = await roles(creds.username, session)
+    """Initialize CSRF token for a valid login attempt.
 
-    if user == None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account has been deleted!",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+    Args:
+        response (Response): Mutable FastAPI response used to set cookies.
+        request (Request): Incoming request containing the session store.
+        session (AsyncSession): Database session injected by FastAPI.
+        creds (OAuth2PasswordRequestForm): Login form with username/email and password.
 
-    if not user or not user_role or not verify_password(creds.password, user.password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or Password!",
-            headers={"WWW-Authenticate": "Bearer"}
-        )
+    Returns:
+        dict[str, str]: Confirmation message after CSRF cookie is set.
+
+    Raises:
+        HTTPException: Raised when user credentials are invalid.
+    """
+    await authenticate_user(
+        email=creds.username,
+        password=creds.password,
+        session=session,
+    )
+
     if "csrf_token" not in request.session:
         csrf_token = secrets.token_hex(16)
         request.session["csrf_token"] = csrf_token
     else:
         csrf_token = request.session["csrf_token"]
 
-    # Set CSRF token as an HTTP-only cookie
-    response.set_cookie(
-        key="csrf_token",
-        value=csrf_token,
-        httponly=True,
-        secure=False if settings.DEBUG else True
-    )
+    _set_csrf_cookie(response, csrf_token)
 
-    return {"message": "CSRF token initialized."}
+    return {"message": "CSRF token initialized.", "success": True}
 
 
-@router.post("/api/logout")
+@router.post("/api/logout", response_model=MessageResponse)
 async def logout_user(
-    response: Response,
-    session: AsyncSession = Depends(get_db), 
-    current_user: TfUser = Depends(get_current_user)):
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),
+):
+    """Log out the current user and revoke persisted token state.
+
+    Args:
+        session (AsyncSession): Database session injected by FastAPI.
+        current_user (TfUser): Authenticated user resolved from bearer token.
+
+    Returns:
+        JSONResponse: Success/failure status message for logout action.
     """
-    Logs out a user by clearing the refresh token cookie.
-    """
-    try:
-        await logout(session=session, user_id=current_user.user_id)
-    except Exception:
-        response = response = JSONResponse(
-            content={"message": "Something error, please try again!", "success": False},
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+    result = await logout(session=session, user_id=current_user.user_id)
+    if not result:
+        return JSONResponse(
+            content={"message": "Session data not found", "success": False},
+            status_code=status.HTTP_404_NOT_FOUND,
         )
-    # Clear the refresh token by setting an expired cookie
+
     response = JSONResponse(
         content={"message": "Successfully logged out", "success": True},
-        status_code=status.HTTP_200_OK
+        status_code=status.HTTP_200_OK,
     )
     response.delete_cookie(
         key="refresh_token",
-        httponly=True,  # Prevents JavaScript access
-        secure=True,    # Ensures it's only sent over HTTPS
-        samesite="strict",  # Adjust as needed)
+        httponly=True,
+        secure=True,
+        samesite="strict",
     )
     return response
 
@@ -225,6 +209,19 @@ async def delete_user(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user)
 ):  
+    """Soft-delete a target user account.
+
+    Args:
+        user_id (str): Identifier of the user account to be deleted.
+        session (AsyncSession): Database session injected by FastAPI.
+        current_user (TfUser): Authenticated user performing the action.
+
+    Returns:
+        dict[str, str | bool]: Success payload with deleted user information.
+
+    Raises:
+        HTTPException: Raised for authorization errors, invalid operations, or missing user.
+    """
     try:
         result = await delete_account(
             session=session,

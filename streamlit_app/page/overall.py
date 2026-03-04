@@ -10,12 +10,13 @@ from streamlit_app.functions.utils import get_date_range
 
 async def show_overall_page(host):
     """
-    This function creates a Streamlit page to display revenue metrics,
-    with a loading state during data fetching.
+    Render overall dashboard page and filter controls.
 
     Args:
-        host: The base URL for the data API.
-        source: The source of data ('app' or 'web')
+        host (str): Base URL for backend API requests.
+
+    Returns:
+        None: UI side effects only.
     """
     # Form Input and Submission
     st.markdown(f"""<h1 align="center">Overview Data</h1>""", unsafe_allow_html=True)

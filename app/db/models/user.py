@@ -4,8 +4,17 @@ from app.db.base import SqliteBase
 
 
 class TfUser(SqliteBase):
-    """
-    Docstring for TfUser
+    """SQLAlchemy model for application users.
+
+    Attributes:
+        user_id (str): Primary key user identifier (UUID string).
+        fullname (str): User full name.
+        email (str): User email address.
+        role (str): Role assigned to the user.
+        password (str): Hashed password value.
+        created_at (DateTime): Creation timestamp.
+        updated_at (DateTime): Last modification timestamp.
+        deleted_at (DateTime | None): Soft-delete timestamp.
     """
     __tablename__ = "tf_user"
 
@@ -20,14 +29,28 @@ class TfUser(SqliteBase):
 
 
 class UserToken(SqliteBase):
-    """
-    Docstring for UserToken
+    """SQLAlchemy model for persisted login/session tokens.
+
+    Attributes:
+        id (int): Primary key.
+        session_id (str): Session identifier (UUID string).
+        user_id (str): Related user identifier.
+        page (str): Last visited page marker.
+        logged_in (bool): Current login state.
+        role (str): Role cached at login time.
+        expiry (DateTime): Token/session expiry timestamp.
+        access_token (str): Current access token.
+        refresh_token (str): Current refresh token.
+        is_revoked (bool): Revocation state.
+        created_at (DateTime): Creation timestamp.
+        updated_at (DateTime): Last update timestamp.
+        deleted_at (DateTime | None): Soft-delete timestamp.
     """
     __tablename__ = "user_token"
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
-    session_id = Column("session_id", Integer, nullable=False)
-    user_id = Column("user_id", Integer, nullable=False)
+    session_id = Column("session_id", String, nullable=False)
+    user_id = Column("user_id", String, nullable=False)
     page = Column("page", String, nullable=False)
     logged_in = Column("logged_in", Boolean, nullable=False)
     role = Column("role",String, nullable=False)
@@ -41,13 +64,21 @@ class UserToken(SqliteBase):
 
 
 class LogData(SqliteBase):
-    """
-    Docstring for LogData
+    """SQLAlchemy model for HTTP request/response logs.
+
+    Attributes:
+        id (int): Primary key.
+        url (str): Requested URL.
+        method (str): HTTP method.
+        time (float): Request processing duration in seconds.
+        status (int): HTTP response status code.
+        response (JSON): Response body snapshot.
+        created_at (DateTime): Log creation timestamp.
     """
     __tablename__ = "log_data"
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
-    url = Column("url", Integer, nullable=False)
+    url = Column("url", String, nullable=False)
     method = Column("method", String, nullable=False)
     time = Column("time", Float, nullable=False)
     status = Column("status", Integer, nullable=False)
