@@ -102,22 +102,19 @@ async def show_login_page(host):
     st.markdown(LOGIN_STYLE, unsafe_allow_html=True)
     st.markdown('<div class="tf-auth-wrap">', unsafe_allow_html=True)
     st.markdown('<div class="tf-auth-card">', unsafe_allow_html=True)
-    top_col, title_col = st.columns([1, 5], vertical_alignment="center")
-    with top_col:
-        st.image("./streamlit_app/page/logotf.png", width=58)
-    with title_col:
-        st.markdown('<p class="tf-auth-title">Traders Family Dashboard</p>', unsafe_allow_html=True)
-        st.markdown(
-            '<p class="tf-auth-subtitle">Sign in to see campaign data.</p>',
-            unsafe_allow_html=True,
-        )
+    st.image("./streamlit_app/page/tf_wide.png", width=260)
+    st.markdown(
+        '<p class="tf-auth-subtitle" style="font-size:1.2rem;font-weight:700;letter-spacing:0.2px;'
+        'margin-top:0.35rem;margin-bottom:1rem;opacity:0.95;">Campaign Dashboard</p>',
+        unsafe_allow_html=True,
+    )
 
     with st.form("log-in", border=False):
         email = st.text_input("Email", placeholder="name@company.com")
         password = st.text_input("Password", type="password", placeholder="Enter your password")
         remember = st.checkbox("Keep me signed in for 7 days")
         submitted = st.form_submit_button("Sign In", width="stretch")
-    st.markdown('<p class="tf-auth-meta">Secure login protected with CSRF validation.</p>', unsafe_allow_html=True)
+
     st.markdown("</div></div>", unsafe_allow_html=True)
 
     if not submitted:
