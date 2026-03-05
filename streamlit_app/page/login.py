@@ -65,7 +65,7 @@ async def _request_csrf_token(
         return None, None, _extract_error_message(payload, "Failed to initialize CSRF token.")
 
     csrf_token = response.cookies.get("csrf_token") or client.cookies.get("csrf_token")
-    server_session = client.cookies.get("session")
+    server_session = response.cookies.get("session") or client.cookies.get("session")
     if not csrf_token:
         return None, None, "CSRF token initialization failed. Please try again."
 
@@ -78,12 +78,17 @@ async def _request_login(
     email: str,
     password: str,
     csrf_token: str,
+    server_session: str | None = None,
 ) -> tuple[dict, httpx.Response]:
     """Send login request and return `(payload, response)`."""
+    request_cookies = {"csrf_token": csrf_token}
+    if server_session:
+        request_cookies["session"] = server_session
+
     response = await client.post(
         f"{host}/api/login",
         data={"username": email, "password": password},
-        cookies={"csrf_token": csrf_token},
+        cookies=request_cookies,
         headers={"X-CSRF-Token": csrf_token},
     )
     payload = response.json() if response.content else {}
@@ -144,6 +149,7 @@ async def show_login_page(host):
                     email=email,
                     password=password,
                     csrf_token=csrf_token,
+                    server_session=server_session,
                 )
         except httpx.RequestError as error:
             st.error(f"Unable to reach authentication service: {error}")

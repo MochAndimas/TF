@@ -286,21 +286,22 @@ def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_l
     columns = st.columns(5, gap="small")
     for column, (label, key) in zip(columns, cards):
         with column:
-            raw_value = _campaign_metric_value(current_metrics, key)
-            if key in {"cost", "cost_leads"}:
-                metric_value = _campaign_format_currency(raw_value)
-            else:
-                metric_value = _campaign_format_number(raw_value)
+            with st.container(border=True):
+                raw_value = _campaign_metric_value(current_metrics, key)
+                if key in {"cost", "cost_leads"}:
+                    metric_value = _campaign_format_currency(raw_value)
+                else:
+                    metric_value = _campaign_format_number(raw_value)
 
-            growth_value = growth_metrics.get(key)
-            if growth_value is None:
-                growth_value = _campaign_growth_from_periods(source_metrics, key)
-            growth_text = _campaign_format_growth(growth_value)
-            st.metric(
-                label=label,
-                value=metric_value,
-                delta=growth_text,
-            )
+                growth_value = growth_metrics.get(key)
+                if growth_value is None:
+                    growth_value = _campaign_growth_from_periods(source_metrics, key)
+                growth_text = _campaign_format_growth(growth_value)
+                st.metric(
+                    label=label,
+                    value=metric_value,
+                    delta=growth_text,
+                )
 
 
 def get_streamlit():
@@ -593,4 +594,3 @@ def edit_account_modal(
                 }
             )
             st.rerun()
-

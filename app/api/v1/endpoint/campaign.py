@@ -24,7 +24,25 @@ async def campaign_overview(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
-    """Return combined campaign overview payload for dashboard initial render."""
+    """Generate campaign overview payload for dashboard rendering.
+
+    Args:
+        start_date (date): Start of requested reporting window (inclusive).
+        end_date (date): End of requested reporting window (inclusive).
+        chart (ChartType): Chart mode for leads-by-source payload (`table`, `pie`, `both`).
+        session (AsyncSession): Injected asynchronous database session.
+        current_user (TfUser): Authenticated user resolved from access token.
+
+    Returns:
+        JSONResponse: Success response containing:
+            - ``success`` (bool): ``True`` when payload creation succeeds.
+            - ``message`` (str): Human-readable success message.
+            - ``data`` (dict[str, object]): Aggregated campaign overview payload.
+
+    Raises:
+        HTTPException: ``400`` when date range is invalid or validation fails.
+        HTTPException: ``500`` when unexpected server-side processing fails.
+    """
     try:
         if start_date > end_date:
             raise HTTPException(

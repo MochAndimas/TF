@@ -15,6 +15,7 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
 
@@ -100,8 +101,17 @@ class FastApiApp:
             None: Disposes database engine after shutdown sequence.
         """
         self.logger.info("Application startup: preparing database schema")
-        async with sqlite_engine.begin() as connection:
-            await connection.run_sync(SqliteBase.metadata.create_all)
+        try:
+            async with sqlite_engine.begin() as connection:
+                await connection.run_sync(SqliteBase.metadata.create_all)
+        except OperationalError as error:
+            # SQLite + multi-worker startup can race on DDL and raise "table already exists".
+            if "already exists" in str(error).lower():
+                self.logger.warning(
+                    "Schema bootstrap race detected during startup; existing tables will be reused."
+                )
+            else:
+                raise
         await self._bootstrap_superadmin_if_enabled()
         yield
         self.logger.info("Application shutdown: disposing database engine")

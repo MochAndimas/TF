@@ -28,6 +28,19 @@ PAGE_STYLE = """
 """
 
 
+def _set_transparent_chart_background(figure):
+    """Force transparent plot and paper background for non-table charts."""
+    if not figure.data:
+        return figure
+    if any(getattr(trace, "type", "") == "table" for trace in figure.data):
+        return figure
+    figure.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
 async def show_user_acquisition_page(host: str) -> None:
     """Render campaign ads dashboard page."""
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
@@ -115,11 +128,14 @@ async def show_user_acquisition_page(host: str) -> None:
     overview_data = payload.get("data", {})
     leads_by_source = overview_data.get("leads_by_source", {})
     ads_metrics = overview_data.get("ads_metrics_with_growth", {})
+    leads_performance_charts = overview_data.get("leads_performance_charts", {})
+    ads_campaign_details = overview_data.get("ads_campaign_details", {})
 
     table_payload = leads_by_source.get("table", {}).get("figure")
     pie_payload = leads_by_source.get("pie", {}).get("figure")
     table_figure = campaign_figure_from_payload(table_payload, "Leads Source")
     pie_figure = campaign_figure_from_payload(pie_payload, "Leads Source")
+    pie_figure = _set_transparent_chart_background(pie_figure)
     table_figure.update_layout(height=460)
     pie_figure.update_layout(height=460)
 
@@ -134,6 +150,50 @@ async def show_user_acquisition_page(host: str) -> None:
     selected_key = source_options[selected_source]
     selected_metrics = ads_metrics.get(selected_key, {})
     render_campaign_metric_cards(st, selected_metrics, selected_source)
+
+    selected_charts = leads_performance_charts.get(selected_key, {})
+    cost_to_leads_payload = selected_charts.get("cost_to_leads", {}).get("figure")
+    leads_by_periods_payload = selected_charts.get("leads_by_periods", {}).get("figure")
+    clicks_to_leads_payload = selected_charts.get("clicks_to_leads", {}).get("figure")
+
+    cost_to_leads_figure = campaign_figure_from_payload(
+        cost_to_leads_payload,
+        f"Cost To Leads - {selected_source}",
+    )
+    leads_by_periods_figure = campaign_figure_from_payload(
+        leads_by_periods_payload,
+        f"Leads By Periods - {selected_source}",
+    )
+    clicks_to_leads_figure = campaign_figure_from_payload(
+        clicks_to_leads_payload,
+        f"Clicks To Leads - {selected_source}",
+    )
+    cost_to_leads_figure = _set_transparent_chart_background(cost_to_leads_figure)
+    leads_by_periods_figure = _set_transparent_chart_background(leads_by_periods_figure)
+    clicks_to_leads_figure = _set_transparent_chart_background(clicks_to_leads_figure)
+    cost_to_leads_figure.update_layout(height=430)
+    leads_by_periods_figure.update_layout(height=430)
+    clicks_to_leads_figure.update_layout(height=430)
+
+    chart_left, chart_mid, chart_right = st.columns(3, gap="small")
+    with chart_left:
+        with st.container(border=True):
+            st.plotly_chart(cost_to_leads_figure, width="stretch")
+    with chart_mid:
+        with st.container(border=True):
+            st.plotly_chart(clicks_to_leads_figure, width="stretch")
+    with chart_right:
+        with st.container(border=True):
+            st.plotly_chart(leads_by_periods_figure, width="stretch")
+
+    details_payload = ads_campaign_details.get(selected_key, {}).get("figure")
+    details_figure = campaign_figure_from_payload(
+        details_payload,
+        f"Ads Campaign Details - {selected_source}",
+    )
+    details_figure.update_layout(height=760)
+    with st.container(border=True):
+        st.plotly_chart(details_figure, width="stretch")
 
 
 async def show_campaign_ads_page(host: str) -> None:
