@@ -75,9 +75,10 @@ def _collapse_sidebar_if_requested() -> None:
     if not st.session_state.get("collapse_sidebar_once", False):
         return
 
-    html(
-        """
+    nonce = st.session_state.get("collapse_sidebar_nonce", 0)
+    script = """
         <script>
+        // nonce: __NONCE__
         const findCollapseButton = () => (
           window.parent.document.querySelector('button[aria-label="Close sidebar"]') ||
           window.parent.document.querySelector('button[aria-label="Collapse sidebar"]') ||
@@ -98,7 +99,9 @@ def _collapse_sidebar_if_requested() -> None:
           }
         }, 80);
         </script>
-        """,
+        """
+    html(
+        script.replace("__NONCE__", str(nonce)),
         height=0,
         width=0,
     )
@@ -199,6 +202,9 @@ def _render_sidebar_navigation(host: str) -> str | None:
                         selected_page = page_key
                         st.session_state["collapse_nav_once"] = True
                         st.session_state["collapse_sidebar_once"] = True
+                        st.session_state["collapse_sidebar_nonce"] = (
+                            st.session_state.get("collapse_sidebar_nonce", 0) + 1
+                        )
 
         if collapse_nav_once:
             st.session_state["collapse_nav_once"] = False
