@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from time import perf_counter
@@ -13,14 +14,17 @@ from typing import Any, Awaitable, Callable
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
+from sqlalchemy import select
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
 
 from app.api.v1.endpoint.auth import router as auth_router
+from app.api.v1.endpoint.campaign import router as campaign_router
 from app.api.v1.endpoint.feature import router as feature_router
 from app.core.config import settings
+from app.core.security import pwd_context
 from app.db.base import SqliteBase
-from app.db.models.user import LogData
+from app.db.models.user import LogData, TfUser
 from app.db.session import sqlite_async_session, sqlite_engine
 
 NextHandler = Callable[[Request], Awaitable[Response]]
@@ -98,9 +102,63 @@ class FastApiApp:
         self.logger.info("Application startup: preparing database schema")
         async with sqlite_engine.begin() as connection:
             await connection.run_sync(SqliteBase.metadata.create_all)
+        await self._bootstrap_superadmin_if_enabled()
         yield
         self.logger.info("Application shutdown: disposing database engine")
         await sqlite_engine.dispose()
+
+    async def _bootstrap_superadmin_if_enabled(self) -> None:
+        """Create first superadmin account once when bootstrap mode is enabled."""
+        settings.validate_bootstrap_config()
+        if not settings.BOOTSTRAP_SUPERADMIN:
+            return
+
+        bootstrap_email = str(settings.INITIAL_SUPERADMIN_EMAIL).lower().strip()
+        now = datetime.now()
+
+        async with sqlite_async_session() as session:
+            existing_user_result = await session.execute(
+                select(TfUser).where(
+                    TfUser.email == bootstrap_email,
+                    TfUser.deleted_at == None,
+                )
+            )
+            existing_user = existing_user_result.scalars().first()
+            if existing_user is not None:
+                self.logger.info(
+                    "Bootstrap superadmin skipped: account already exists for %s",
+                    bootstrap_email,
+                )
+                return
+
+            active_users_result = await session.execute(
+                select(TfUser.user_id).where(TfUser.deleted_at == None)
+            )
+            if active_users_result.first() is not None:
+                self.logger.warning(
+                    "Bootstrap superadmin skipped: active users already exist. "
+                    "Disable BOOTSTRAP_SUPERADMIN."
+                )
+                return
+
+            session.add(
+                TfUser(
+                    user_id=str(uuid.uuid4()),
+                    fullname=str(settings.INITIAL_SUPERADMIN_NAME).strip(),
+                    email=bootstrap_email,
+                    role="superadmin",
+                    password=pwd_context.hash(str(settings.INITIAL_SUPERADMIN_PASSWORD)),
+                    created_at=now,
+                    updated_at=now,
+                    deleted_at=None,
+                )
+            )
+            await session.commit()
+
+        self.logger.warning(
+            "Bootstrap superadmin created for %s. Set BOOTSTRAP_SUPERADMIN=false after first deploy.",
+            bootstrap_email,
+        )
 
     def _add_middlewares(self) -> None:
         """Register HTTP middleware stack for the API service.
@@ -304,6 +362,7 @@ class FastApiApp:
         """
         self.app.include_router(auth_router, tags=["Authentication"])
         self.app.include_router(feature_router, tags=["Update Data"])
+        self.app.include_router(campaign_router, tags=["Campaign Analytics"])
 
     def run(self) -> None:
         """Start Uvicorn server with environment-aware runtime options.

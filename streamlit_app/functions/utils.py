@@ -4,7 +4,7 @@ import httpx
 import pandas as pd
 import streamlit as st
 from decouple import config
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -16,6 +16,7 @@ from streamlit_cookies_controller import CookieController
 from requests.exceptions import HTTPError, ConnectionError, Timeout, RequestException
 from dateutil.relativedelta import relativedelta
 import plotly.io as pio
+import plotly.graph_objects as go
 cookie_controller = CookieController()
 
 # streamlit engine and sessionmaker
@@ -79,7 +80,14 @@ def get_date_range(days, period='days', months=3):
     return start_date.date(), end_date.date()
 
 
-async def fetch_data(st, host, uri, params):
+async def fetch_data(
+        st,
+        host,
+        uri,
+        params=None,
+        method: str = "GET",
+        json_payload: dict | None = None
+):
     """
     Fetches data from a protected API endpoint, handling token refresh and errors gracefully.
     
@@ -87,7 +95,9 @@ async def fetch_data(st, host, uri, params):
         st: Streamlit module/state object.
         host (str): The base URL of the API host.
         uri (str): The specific endpoint URI.
-        params (dict): Query parameters sent with GET request.
+        params (dict | None): Query parameters for request.
+        method (str): HTTP method (`GET`/`POST`/etc).
+        json_payload (dict | None): JSON payload for non-GET request.
     
     Returns:
         dict: JSON payload from API, or error payload on failure.
@@ -99,7 +109,13 @@ async def fetch_data(st, host, uri, params):
             "Authorization": f"Bearer {user.access_token}",
         }
         async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.get(url, headers=headers, params=params)
+            response = await client.request(
+                method=method.upper(),
+                url=url,
+                headers=headers,
+                params=params,
+                json=json_payload,
+            )
             response.raise_for_status()  # Raise exception for HTTP errors (4xx, 5xx)
             return response.json()
         
@@ -115,6 +131,176 @@ async def fetch_data(st, host, uri, params):
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
         return {"message": f"An unexpected error occurred: {e}"}
+
+
+def campaign_preset_ranges(today: date) -> dict[str, tuple[date, date] | None]:
+    """Build period presets used by campaign ads dashboard page."""
+    yesterday = today - timedelta(days=1)
+    this_month_start = today.replace(day=1)
+    last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+    last_month_end = this_month_start - timedelta(days=1)
+    return {
+        "Last 7 Day": (today - timedelta(days=7), yesterday),
+        "Last 30 Day": (today - timedelta(days=30), yesterday),
+        "This Month": (this_month_start, today),
+        "Last Month": (last_month_start, last_month_end),
+        "Custom Range": None,
+    }
+
+
+def campaign_figure_from_payload(payload: dict | None, title: str) -> go.Figure:
+    """Convert Plotly JSON payload into figure with empty fallback state."""
+    if payload and isinstance(payload, dict):
+        figure = go.Figure(payload)
+        if figure.data and isinstance(figure.data[0], go.Table):
+            table_trace = figure.data[0]
+            header_values = [str(value).strip().lower() for value in (table_trace.header.values or [])]
+            formatted_columns = []
+            for column_index, column_values in enumerate(table_trace.cells.values or []):
+                header_name = header_values[column_index] if column_index < len(header_values) else ""
+                formatted_values = []
+                for value in column_values:
+                    try:
+                        number = float(value)
+                        if "share" in header_name:
+                            formatted_values.append(f"{number:,.2f}".rstrip("0").rstrip("."))
+                        else:
+                            formatted_values.append(f"{int(number):,}" if number.is_integer() else f"{number:,.2f}")
+                    except (TypeError, ValueError):
+                        formatted_values.append(value)
+                formatted_columns.append(formatted_values)
+
+            figure.update_traces(
+                header=dict(
+                    fill_color="#1f2937",
+                    font=dict(color="#f8fafc", size=14),
+                    align="center",
+                ),
+                cells=dict(
+                    values=formatted_columns,
+                    fill_color="#0f172a",
+                    font=dict(color="#e2e8f0", size=13),
+                    align="center",
+                    height=34,
+                ),
+                domain=dict(y=[0.24, 0.76]),
+                selector=dict(type="table"),
+            )
+            figure.update_layout(margin=dict(l=0, r=0, t=56, b=0), height=430)
+        return figure
+
+    figure = go.Figure()
+    figure.update_layout(
+        title=title,
+        annotations=[
+            {
+                "text": "No data available",
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.5,
+                "y": 0.5,
+                "showarrow": False,
+            }
+        ],
+    )
+    return figure
+
+
+def _campaign_format_number(value: float | int) -> str:
+    """Format numeric metric values for compact display."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "0"
+
+    if number.is_integer():
+        return f"{int(number):,}"
+    return f"{number:,.2f}"
+
+
+def _campaign_format_currency(value: float | int) -> str:
+    """Format currency metric with Rp prefix."""
+    full_currency = f"Rp. {_campaign_format_number(value)}"
+    if len(full_currency) <= 12:
+        return full_currency
+
+    number = float(value)
+    absolute = abs(number)
+    if absolute >= 1_000_000_000:
+        compact = f"{number / 1_000_000_000:.2f}B"
+    elif absolute >= 1_000_000:
+        compact = f"{number / 1_000_000:.2f}M"
+    elif absolute >= 1_000:
+        compact = f"{number / 1_000:.2f}K"
+    else:
+        compact = _campaign_format_number(number)
+
+    return f"Rp. {compact}"
+
+
+def _campaign_format_growth(growth: float | None) -> str:
+    """Format growth percentage text used by metric cards."""
+    if growth is None:
+        return "N/A"
+    sign = "+" if growth > 0 else ""
+    return f"{sign}{growth:.2f}% from last period"
+
+
+def _campaign_metric_value(metrics: dict[str, float], key: str) -> float:
+    """Safely extract metric value as float from source payload."""
+    value = metrics.get(key, 0)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -> float:
+    """Calculate growth from current/previous metrics as fallback."""
+    current_metrics = source_metrics.get("current_period", {}).get("metrics", {})
+    previous_metrics = source_metrics.get("previous_period", {}).get("metrics", {})
+    current_value = _campaign_metric_value(current_metrics, key)
+    previous_value = _campaign_metric_value(previous_metrics, key)
+
+    if previous_value == 0:
+        if current_value == 0:
+            return 0.0
+        return 100.0
+    return round(((current_value - previous_value) / previous_value) * 100, 2)
+
+
+def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_label: str) -> None:
+    """Render five KPI cards for selected campaign source."""
+    st.markdown(f'<div class="metric-section-title">{source_label} Performance</div>', unsafe_allow_html=True)
+
+    current_metrics = source_metrics.get("current_period", {}).get("metrics", {})
+    growth_metrics = source_metrics.get("growth_percentage", {})
+    cards = [
+        ("Cost Spend", "cost"),
+        ("Impressions", "impressions"),
+        ("Clicks", "clicks"),
+        ("Leads", "leads"),
+        ("Cost/Leads", "cost_leads"),
+    ]
+
+    columns = st.columns(5, gap="small")
+    for column, (label, key) in zip(columns, cards):
+        with column:
+            raw_value = _campaign_metric_value(current_metrics, key)
+            if key in {"cost", "cost_leads"}:
+                metric_value = _campaign_format_currency(raw_value)
+            else:
+                metric_value = _campaign_format_number(raw_value)
+
+            growth_value = growth_metrics.get(key)
+            if growth_value is None:
+                growth_value = _campaign_growth_from_periods(source_metrics, key)
+            growth_text = _campaign_format_growth(growth_value)
+            st.metric(
+                label=label,
+                value=metric_value,
+                delta=growth_text,
+            )
 
 
 def get_streamlit():
@@ -246,7 +432,7 @@ async def logout(st, host, session_id):
         session_id: Persisted session identifier (currently unused in request payload).
     """
     
-    if st.button("Log Out", use_container_width=True):
+    if st.button("Log Out", width="stretch"):
         with st.spinner("Logging out..."):
             try:
                 user = get_user(st.session_state._user_id)
@@ -277,37 +463,6 @@ async def logout(st, host, session_id):
 
             except RequestException as e:
                 st.error(f"An error occurred during logout: {e}. Please try again later.")
-
-
-def get_date_range(days, period='days', months=3):
-    """
-    Returns the date range from today minus the specified number of days to yesterday, or from the start of the month
-    a specified number of months ago to the last day of the previous month.
-
-    Args:
-        days (int): The number of days to go back from today to determine the start date when period is 'days'.
-        period (str): The period type, either 'days' or 'months'. Default is 'days'.
-        months (int): The number of months to go back from the current month to determine the start date when period is 'months'. Default is 3.
-
-    Returns:
-        tuple: A tuple containing the start date and end date (both in datetime.date format).
-    """
-    if period == 'days':
-        # Calculate the end date as yesterday
-        end_date = datetime.today() - timedelta(days=1)
-        # Calculate the start date based on the number of days specified
-        start_date = datetime.today() - timedelta(days=days)
-    elif period == 'months':
-        # Get the first day of the current month
-        end_date = datetime.today().replace(day=1)
-        # Calculate the start date based on the number of months specified
-        start_date = end_date - relativedelta(months=months)
-        # Adjust the end date to be the last day of the previous month
-        end_date = end_date - relativedelta(days=1)
-        
-    return start_date.date(), end_date.date()
-
-
 def is_valid_email(email):
     """Validate email string against a basic regex pattern.
 

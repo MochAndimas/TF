@@ -6,10 +6,11 @@ import asyncio
 from typing import Awaitable, Callable
 
 import streamlit as st
+from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import login, overall, register, update_data
+from streamlit_app.page import campaign_ads, login, overall, register, update_data
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -21,27 +22,27 @@ st.set_page_config(
 PageHandler = Callable[[str], Awaitable[None]]
 
 PAGE_LABELS: dict[str, str] = {
-    "overall": "Overall Data",
+    "user_acquisition": "User Acquisition",
     "register": "Create Account",
     "update_data": "Update Data",
 }
 
 PAGE_BUTTON_TYPES: dict[str, str] = {
-    "overall": "tertiary",
+    "user_acquisition": "tertiary",
     "register": "tertiary",
     "update_data": "tertiary",
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
-    "Overall": ["overall"],
+    "Campaign": ["user_acquisition"],
     "Settings": ["register", "update_data"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["overall", "register", "update_data"],
-    "admin": ["overall"],
-    "digital_marketing": ["overall"],
-    "sales": ["overall"],
+    "superadmin": ["user_acquisition", "register", "update_data"],
+    "admin": ["overall", "user_acquisition"],
+    "digital_marketing": ["overall", "user_acquisition"],
+    "sales": ["overall", "user_acquisition"],
 }
 
 
@@ -67,6 +68,41 @@ def _inject_navigation_style() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def _collapse_sidebar_if_requested() -> None:
+    """Best-effort sidebar auto-collapse triggered after page navigation click."""
+    if not st.session_state.get("collapse_sidebar_once", False):
+        return
+
+    html(
+        """
+        <script>
+        const findCollapseButton = () => (
+          window.parent.document.querySelector('button[aria-label="Close sidebar"]') ||
+          window.parent.document.querySelector('button[aria-label="Collapse sidebar"]') ||
+          window.parent.document.querySelector('[data-testid="stSidebarCollapseButton"] button') ||
+          window.parent.document.querySelector('[data-testid="collapsedControl"]')
+        );
+
+        let attempts = 0;
+        const timer = setInterval(() => {
+          const button = findCollapseButton();
+          if (button) {
+            button.click();
+            clearInterval(timer);
+          }
+          attempts += 1;
+          if (attempts > 20) {
+            clearInterval(timer);
+          }
+        }, 80);
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+    st.session_state["collapse_sidebar_once"] = False
 
 
 def _resolve_host() -> str:
@@ -143,6 +179,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
             st.session_state.page = current_page
 
         st.markdown('<p class="tf-nav-title">Navigation</p>', unsafe_allow_html=True)
+        collapse_nav_once = st.session_state.get("collapse_nav_once", False)
         selected_page = current_page
 
         for group_title, group_pages in NAV_GROUPS.items():
@@ -150,15 +187,21 @@ def _render_sidebar_navigation(host: str) -> str | None:
             if not visible_pages:
                 continue
 
-            with st.expander(group_title, expanded=(current_page in visible_pages)):
+            group_expanded = False if collapse_nav_once else (current_page in visible_pages)
+            with st.expander(group_title, expanded=group_expanded):
                 for page_key in visible_pages:
                     if st.button(
                         PAGE_LABELS.get(page_key, page_key),
                         key=f"nav_{page_key}",
                         type=PAGE_BUTTON_TYPES.get(page_key, "secondary"),
-                        use_container_width=True,
+                        width="stretch",
                     ):
                         selected_page = page_key
+                        st.session_state["collapse_nav_once"] = True
+                        st.session_state["collapse_sidebar_once"] = True
+
+        if collapse_nav_once:
+            st.session_state["collapse_nav_once"] = False
 
         st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
         asyncio.run(logout(st, host, None))
@@ -184,7 +227,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         return
 
     page_handlers: dict[str, PageHandler] = {
-        "overall": overall.show_overall_page,
+        "user_acquisition": campaign_ads.show_user_acquisition_page,
         "register": register.create_account,
         "update_data": update_data.show_update_page,
     }
@@ -207,6 +250,7 @@ def main() -> None:
     footer(st)
 
     selected_page = _render_sidebar_navigation(host=host)
+    _collapse_sidebar_if_requested()
 
     try:
         asyncio.run(_dispatch_page(host=host, selected_page=selected_page))

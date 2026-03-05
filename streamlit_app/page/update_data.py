@@ -109,7 +109,7 @@ async def show_update_page(host):
                 except ValueError as error:
                     st.warning(str(error))
 
-        submitted = st.button("Run Update", type="primary", use_container_width=True, key="update_submit")
+        submitted = st.button("Run Update", type="primary", width="stretch", key="update_submit")
 
     if not submitted:
         return

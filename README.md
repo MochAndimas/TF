@@ -12,6 +12,7 @@ Dashboard internal untuk memantau data campaign dan sinkronisasi data dari beber
 ## Fitur Utama
 
 - Login/logout dengan CSRF validation
+- One-time bootstrap akun `superadmin` saat startup (opsional via ENV)
 - Role-based page access:
   - `superadmin`: overall, create account, update data
   - `admin`, `digital_marketing`, `sales`: overall
@@ -71,6 +72,10 @@ Pastikan key berikut ada:
 - `GSHEET_CLIENT_ID`
 - `GSHEET_CLIENT_SECRET`
 - `GSHEET_SHEET_ID`
+- `BOOTSTRAP_SUPERADMIN`
+- `INITIAL_SUPERADMIN_NAME`
+- `INITIAL_SUPERADMIN_EMAIL`
+- `INITIAL_SUPERADMIN_PASSWORD`
 
 ### 2) `.streamlit/secrets.toml` (frontend Streamlit)
 
@@ -121,8 +126,26 @@ python run_app.py
 - `DELETE /api/delete_account/{user_id}`
 - `POST /api/feature-data/update-external-api`
 
+## Bootstrap Superadmin (First Deploy)
+
+Gunakan fitur ini hanya untuk inisialisasi akun pertama saat database masih kosong.
+
+1. Set `.env`:
+   - `BOOTSTRAP_SUPERADMIN=true`
+   - `INITIAL_SUPERADMIN_NAME=<nama>`
+   - `INITIAL_SUPERADMIN_EMAIL=<email>`
+   - `INITIAL_SUPERADMIN_PASSWORD=<password-kuat>`
+2. Jalankan backend (`python main.py`) sampai startup selesai.
+3. Login memakai akun tersebut.
+4. Kembalikan `BOOTSTRAP_SUPERADMIN=false` dan restart service.
+
+Perilaku bootstrap:
+- Jika email superadmin sudah ada, proses create di-skip.
+- Jika sudah ada user aktif lain di DB, proses create di-skip.
+- Tujuan: aman dari duplikasi akun saat restart.
+
 ## Catatan
 
 - Database akan otomatis membuat tabel saat FastAPI startup.
 - Halaman register/update data hanya tersedia untuk role yang diizinkan.
-- Untuk akses pertama, pastikan sudah ada user aktif di tabel `tf_user` agar bisa login.
+- Jangan simpan kredensial bootstrap default di repo; isi dari secret manager atau env server saat deploy.

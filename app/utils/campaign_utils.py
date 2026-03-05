@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import date, timedelta
 
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.utils
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +43,19 @@ class CampaignData:
 
     async def _read_ads_db(self, model: type[AdsModel]) -> pd.DataFrame:
         """Read aggregated ad metrics for one ad platform."""
+        return await self._read_ads_db_with_range(
+            model=model,
+            from_date=self.from_date,
+            to_date=self.to_date,
+        )
+
+    async def _read_ads_db_with_range(
+        self,
+        model: type[AdsModel],
+        from_date: date,
+        to_date: date,
+    ) -> pd.DataFrame:
+        """Read aggregated ad metrics for one ad platform in a specific range."""
         query = (
             select(
                 model.date.label("date"),
@@ -54,7 +71,7 @@ class CampaignData:
                 func.sum(model.leads).label("leads"),
             )
             .join(model.campaign)
-            .filter(func.date(model.date).between(self.from_date, self.to_date))
+            .filter(func.date(model.date).between(from_date, to_date))
             .group_by(
                 model.date,
                 model.campaign_id,
@@ -142,6 +159,63 @@ class CampaignData:
             "tiktok": self.df_tiktok,
         }
 
+    @staticmethod
+    def _ads_model_map() -> dict[str, type[AdsModel]]:
+        """Map ads source keys to SQLAlchemy models."""
+        return {
+            "google": GoogleAds,
+            "facebook": FacebookAds,
+            "tiktok": TikTokAds,
+        }
+
+    @staticmethod
+    def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
+        """Build previous range with identical duration to current range."""
+        period_days = (to_date - from_date).days + 1
+        previous_to = from_date - timedelta(days=1)
+        previous_from = previous_to - timedelta(days=period_days - 1)
+        return previous_from, previous_to
+
+    @staticmethod
+    def _growth_percentage(current_value: float, previous_value: float) -> float | None:
+        """Calculate growth percentage against previous value."""
+        if previous_value == 0:
+            if current_value == 0:
+                return 0.0
+            return 100.0
+        return round(((current_value - previous_value) / previous_value) * 100, 2)
+
+    def _build_leads_by_source_table(self, start_date: date, end_date: date) -> pd.DataFrame:
+        """Build DataFrame table for leads by source in selected date range."""
+        rows: list[dict[str, object]] = []
+        for source, frame in self._ads_frame_map().items():
+            if frame.empty:
+                leads_total = 0
+            else:
+                filtered = frame.loc[(frame["date"] >= start_date) & (frame["date"] <= end_date)].copy()
+                if filtered.empty:
+                    leads_total = 0
+                else:
+                    filtered = filtered.loc[filtered["campaign_id"] != "No data"]
+                    filtered["leads"] = pd.to_numeric(filtered["leads"], errors="coerce").fillna(0)
+                    leads_total = int(filtered["leads"].sum())
+
+            rows.append(
+                {
+                    "ad_source": source,
+                    "leads": leads_total,
+                }
+            )
+
+        result = pd.DataFrame(rows)
+        grand_total = int(result["leads"].sum()) if not result.empty else 0
+        if grand_total == 0:
+            result["share_pct"] = 0.0
+        else:
+            result["share_pct"] = (result["leads"] / grand_total * 100).round(2)
+
+        return result.sort_values("leads", ascending=False).reset_index(drop=True)
+
     async def ads_metrics(
         self,
         data: str,
@@ -161,6 +235,15 @@ class CampaignData:
             raise ValueError("from_date cannot be after to_date.")
 
         df = frames[source]
+        # Loaded frames are initialized with the object's base range.
+        # Re-query DB when requested range falls outside that range (e.g. previous period growth).
+        if start_date < self.from_date or end_date > self.to_date:
+            df = await self._read_ads_db_with_range(
+                model=self._ads_model_map()[source],
+                from_date=start_date,
+                to_date=end_date,
+            )
+
         if df.empty:
             return {
                 "impressions": 0,
@@ -195,21 +278,6 @@ class CampaignData:
             "cost_leads": round(cost_total / leads_total, 2) if leads_total else 0.0,
         }
 
-    @staticmethod
-    def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Build previous range with identical duration to current range."""
-        period_days = (to_date - from_date).days + 1
-        previous_to = from_date - timedelta(days=1)
-        previous_from = previous_to - timedelta(days=period_days - 1)
-        return previous_from, previous_to
-
-    @staticmethod
-    def _growth_percentage(current_value: float, previous_value: float) -> float | None:
-        """Calculate growth percentage against previous value."""
-        if previous_value == 0:
-            return None
-        return round(((current_value - previous_value) / previous_value) * 100, 2)
-
     async def ads_metrics_with_growth(
         self,
         data: str,
@@ -223,7 +291,8 @@ class CampaignData:
             raise ValueError("from_date cannot be after to_date.")
 
         previous_from, previous_to = self._previous_period_range(current_from, current_to)
-
+        print(current_from, current_to)
+        print(previous_from, previous_to)
         current_metrics = await self.ads_metrics(data=data, from_date=current_from, to_date=current_to)
         previous_metrics = await self.ads_metrics(data=data, from_date=previous_from, to_date=previous_to)
 
@@ -247,4 +316,110 @@ class CampaignData:
                 "metrics": previous_metrics,
             },
             "growth_percentage": growth,
+        }
+
+    async def leads_by_source_table(
+        self,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        """Return Plotly table JSON for leads aggregation grouped by ad source.
+
+        The data source is resolved from ``self._ads_frame_map()``.
+        """
+        start_date = from_date or self.from_date
+        end_date = to_date or self.to_date
+        if start_date > end_date:
+            raise ValueError("from_date cannot be after to_date.")
+
+        result = await asyncio.to_thread(self._build_leads_by_source_table, start_date, end_date)
+        rows = await asyncio.to_thread(lambda: result.to_dict(orient="records"))
+        total_leads = int(result["leads"].sum()) if not result.empty else 0
+
+        table_figure = go.Figure(
+            data=[
+                go.Table(
+                    header=dict(values=["Ad Source", "Leads", "Share %"]),
+                    cells=dict(
+                        values=[
+                            result["ad_source"].tolist(),
+                            result["leads"].tolist(),
+                            result["share_pct"].tolist(),
+                        ]
+                    ),
+                )
+            ]
+        )
+        table_figure.update_layout(title="Leads by Source (Table)")
+
+        table_json = await asyncio.to_thread(
+            json.dumps,
+            table_figure,
+            cls=plotly.utils.PlotlyJSONEncoder,
+        )
+        return {
+            "from_date": start_date.isoformat(),
+            "to_date": end_date.isoformat(),
+            "rows": rows,
+            "total_leads": total_leads,
+            "figure": json.loads(table_json),
+        }
+
+    async def leads_by_source_pie_chart(
+        self,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        """Build Plotly pie chart JSON for leads by ad source."""
+        table_payload = await self.leads_by_source_table(from_date=from_date, to_date=to_date)
+        table = pd.DataFrame(table_payload.get("rows", []))
+        non_zero = table.loc[table["leads"] > 0] if not table.empty else pd.DataFrame()
+
+        if non_zero.empty:
+            figure = go.Figure()
+            figure.update_layout(
+                title="Leads by Source",
+                annotations=[
+                    {
+                        "text": "No leads data for selected date range",
+                        "xref": "paper",
+                        "yref": "paper",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "showarrow": False,
+                    }
+                ],
+            )
+            chart_json = await asyncio.to_thread(
+                json.dumps,
+                figure,
+                cls=plotly.utils.PlotlyJSONEncoder,
+            )
+            return {
+                "from_date": table_payload.get("from_date"),
+                "to_date": table_payload.get("to_date"),
+                "figure": json.loads(chart_json),
+            }
+
+        figure = go.Figure(
+            data=[
+                go.Pie(
+                    labels=non_zero["ad_source"],
+                    values=non_zero["leads"],
+                    hole=0.35,
+                    textinfo="percent+label",
+                )
+            ]
+        )
+        figure.update_layout(title="Leads by Source")
+
+        chart_json = await asyncio.to_thread(
+            json.dumps,
+            figure,
+            cls=plotly.utils.PlotlyJSONEncoder,
+        )
+        return {
+            "from_date": table_payload.get("from_date"),
+            "to_date": table_payload.get("to_date"),
+            "figure": json.loads(chart_json),
         }

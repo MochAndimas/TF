@@ -116,7 +116,7 @@ async def show_login_page(host):
         email = st.text_input("Email", placeholder="name@company.com")
         password = st.text_input("Password", type="password", placeholder="Enter your password")
         remember = st.checkbox("Keep me signed in for 7 days")
-        submitted = st.form_submit_button("Sign In", use_container_width=True)
+        submitted = st.form_submit_button("Sign In", width="stretch")
     st.markdown('<p class="tf-auth-meta">Secure login protected with CSRF validation.</p>', unsafe_allow_html=True)
     st.markdown("</div></div>", unsafe_allow_html=True)
 

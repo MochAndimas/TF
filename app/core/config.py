@@ -52,6 +52,10 @@ class Settings(BaseModel):
     ACCESS_TOKEN_EXPIRE_MINUTE: int
     REFRESH_TOKEN_EXPIRE_DAYS: int
     ALGORITHM: str = "HS256"
+    BOOTSTRAP_SUPERADMIN: bool = False
+    INITIAL_SUPERADMIN_NAME: str | None = None
+    INITIAL_SUPERADMIN_EMAIL: str | None = None
+    INITIAL_SUPERADMIN_PASSWORD: str | None = None
 
     @property
     def cookie_secure(self) -> bool:
@@ -73,6 +77,22 @@ class Settings(BaseModel):
             return ["*"]
         return [self.FRONTEND_URL] if self.FRONTEND_URL else []
 
+    def validate_bootstrap_config(self) -> None:
+        """Ensure required bootstrap settings exist when bootstrap is enabled."""
+        if not self.BOOTSTRAP_SUPERADMIN:
+            return
+
+        required_fields = {
+            "INITIAL_SUPERADMIN_NAME": self.INITIAL_SUPERADMIN_NAME,
+            "INITIAL_SUPERADMIN_EMAIL": self.INITIAL_SUPERADMIN_EMAIL,
+            "INITIAL_SUPERADMIN_PASSWORD": self.INITIAL_SUPERADMIN_PASSWORD,
+        }
+        missing_fields = [key for key, value in required_fields.items() if not value]
+        if missing_fields:
+            raise ValueError(
+                "Missing bootstrap env vars: " + ", ".join(missing_fields)
+            )
+
 
 class DevelopmentSettings(Settings):
     """Settings profile for local development workflow."""
@@ -80,8 +100,8 @@ class DevelopmentSettings(Settings):
     ENV: EnvironmentName = "development"
     DEBUG: bool = True
     DB_URL: str = env("DEV_DB_URL", cast=str)
-    HOST: str = env("HOST", cast=str)
-    PORT: int = env("PORT", cast=int)
+    HOST: str = env("DEV_HOST", cast=str)
+    PORT: int = env("DEV_PORT", cast=int)
     FRONTEND_URL: str | None = env("FRONTEND_URL", default=None, cast=str)
     WORKERS: int = env("WORKERS", default=1, cast=int)
     CSRF_SECRET: str = env("CSRF_SECRET", cast=str)
@@ -89,6 +109,10 @@ class DevelopmentSettings(Settings):
     JWT_REFRESH_SECRET_KEY: str = env("JWT_REFRESH_SECRET_KEY", cast=str)
     ACCESS_TOKEN_EXPIRE_MINUTE: int = env("ACCESS_TOKEN_EXPIRE_MINUTES", cast=int)
     REFRESH_TOKEN_EXPIRE_DAYS: int = env("REFRESH_TOKEN_EXPIRE_DAYS", cast=int)
+    BOOTSTRAP_SUPERADMIN: bool = env("BOOTSTRAP_SUPERADMIN", default=False, cast=bool)
+    INITIAL_SUPERADMIN_NAME: str | None = env("INITIAL_SUPERADMIN_NAME", default=None, cast=str)
+    INITIAL_SUPERADMIN_EMAIL: str | None = env("INITIAL_SUPERADMIN_EMAIL", default=None, cast=str)
+    INITIAL_SUPERADMIN_PASSWORD: str | None = env("INITIAL_SUPERADMIN_PASSWORD", default=None, cast=str)
 
 
 class ProductionSettings(Settings):
@@ -106,6 +130,10 @@ class ProductionSettings(Settings):
     JWT_REFRESH_SECRET_KEY: str = env("JWT_REFRESH_SECRET_KEY", cast=str)
     ACCESS_TOKEN_EXPIRE_MINUTE: int = env("ACCESS_TOKEN_EXPIRE_MINUTES", cast=int)
     REFRESH_TOKEN_EXPIRE_DAYS: int = env("REFRESH_TOKEN_EXPIRE_DAYS", cast=int)
+    BOOTSTRAP_SUPERADMIN: bool = env("BOOTSTRAP_SUPERADMIN", default=False, cast=bool)
+    INITIAL_SUPERADMIN_NAME: str | None = env("INITIAL_SUPERADMIN_NAME", default=None, cast=str)
+    INITIAL_SUPERADMIN_EMAIL: str | None = env("INITIAL_SUPERADMIN_EMAIL", default=None, cast=str)
+    INITIAL_SUPERADMIN_PASSWORD: str | None = env("INITIAL_SUPERADMIN_PASSWORD", default=None, cast=str)
 
 
 @lru_cache
@@ -125,4 +153,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

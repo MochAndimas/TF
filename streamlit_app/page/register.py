@@ -45,7 +45,7 @@ def _render_page_header(host: str, token) -> None:
             unsafe_allow_html=True,
         )
     with right_col:
-        if st.button("Create Account", type="primary", use_container_width=True):
+        if st.button("Create Account", type="primary", width="stretch"):
             add_account_modal(host, token)
 
 
