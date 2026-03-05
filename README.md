@@ -14,9 +14,12 @@ Dashboard internal untuk memantau data campaign dan sinkronisasi data dari beber
 - Login/logout dengan CSRF validation
 - One-time bootstrap akun `superadmin` saat startup (opsional via ENV)
 - Role-based page access:
-  - `superadmin`: overall, create account, update data
-  - `admin`, `digital_marketing`, `sales`: overall
+  - `superadmin`: user acquisition, create account, update data
+  - `admin`, `digital_marketing`, `sales`: user acquisition
 - Account management (create/edit/delete user)
+- Dashboard `User Acquisition` (Streamlit):
+  - Leads by Source (table + pie chart)
+  - Metrics per source (Google/Facebook/TikTok) dengan growth vs previous period
 - Update data manual/auto untuk:
   - Unique Campaign
   - Google Ads (GSheet)
@@ -30,13 +33,14 @@ Dashboard internal untuk memantau data campaign dan sinkronisasi data dari beber
 ```text
 .
 |- app/
-|  |- api/v1/endpoint/        # endpoint auth + feature update
+|  |- api/v1/endpoint/        # endpoint auth + feature + campaign analytics
+|  |- api/v1/functions/       # helper payload builder untuk endpoint campaign
 |  |- core/                   # config + security
 |  |- db/                     # session + models
-|  |- schemas/                # pydantic schemas
+|  |- schemas/                # pydantic schemas (auth/feature/campaign)
 |  |- utils/                  # app bootstrap, user utils, gsheet utils
 |- streamlit_app/
-|  |- page/                   # login, overall, register, update_data
+|  |- page/                   # login, campaign_ads, register, update_data
 |  |- functions/              # helper streamlit (cookie/session)
 |- main.py                    # entrypoint FastAPI
 |- streamlit_run.py           # entrypoint Streamlit
@@ -125,6 +129,24 @@ python run_app.py
 - `POST /api/register`
 - `DELETE /api/delete_account/{user_id}`
 - `POST /api/feature-data/update-external-api`
+- `GET /api/campaign/overview?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&chart=both`
+- `GET /api/campaign/leads-by-source?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&chart=both`
+
+## User Acquisition Flow
+
+Frontend `streamlit_app/page/campaign_ads.py` menggunakan endpoint `GET /api/campaign/overview` untuk sekali request:
+
+- `leads_by_source`:
+  - table (Plotly JSON)
+  - pie chart (Plotly JSON)
+- `ads_metrics_with_growth`:
+  - `google`
+  - `facebook`
+  - `tiktok`
+
+Filter aktif:
+- `Periods` (Last 7 Day, Last 30 Day, This Month, Last Month, Custom Range)
+- `Performance Source` (Google Ads, Facebook Ads, TikTok Ads)
 
 ## Bootstrap Superadmin (First Deploy)
 
