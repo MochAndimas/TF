@@ -92,7 +92,7 @@ async def show_user_acquisition_page(host: str) -> None:
             response = await fetch_data(
                 st=st,
                 host=host,
-                uri="campaign/overview",
+                uri="campaign",
                 method="GET",
                 params={
                     "start_date": start_date.isoformat(),

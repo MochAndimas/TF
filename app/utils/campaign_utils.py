@@ -291,8 +291,6 @@ class CampaignData:
             raise ValueError("from_date cannot be after to_date.")
 
         previous_from, previous_to = self._previous_period_range(current_from, current_to)
-        print(current_from, current_to)
-        print(previous_from, previous_to)
         current_metrics = await self.ads_metrics(data=data, from_date=current_from, to_date=current_to)
         previous_metrics = await self.ads_metrics(data=data, from_date=previous_from, to_date=previous_to)
 
