@@ -40,9 +40,9 @@ NAV_GROUPS: dict[str, list[str]] = {
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "superadmin": ["user_acquisition", "register", "update_data"],
-    "admin": ["overall", "user_acquisition"],
-    "digital_marketing": ["overall", "user_acquisition"],
-    "sales": ["overall", "user_acquisition"],
+    "admin": ["user_acquisition"],
+    "digital_marketing": ["user_acquisition"],
+    "sales": ["user_acquisition"],
 }
 
 
