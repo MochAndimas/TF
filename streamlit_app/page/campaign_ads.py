@@ -1,5 +1,7 @@
 import datetime as dt
+import textwrap
 
+import pandas as pd
 import streamlit as st
 
 from streamlit_app.functions.utils import (
@@ -39,6 +41,77 @@ def _set_transparent_chart_background(figure):
         plot_bgcolor="rgba(0,0,0,0)",
     )
     return figure
+
+
+def _build_performance_dataframe(detail_rows: list[dict], level_column: str) -> pd.DataFrame:
+    """Build one performance table grouped by selected level."""
+    if not detail_rows:
+        return pd.DataFrame()
+
+    details_df = pd.DataFrame(detail_rows)
+    if details_df.empty:
+        return pd.DataFrame()
+
+    for column in ("spend", "impressions", "clicks", "leads"):
+        details_df[column] = pd.to_numeric(details_df.get(column, 0), errors="coerce").fillna(0)
+    details_df[level_column] = details_df.get(level_column, "N/A").fillna("N/A").replace("", "N/A")
+    details_df["campaign_source"] = details_df.get("campaign_source", "N/A").fillna("N/A").replace("", "N/A")
+
+    grouped = (
+        details_df.groupby(["campaign_source", level_column], as_index=False)[["spend", "impressions", "clicks", "leads"]]
+        .sum()
+        .sort_values("spend", ascending=False)
+    )
+
+    grouped["avg_click_to_leads_pct"] = grouped.apply(
+        lambda row: round((float(row["leads"]) / float(row["clicks"])) * 100, 2) if float(row["clicks"]) else 0.0,
+        axis=1,
+    )
+    grouped["avg_ctr_pct"] = grouped.apply(
+        lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2)
+        if float(row["impressions"])
+        else 0.0,
+        axis=1,
+    )
+    grouped["cpc"] = grouped.apply(
+        lambda row: round(float(row["spend"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0,
+        axis=1,
+    )
+    grouped["cpm"] = grouped.apply(
+        lambda row: round((float(row["spend"]) / float(row["impressions"])) * 1000, 2)
+        if float(row["impressions"])
+        else 0.0,
+        axis=1,
+    )
+    grouped["cost_per_leads"] = grouped.apply(
+        lambda row: round(float(row["spend"]) / float(row["leads"])) if float(row["leads"]) else 0.0,
+        axis=1,
+    )
+    return grouped
+
+
+def _format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFrame:
+    """Format dataframe for display readability."""
+    if df.empty:
+        return df
+
+    formatted = df.copy()
+    if level_label in formatted.columns:
+        formatted[level_label] = formatted[level_label].astype(str).apply(
+            lambda value: textwrap.fill(value, width=46, break_long_words=False)
+        )
+
+    for col in ("Cost", "CPC", "CPM", "Cost per Leads"):
+        if col in formatted.columns:
+            formatted[col] = formatted[col].apply(lambda v: f"Rp {float(v):,.0f}")
+    for col in ("Impressions", "Clicks", "Leads"):
+        if col in formatted.columns:
+            formatted[col] = formatted[col].apply(lambda v: f"{int(float(v)):,}")
+    for col in ("Avg. Click to Leads", "Avg. CTR"):
+        if col in formatted.columns:
+            formatted[col] = formatted[col].apply(lambda v: f"{float(v):,.2f}%")
+
+    return formatted
 
 
 async def show_user_acquisition_page(host: str) -> None:
@@ -90,9 +163,16 @@ async def show_user_acquisition_page(host: str) -> None:
         st.warning("Start date cannot be after end date.")
         return
 
+    selected_key = source_options[selected_source]
+    cached_payload = st.session_state.get("campaign_ads_payload", {})
+    cached_details = cached_payload.get("data", {}).get("ads_campaign_details", {})
+    cached_selected_details = cached_details.get(selected_key, {}) if isinstance(cached_details, dict) else {}
+    has_rows_schema = isinstance(cached_selected_details.get("rows"), list)
+
     should_fetch = (
         apply_filter
         or "campaign_ads_payload" not in st.session_state
+        or not has_rows_schema
     )
 
     if should_fetch:
@@ -147,7 +227,6 @@ async def show_user_acquisition_page(host: str) -> None:
         with st.container(border=True):
             st.plotly_chart(pie_figure, width="stretch")
 
-    selected_key = source_options[selected_source]
     selected_metrics = ads_metrics.get(selected_key, {})
     render_campaign_metric_cards(st, selected_metrics, selected_source)
 
@@ -186,14 +265,77 @@ async def show_user_acquisition_page(host: str) -> None:
         with st.container(border=True):
             st.plotly_chart(leads_by_periods_figure, width="stretch")
 
-    details_payload = ads_campaign_details.get(selected_key, {}).get("figure")
-    details_figure = campaign_figure_from_payload(
-        details_payload,
-        f"Ads Campaign Details - {selected_source}",
+    selected_details = ads_campaign_details.get(selected_key, {})
+    detail_rows = selected_details.get("rows", [])
+    level_options = {
+        "Ad Campaign Performance": ("campaign_name", "Campaign Name"),
+        "Ad group Performance": ("ad_group", "Ad Group"),
+        "Ad Name Performance": ("ad_name", "Ad Name"),
+    }
+    selected_level = st.selectbox(
+        "Performance Table",
+        options=list(level_options.keys()),
+        key="campaign_performance_level",
     )
-    details_figure.update_layout(height=760)
+    level_column, level_label = level_options[selected_level]
+    performance_df = _build_performance_dataframe(detail_rows=detail_rows, level_column=level_column)
+
+    st.markdown(f"### {selected_level}")
+    if performance_df.empty:
+        st.info("No campaign data for selected date range.")
+        return
+
+    display_df = performance_df.rename(
+        columns={
+            "campaign_source": "Ads Source",
+            level_column: level_label,
+            "spend": "Cost",
+            "impressions": "Impressions",
+            "clicks": "Clicks",
+            "leads": "Leads",
+            "avg_click_to_leads_pct": "Click->Leads %",
+            "avg_ctr_pct": "Avg. CTR",
+            "cpc": "CPC",
+            "cpm": "CPM",
+            "cost_per_leads": "Cost/Leads",
+        }
+    )
+    display_columns = [
+        "Ads Source",
+        level_label,
+        "Cost",
+        "Impressions",
+        "Clicks",
+        "Leads",
+        "Click->Leads %",
+        "Avg. CTR",
+        "CPC",
+        "CPM",
+        "Cost/Leads",
+    ]
+    display_df = display_df[[column for column in display_columns if column in display_df.columns]]
+    display_df = _format_performance_display(display_df, level_label)
+
     with st.container(border=True):
-        st.plotly_chart(details_figure, width="stretch")
+        st.dataframe(
+            display_df,
+            width="stretch",
+            hide_index=True,
+            row_height=58,
+            column_config={
+                "Ads Source": st.column_config.TextColumn("Ads Source", width="small"),
+                level_label: st.column_config.TextColumn(level_label, width="large"),
+                "Cost": st.column_config.TextColumn("Cost", width="small"),
+                "Impressions": st.column_config.TextColumn("Impressions", width="small"),
+                "Clicks": st.column_config.TextColumn("Clicks", width="small"),
+                "Leads": st.column_config.TextColumn("Leads", width="small"),
+                "Click->Leads %": st.column_config.TextColumn("Click->Leads %", width="small"),
+                "Avg. CTR": st.column_config.TextColumn("Avg. CTR", width="small"),
+                "CPC": st.column_config.TextColumn("CPC", width="small"),
+                "CPM": st.column_config.TextColumn("CPM", width="small"),
+                "Cost/Leads": st.column_config.TextColumn("Cost/Leads", width="medium"),
+            },
+        )
 
 
 async def show_campaign_ads_page(host: str) -> None:

@@ -155,11 +155,15 @@ def campaign_figure_from_payload(payload: dict | None, title: str) -> go.Figure:
         if figure.data and isinstance(figure.data[0], go.Table):
             table_trace = figure.data[0]
             header_values = [str(value).strip().lower() for value in (table_trace.header.values or [])]
+            text_only_headers = {"ad name", "ad group", "campaign", "campaign_name"}
             formatted_columns = []
             for column_index, column_values in enumerate(table_trace.cells.values or []):
                 header_name = header_values[column_index] if column_index < len(header_values) else ""
                 formatted_values = []
                 for value in column_values:
+                    if header_name in text_only_headers:
+                        formatted_values.append(value)
+                        continue
                     try:
                         number = float(value)
                         if "share" in header_name:
@@ -218,24 +222,24 @@ def _campaign_format_number(value: float | int) -> str:
     return f"{number:,.2f}"
 
 
-def _campaign_format_currency(value: float | int) -> str:
+def _campaign_format_currency(value: float | int, compact: bool = False) -> str:
     """Format currency metric with Rp prefix."""
     full_currency = f"Rp. {_campaign_format_number(value)}"
-    if len(full_currency) <= 12:
+    if not compact and len(full_currency) <= 12:
         return full_currency
 
     number = float(value)
     absolute = abs(number)
     if absolute >= 1_000_000_000:
-        compact = f"{number / 1_000_000_000:.2f}B"
+        compact_value = f"{number / 1_000_000_000:.1f}B"
     elif absolute >= 1_000_000:
-        compact = f"{number / 1_000_000:.2f}M"
+        compact_value = f"{number / 1_000_000:.1f}M"
     elif absolute >= 1_000:
-        compact = f"{number / 1_000:.2f}K"
+        compact_value = f"{number / 1_000:.1f}K"
     else:
-        compact = _campaign_format_number(number)
+        compact_value = _campaign_format_number(number)
 
-    return f"Rp. {compact}"
+    return f"Rp. {compact_value}"
 
 
 def _campaign_format_growth(growth: float | None) -> str:
@@ -288,8 +292,10 @@ def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_l
         with column:
             with st.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
-                if key in {"cost", "cost_leads"}:
+                if key == "cost":
                     metric_value = _campaign_format_currency(raw_value)
+                elif key == "cost_leads":
+                    metric_value = _campaign_format_currency(raw_value, compact=True)
                 else:
                     metric_value = _campaign_format_number(raw_value)
 

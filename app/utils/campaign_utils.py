@@ -391,25 +391,77 @@ class CampaignData:
         )
         return daily
 
-    async def _ads_campaign_details_dataframe(
+    async def _ads_performance_dataframe(
+        self,
+        data: str,
+        from_date: date,
+        to_date: date,
+        dimension: str,
+    ) -> pd.DataFrame:
+        """Build ads performance dataframe grouped by selected dimension."""
+        base = await self._ads_base_details_dataframe(
+            data=data,
+            from_date=from_date,
+            to_date=to_date,
+        )
+        columns = [
+            "campaign_source",
+            "dimension_name",
+            "spend",
+            "impressions",
+            "clicks",
+            "leads",
+            "click_to_leads_pct",
+            "ctr_pct",
+            "cpc",
+            "cpm",
+            "cost_leads",
+        ]
+        if base.empty:
+            return pd.DataFrame(columns=columns)
+
+        base[dimension] = base[dimension].fillna("N/A").replace("", "N/A")
+        grouped = (
+            base.groupby(["campaign_source", dimension], as_index=False)[
+                ["impressions", "clicks", "spend", "leads"]
+            ]
+            .sum()
+            .sort_values("spend", ascending=False)
+        )
+        grouped = grouped.rename(columns={dimension: "dimension_name"})
+        grouped["click_to_leads_pct"] = grouped.apply(
+            lambda row: round((float(row["leads"]) / float(row["clicks"])) * 100, 2) if float(row["clicks"]) else 0.0,
+            axis=1,
+        )
+        grouped["ctr_pct"] = grouped.apply(
+            lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2)
+            if float(row["impressions"])
+            else 0.0,
+            axis=1,
+        )
+        grouped["cpc"] = grouped.apply(
+            lambda row: round(float(row["spend"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0,
+            axis=1,
+        )
+        grouped["cpm"] = grouped.apply(
+            lambda row: round((float(row["spend"]) / float(row["impressions"])) * 1000, 2)
+            if float(row["impressions"])
+            else 0.0,
+            axis=1,
+        )
+        grouped["cost_leads"] = grouped.apply(
+            lambda row: round(float(row["spend"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0,
+            axis=1,
+        )
+        return grouped[columns]
+
+    async def _ads_base_details_dataframe(
         self,
         data: str,
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Build campaign-level detailed rows for selected source and date range.
-
-        Args:
-            data (str): Source key (`google`, `facebook`, `tiktok`).
-            from_date (date): Inclusive start date.
-            to_date (date): Inclusive end date.
-
-        Returns:
-            pd.DataFrame: Campaign detail table including ``cost_leads``.
-
-        Raises:
-            ValueError: If the source key is unsupported.
-        """
+        """Build base detailed dataframe used for frontend grouping/filtering."""
         source = data.strip().lower()
         frames = self._ads_frame_map()
         if source not in frames:
@@ -424,52 +476,120 @@ class CampaignData:
                 to_date=to_date,
             )
 
+        columns = ["campaign_source", "campaign_name", "ad_group", "ad_name", "spend", "impressions", "clicks", "leads"]
         if df.empty:
-            return pd.DataFrame(
-                columns=[
-                    "date",
-                    "campaign_source",
-                    "campaign_name",
-                    "impressions",
-                    "clicks",
-                    "spend",
-                    "leads",
-                    "cost_leads",
-                ]
-            )
+            return pd.DataFrame(columns=columns)
 
         filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
         filtered = filtered.loc[filtered["campaign_id"] != "No data"]
         if filtered.empty:
-            return pd.DataFrame(
-                columns=[
-                    "date",
-                    "campaign_source",
-                    "campaign_name",
-                    "impressions",
-                    "clicks",
-                    "spend",
-                    "leads",
-                    "cost_leads",
-                ]
-            )
+            return pd.DataFrame(columns=columns)
 
         for column in ("impressions", "clicks", "cost", "leads"):
             filtered[column] = pd.to_numeric(filtered[column], errors="coerce").fillna(0)
 
-        details = (
-            filtered.groupby(["date", "campaign_source", "campaign_name"], as_index=False)[
+        for dim_col in ("campaign_name", "ad_group", "ad_name"):
+            filtered[dim_col] = filtered[dim_col].fillna("N/A").replace("", "N/A")
+
+        grouped = (
+            filtered.groupby(["campaign_source", "campaign_name", "ad_group", "ad_name"], as_index=False)[
                 ["impressions", "clicks", "cost", "leads"]
             ]
             .sum()
-            .sort_values(["date", "campaign_name"])
+            .sort_values("cost", ascending=False)
         )
-        details = details.rename(columns={"cost": "spend"})
-        details["cost_leads"] = details.apply(
-            lambda row: round(float(row["spend"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0,
-            axis=1,
+        grouped = grouped.rename(columns={"cost": "spend"})
+        return grouped[columns]
+
+    async def _ads_performance_table_payload(
+        self,
+        details: pd.DataFrame,
+        title: str,
+        dimension_header: str,
+    ) -> dict[str, object]:
+        """Convert grouped performance dataframe to Plotly table payload."""
+        if details.empty:
+            figure = go.Figure()
+            figure.update_layout(
+                title=title,
+                annotations=[
+                    {
+                        "text": "No campaign data for selected date range",
+                        "xref": "paper",
+                        "yref": "paper",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "showarrow": False,
+                    }
+                ],
+            )
+            rows: list[dict[str, object]] = []
+        else:
+            serializable = details.copy()
+            rows = await asyncio.to_thread(lambda: serializable.to_dict(orient="records"))
+
+            source_values = [
+                str(value).replace("_", " ").title() if value not in ("", None) else "N/A"
+                for value in serializable["campaign_source"].tolist()
+            ]
+            dimension_values = serializable["dimension_name"].tolist()
+            spend_values = [f"Rp{float(value):,.0f}" for value in serializable["spend"].tolist()]
+            impression_values = [f"{int(value):,}" for value in serializable["impressions"].tolist()]
+            click_values = [f"{int(value):,}" for value in serializable["clicks"].tolist()]
+            lead_values = [f"{int(value):,}" for value in serializable["leads"].tolist()]
+            ctl_values = [f"{float(value):,.2f}%" for value in serializable["click_to_leads_pct"].tolist()]
+            ctr_values = [f"{float(value):,.2f}%" for value in serializable["ctr_pct"].tolist()]
+            cpc_values = [f"Rp{float(value):,.0f}" for value in serializable["cpc"].tolist()]
+            cpm_values = [f"Rp{float(value):,.0f}" for value in serializable["cpm"].tolist()]
+            cpl_values = [f"Rp{float(value):,.0f}" for value in serializable["cost_leads"].tolist()]
+
+            figure = go.Figure(
+                data=[
+                    go.Table(
+                        header=dict(
+                            values=[
+                                "Ads Source",
+                                dimension_header,
+                                "Cost",
+                                "Impressions",
+                                "Clicks",
+                                "Leads",
+                                "Avg. Click to Leads",
+                                "Avg. CTR",
+                                "CPC",
+                                "CPM",
+                                "Cost per Leads",
+                            ]
+                        ),
+                        cells=dict(
+                            values=[
+                                source_values,
+                                dimension_values,
+                                spend_values,
+                                impression_values,
+                                click_values,
+                                lead_values,
+                                ctl_values,
+                                ctr_values,
+                                cpc_values,
+                                cpm_values,
+                                cpl_values,
+                            ]
+                        ),
+                    )
+                ]
+            )
+            figure.update_layout(title=title)
+
+        table_json = await asyncio.to_thread(
+            json.dumps,
+            figure,
+            cls=plotly.utils.PlotlyJSONEncoder,
         )
-        return details
+        return {
+            "rows": rows,
+            "figure": json.loads(table_json),
+        }
 
     async def ads_metrics(
         self,
@@ -661,7 +781,7 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build campaign-details table payload including cost/leads metric.
+        """Build raw details rows payload for frontend-side grouping/filtering.
 
         Args:
             data (str): Source key (`google`, `facebook`, `tiktok`).
@@ -669,8 +789,8 @@ class CampaignData:
             to_date (date | None): Optional inclusive end date.
 
         Returns:
-            dict[str, object]: Table payload containing source identifier,
-            selected range, raw rows, and Plotly figure JSON.
+            dict[str, object]: Payload containing source identifier, selected range,
+            and raw detailed rows.
 
         Raises:
             ValueError: If date window is invalid.
@@ -680,82 +800,17 @@ class CampaignData:
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
 
-        details = await self._ads_campaign_details_dataframe(data=data, from_date=start_date, to_date=end_date)
-        source_label = data.strip().title()
-
-        if details.empty:
-            figure = go.Figure()
-            figure.update_layout(
-                title=f"Ads Campaign Details - {source_label}",
-                annotations=[
-                    {
-                        "text": "No campaign data for selected date range",
-                        "xref": "paper",
-                        "yref": "paper",
-                        "x": 0.5,
-                        "y": 0.5,
-                        "showarrow": False,
-                    }
-                ],
-            )
-            rows = []
-        else:
-            serializable = details.copy()
-            serializable["date"] = pd.to_datetime(serializable["date"]).dt.date.astype(str)
-            rows = await asyncio.to_thread(lambda: serializable.to_dict(orient="records"))
-
-            date_values = serializable["date"].tolist()
-            source_values = serializable["campaign_source"].tolist()
-            campaign_values = serializable["campaign_name"].tolist()
-            impression_values = [f"{int(value):,}" for value in serializable["impressions"].tolist()]
-            click_values = [f"{int(value):,}" for value in serializable["clicks"].tolist()]
-            spend_values = [f"Rp. {float(value):,.0f}" for value in serializable["spend"].tolist()]
-            lead_values = [f"{int(value):,}" for value in serializable["leads"].tolist()]
-            cpl_values = [f"Rp. {float(value):,.2f}" for value in serializable["cost_leads"].tolist()]
-
-            figure = go.Figure(
-                data=[
-                    go.Table(
-                        header=dict(
-                            values=[
-                                "date",
-                                "campaign_source",
-                                "campaign_name",
-                                "spend",
-                                "impressions",
-                                "clicks",
-                                "leads",
-                                "cost/leads",
-                            ]
-                        ),
-                        cells=dict(
-                            values=[
-                                date_values,
-                                source_values,
-                                campaign_values,
-                                spend_values,
-                                impression_values,
-                                click_values,
-                                lead_values,
-                                cpl_values,
-                            ]
-                        ),
-                    )
-                ]
-            )
-            figure.update_layout(title=f"Ads Campaign Details - {source_label}")
-
-        table_json = await asyncio.to_thread(
-            json.dumps,
-            figure,
-            cls=plotly.utils.PlotlyJSONEncoder,
+        details_df = await self._ads_base_details_dataframe(
+            data=data,
+            from_date=start_date,
+            to_date=end_date,
         )
+        rows = await asyncio.to_thread(lambda: details_df.to_dict(orient="records"))
         return {
             "source": data.strip().lower(),
             "from_date": start_date.isoformat(),
             "to_date": end_date.isoformat(),
             "rows": rows,
-            "figure": json.loads(table_json),
         }
 
     async def leads_by_source_pie_chart(
@@ -810,6 +865,7 @@ class CampaignData:
                     values=non_zero["leads"],
                     hole=0.35,
                     textinfo="percent+label",
+                    hovertemplate="<b>%{label}</b><br>Leads: %{value:,}<br>Share: %{percent}<extra></extra>",
                 )
             ]
         )

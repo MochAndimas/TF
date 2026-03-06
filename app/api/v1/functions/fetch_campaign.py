@@ -141,7 +141,7 @@ async def fetch_ads_campaign_details_tables_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build campaign-details table payload for all ads sources.
+    """Build ads details payload for all ads sources.
 
     Args:
         campaign_data (CampaignData): Preloaded campaign data service instance.
@@ -150,7 +150,7 @@ async def fetch_ads_campaign_details_tables_payload(
 
     Returns:
         dict[str, object]: Mapping keyed by source (`google`, `facebook`, `tiktok`)
-            with each value containing table figure payload and raw rows.
+            with each value containing raw ``rows`` for frontend grouping/filtering.
     """
     sources = ("google", "facebook", "tiktok")
     results = await asyncio.gather(
@@ -178,7 +178,7 @@ async def fetch_campaign_overview_payload(
             - ``leads_by_source`` summary charts.
             - ``ads_metrics_with_growth`` KPI metrics and growth percentages.
             - ``leads_performance_charts`` multi-chart source performance.
-            - ``ads_campaign_details`` campaign-level table details.
+            - ``ads_campaign_details`` raw rows for performance table.
     """
     leads_by_source, ads_metrics_growth, performance_charts, campaign_details_tables = await asyncio.gather(
         fetch_leads_by_source_payload(
