@@ -10,7 +10,7 @@ from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import campaign_ads, login, overall, register, update_data
+from streamlit_app.page import campaign_ads, login, register, update_data
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -178,13 +178,14 @@ def _render_sidebar_navigation(host: str) -> str | None:
     Returns:
         str | None: Selected page key for dispatcher, or ``None`` when not logged in.
     """
+    available_pages = _allowed_pages_for_role(st.session_state.role)
+    if not available_pages:
+        st.warning("No page access configured for your account role.")
+        asyncio.run(logout(st, host, None))
+        return None
+
     with st.sidebar:
         st.image("./streamlit_app/page/logotf.png", width=96)
-        available_pages = _allowed_pages_for_role(st.session_state.role)
-        if not available_pages:
-            st.warning("No page access configured for your account role.")
-            asyncio.run(logout(st, host, None))
-            return None
 
         current_page = st.session_state.page
         if current_page not in available_pages:
