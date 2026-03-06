@@ -108,6 +108,21 @@ def _collapse_sidebar_if_requested() -> None:
     st.session_state["collapse_sidebar_once"] = False
 
 
+def _hide_sidebar_on_login() -> None:
+    """Hide sidebar container and toggle control on login screen."""
+    st.markdown(
+        """
+        <style>
+            [data-testid="stSidebar"],
+            [data-testid="collapsedControl"] {
+                display: none;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _resolve_host() -> str:
     """Resolve backend host URL from environment-aware Streamlit secrets.
 
@@ -164,11 +179,6 @@ def _render_sidebar_navigation(host: str) -> str | None:
         str | None: Selected page key for dispatcher, or ``None`` when not logged in.
     """
     with st.sidebar:
-        if not st.session_state.logged_in:
-            st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
-            st.info("Please sign in to access dashboard pages.")
-            return None
-
         st.image("./streamlit_app/page/logotf.png", width=96)
         available_pages = _allowed_pages_for_role(st.session_state.role)
         if not available_pages:
@@ -255,8 +265,12 @@ def main() -> None:
     host = _resolve_host()
     footer(st)
 
-    selected_page = _render_sidebar_navigation(host=host)
-    _collapse_sidebar_if_requested()
+    selected_page = None
+    if st.session_state.logged_in:
+        selected_page = _render_sidebar_navigation(host=host)
+        _collapse_sidebar_if_requested()
+    else:
+        _hide_sidebar_on_login()
 
     try:
         asyncio.run(_dispatch_page(host=host, selected_page=selected_page))
