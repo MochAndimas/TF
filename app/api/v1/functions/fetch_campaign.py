@@ -296,6 +296,49 @@ async def fetch_brand_awareness_details_payload(
     return {source: result for source, result in zip(sources, results)}
 
 
+async def fetch_brand_awareness_insight_charts_payload(
+    campaign_data: CampaignData,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    """Build Brand Awareness CTR/CPM/CPC trend payload by source and dimension."""
+    sources = ("google", "facebook", "tiktok")
+    dimensions = ("campaign_id", "ad_group", "ad_name")
+    ratio_metrics = ("ctr", "cpm", "cpc")
+    ratio_top_n = 8
+
+    ratio_tasks = []
+    for source in sources:
+        for dimension in dimensions:
+            for metric in ratio_metrics:
+                ratio_tasks.append(
+                    campaign_data.brand_awareness_ratio_trend_chart(
+                        data=source,
+                        dimension=dimension,
+                        metric=metric,
+                        top_n=ratio_top_n,
+                        from_date=start_date,
+                        to_date=end_date,
+                    )
+                )
+
+    ratio_results = await asyncio.gather(*ratio_tasks)
+
+    ratio_trends: dict[str, dict[str, dict[str, object]]] = {source: {} for source in sources}
+    ratio_index = 0
+    for source in sources:
+        for dimension in dimensions:
+            ratio_trends[source][dimension] = {}
+            for metric in ratio_metrics:
+                ratio_trends[source][dimension][metric] = ratio_results[ratio_index]
+                ratio_index += 1
+
+    return {
+        "ratio_trends": ratio_trends,
+        "ratio_top_n": ratio_top_n,
+    }
+
+
 async def fetch_user_acquisition_overview_payload(
     campaign_data: CampaignData,
     start_date: date,
@@ -356,7 +399,7 @@ async def fetch_brand_awareness_overview_payload(
     end_date: date,
 ) -> dict[str, object]:
     """Build Brand Awareness payload used by Brand Awareness dashboard page."""
-    brand_metrics, brand_charts, brand_details = await asyncio.gather(
+    brand_metrics, brand_charts, brand_details, brand_insight_charts = await asyncio.gather(
         fetch_brand_awareness_metrics_with_growth_payload(
             campaign_data=campaign_data,
             start_date=start_date,
@@ -372,9 +415,15 @@ async def fetch_brand_awareness_overview_payload(
             start_date=start_date,
             end_date=end_date,
         ),
+        fetch_brand_awareness_insight_charts_payload(
+            campaign_data=campaign_data,
+            start_date=start_date,
+            end_date=end_date,
+        ),
     )
     return {
         "metrics_with_growth": brand_metrics,
         "charts": brand_charts,
         "details": brand_details,
+        "insight_charts": brand_insight_charts,
     }

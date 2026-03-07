@@ -189,6 +189,7 @@ async def show_brand_awareness_page(host: str) -> None:
     metrics_with_growth = overview_data.get("metrics_with_growth", {})
     chart_payloads = overview_data.get("charts", {})
     detail_payloads = overview_data.get("details", {})
+    insight_charts = overview_data.get("insight_charts", {})
 
     selected_metrics = metrics_with_growth.get(selected_key, {})
     render_brand_awareness_metric_cards(st, selected_metrics, selected_source)
@@ -218,7 +219,7 @@ async def show_brand_awareness_page(host: str) -> None:
     selected_details = detail_payloads.get(selected_key, {})
     detail_rows = selected_details.get("rows", [])
     level_options = {
-        "Ad Campaign Performance": ("campaign_name", "Campaign Name"),
+        "Ad Campaign Performance": ("campaign_id", "Campaign ID"),
         "Ad Group Performance": ("ad_group", "Ad Group"),
         "Ad Name Performance": ("ad_name", "Ad Name"),
     }
@@ -234,6 +235,46 @@ async def show_brand_awareness_page(host: str) -> None:
     if performance_df.empty:
         st.info("No brand awareness data for selected date range.")
         return
+
+    ratio_trends_payload = (
+        insight_charts.get("ratio_trends", {})
+        .get(selected_key, {})
+        .get(level_column, {})
+    )
+    ctr_payload = ratio_trends_payload.get("ctr", {}).get("figure")
+    cpm_payload = ratio_trends_payload.get("cpm", {}).get("figure")
+    cpc_payload = ratio_trends_payload.get("cpc", {}).get("figure")
+
+    ctr_figure = campaign_figure_from_payload(
+        ctr_payload,
+        f"{selected_source} CTR Trend",
+    )
+    cpm_figure = campaign_figure_from_payload(
+        cpm_payload,
+        f"{selected_source} CPM Trend",
+    )
+    cpc_figure = campaign_figure_from_payload(
+        cpc_payload,
+        f"{selected_source} CPC Trend",
+    )
+    ctr_figure = _set_transparent_chart_background(ctr_figure)
+    cpm_figure = _set_transparent_chart_background(cpm_figure)
+    cpc_figure = _set_transparent_chart_background(cpc_figure)
+    ctr_figure.update_layout(height=390)
+    cpm_figure.update_layout(height=390)
+    cpc_figure.update_layout(height=390)
+
+    st.markdown("### Campaign Insights")
+    trend_left, trend_mid, trend_right = st.columns(3, gap="small")
+    with trend_left:
+        with st.container(border=True):
+            st.plotly_chart(ctr_figure, width="stretch")
+    with trend_mid:
+        with st.container(border=True):
+            st.plotly_chart(cpm_figure, width="stretch")
+    with trend_right:
+        with st.container(border=True):
+            st.plotly_chart(cpc_figure, width="stretch")
 
     display_df = performance_df.rename(
         columns={
