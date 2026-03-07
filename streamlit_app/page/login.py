@@ -1,3 +1,9 @@
+"""Login module.
+
+This module is part of `streamlit_app.page` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import httpx
 import streamlit as st
 from datetime import datetime, timedelta

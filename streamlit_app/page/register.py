@@ -1,3 +1,9 @@
+"""Register module.
+
+This module is part of `streamlit_app.page` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import streamlit as st
 from streamlit_app.functions.utils import (
     add_account_modal,

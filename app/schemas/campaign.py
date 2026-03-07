@@ -1,3 +1,9 @@
+"""Campaign module.
+
+This module is part of `app.schemas` and contains runtime logic used by the
+Traders Family application.
+"""
+
 from datetime import date
 from typing import Literal
 

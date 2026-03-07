@@ -1,3 +1,9 @@
+"""Campaign module.
+
+This module is part of `app.api.v1.endpoint` and contains runtime logic used by the
+Traders Family application.
+"""
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,7 +27,19 @@ async def _build_campaign_data(
     start_date: date,
     end_date: date,
 ) -> CampaignData:
-    """Validate date range and preload campaign data service."""
+    """Validate date input and preload campaign analytics service.
+
+    Args:
+        session (AsyncSession): Injected asynchronous DB session.
+        start_date (date): Inclusive report start date.
+        end_date (date): Inclusive report end date.
+
+    Returns:
+        CampaignData: Preloaded service instance for campaign analytics.
+
+    Raises:
+        HTTPException: Raised with ``400`` when date range is invalid.
+    """
     if start_date > end_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -100,7 +118,21 @@ async def brand_awareness_overview(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
-    """Generate Brand Awareness payload for dashboard rendering."""
+    """Generate Brand Awareness payload for dashboard rendering.
+
+    Args:
+        start_date (date): Start of requested reporting window (inclusive).
+        end_date (date): End of requested reporting window (inclusive).
+        session (AsyncSession): Injected asynchronous database session.
+        current_user (TfUser): Authenticated user resolved from access token.
+
+    Returns:
+        JSONResponse: Success response with aggregated Brand Awareness data.
+
+    Raises:
+        HTTPException: ``400`` for validation errors.
+        HTTPException: ``500`` for unexpected processing failures.
+    """
     try:
         campaign_data = await _build_campaign_data(
             session=session,

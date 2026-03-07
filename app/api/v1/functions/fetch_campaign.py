@@ -1,3 +1,9 @@
+"""Fetch Campaign module.
+
+This module is part of `app.api.v1.functions` and contains runtime logic used by the
+Traders Family application.
+"""
+
 from datetime import date
 import asyncio
 
@@ -50,7 +56,17 @@ async def fetch_brand_awareness_metrics_with_growth_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build Brand Awareness metrics-with-growth payload for each ads source."""
+    """Build Brand Awareness metrics-with-growth payload for each ads source.
+
+    Args:
+        campaign_data (CampaignData): Preloaded campaign data service instance.
+        start_date (date): Start date for metrics calculation.
+        end_date (date): End date for metrics calculation.
+
+    Returns:
+        dict[str, object]: Mapping keyed by source (`google`, `facebook`,
+        `tiktok`) containing current/previous metrics and growth values.
+    """
     google_task = campaign_data.brand_awareness_metrics_with_growth(
         data="google",
         from_date=start_date,
@@ -144,7 +160,17 @@ async def fetch_user_acquisition_insight_charts_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build backend-processed insight chart payloads for User Acquisition page."""
+    """Build backend-processed insight chart payloads for User Acquisition page.
+
+    Args:
+        campaign_data (CampaignData): Preloaded campaign data service instance.
+        start_date (date): Inclusive start date for chart calculations.
+        end_date (date): Inclusive end date for chart calculations.
+
+    Returns:
+        dict[str, object]: Nested chart payload map containing ratio trends,
+        spend-vs-leads, top leads, and pacing insights for each source.
+    """
     sources = ("google", "facebook", "tiktok")
     dimensions = ("campaign_id", "ad_group", "ad_name")
     top_n = 10
@@ -262,7 +288,17 @@ async def fetch_brand_awareness_charts_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build Brand Awareness chart payload bundle for each ads source."""
+    """Build Brand Awareness chart payload bundle for each ads source.
+
+    Args:
+        campaign_data (CampaignData): Preloaded campaign data service instance.
+        start_date (date): Inclusive start date for chart extraction.
+        end_date (date): Inclusive end date for chart extraction.
+
+    Returns:
+        dict[str, object]: Mapping keyed by source that contains spend and
+        performance chart payloads.
+    """
     sources = ("google", "facebook", "tiktok")
     tasks = []
     for source in sources:
@@ -288,7 +324,17 @@ async def fetch_brand_awareness_details_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build Brand Awareness details payload for all ads sources."""
+    """Build Brand Awareness details payload for all ads sources.
+
+    Args:
+        campaign_data (CampaignData): Preloaded campaign data service instance.
+        start_date (date): Inclusive start date for detail rows.
+        end_date (date): Inclusive end date for detail rows.
+
+    Returns:
+        dict[str, object]: Source-keyed raw detail rows used by frontend table
+        grouping and filtering.
+    """
     sources = ("google", "facebook", "tiktok")
     results = await asyncio.gather(
         *[campaign_data.brand_awareness_details_table(source, start_date, end_date) for source in sources]
@@ -301,7 +347,17 @@ async def fetch_brand_awareness_insight_charts_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build Brand Awareness CTR/CPM/CPC trend payload by source and dimension."""
+    """Build Brand Awareness CTR/CPM/CPC trend payload by source and dimension.
+
+    Args:
+        campaign_data (CampaignData): Preloaded campaign data service instance.
+        start_date (date): Inclusive start date for trend calculations.
+        end_date (date): Inclusive end date for trend calculations.
+
+    Returns:
+        dict[str, object]: Source/dimension keyed ratio trend payload map and
+        metadata (`ratio_top_n`) for frontend rendering.
+    """
     sources = ("google", "facebook", "tiktok")
     dimensions = ("campaign_id", "ad_group", "ad_name")
     ratio_metrics = ("ctr", "cpm", "cpc")
@@ -398,7 +454,17 @@ async def fetch_brand_awareness_overview_payload(
     start_date: date,
     end_date: date,
 ) -> dict[str, object]:
-    """Build Brand Awareness payload used by Brand Awareness dashboard page."""
+    """Build Brand Awareness payload used by Brand Awareness dashboard page.
+
+    Args:
+        campaign_data (CampaignData): Preloaded campaign data service instance.
+        start_date (date): Inclusive start date for all BA computations.
+        end_date (date): Inclusive end date for all BA computations.
+
+    Returns:
+        dict[str, object]: Aggregated BA payload containing metrics, charts,
+        detail rows, and insight trend charts.
+    """
     brand_metrics, brand_charts, brand_details, brand_insight_charts = await asyncio.gather(
         fetch_brand_awareness_metrics_with_growth_payload(
             campaign_data=campaign_data,

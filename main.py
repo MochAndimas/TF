@@ -1,10 +1,18 @@
-"""Application entry point for FastAPI server process."""
+"""Application entry point for FastAPI server process.
+
+This module exposes ASGI app objects (`app_instance`, `app`) used by
+Uvicorn/runtime imports and keeps startup wiring centralized.
+"""
 
 from app.utils.app_utils import FastApiApp
 
 
 def create_application() -> FastApiApp:
-    """Create configured FastAPI wrapper instance."""
+    """Create configured FastAPI application wrapper.
+
+    Returns:
+        FastApiApp: Wrapper containing configured FastAPI app and runtime helpers.
+    """
     return FastApiApp(version="1.0.0")
 
 

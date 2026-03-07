@@ -1,4 +1,10 @@
-"""Main Streamlit entrypoint for Traders Family dashboard navigation."""
+"""Main Streamlit entrypoint for Traders Family dashboard navigation.
+
+This module defines:
+    - role-based page access configuration,
+    - sidebar grouping and navigation behavior,
+    - page dispatching into async page handlers.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +16,7 @@ from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import brand_awareness, login, register, update_data, user_acquisition
+from streamlit_app.page import brand_awareness, deposit, login, register, update_data, user_acquisition
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -24,6 +30,7 @@ PageHandler = Callable[[str], Awaitable[None]]
 PAGE_LABELS: dict[str, str] = {
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
+    "deposit_report": "Deposit Report",
     "register": "Create Account",
     "update_data": "Update Data",
 }
@@ -31,25 +38,31 @@ PAGE_LABELS: dict[str, str] = {
 PAGE_BUTTON_TYPES: dict[str, str] = {
     "user_acquisition": "tertiary",
     "brand_awareness": "tertiary",
+    "deposit_report": "tertiary",
     "register": "tertiary",
     "update_data": "tertiary",
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
+    "Revenue": ["deposit_report"],
     "Campaign": ["user_acquisition", "brand_awareness"],
     "Settings": ["register", "update_data"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["user_acquisition", "brand_awareness", "register", "update_data"],
-    "admin": ["user_acquisition", "brand_awareness"],
-    "digital_marketing": ["user_acquisition", "brand_awareness"],
-    "sales": ["user_acquisition", "brand_awareness"],
+    "superadmin": ["user_acquisition", "brand_awareness", "deposit_report", "register", "update_data"],
+    "admin": ["user_acquisition", "brand_awareness", "deposit_report"],
+    "digital_marketing": ["user_acquisition", "brand_awareness", "deposit_report"],
+    "sales": ["user_acquisition", "brand_awareness", "deposit_report"],
 }
 
 
 def _inject_navigation_style() -> None:
-    """Render minimal sidebar style for cleaner navigation hierarchy."""
+    """Inject custom CSS for sidebar visual hierarchy.
+
+    Returns:
+        None: Writes style block to Streamlit frontend.
+    """
     st.markdown(
         """
         <style>
@@ -73,7 +86,11 @@ def _inject_navigation_style() -> None:
 
 
 def _collapse_sidebar_if_requested() -> None:
-    """Best-effort sidebar auto-collapse triggered after page navigation click."""
+    """Run best-effort sidebar auto-collapse after navigation click.
+
+    Returns:
+        None: Executes a small browser script and updates session flags.
+    """
     if not st.session_state.get("collapse_sidebar_once", False):
         return
 
@@ -111,7 +128,11 @@ def _collapse_sidebar_if_requested() -> None:
 
 
 def _hide_sidebar_on_login() -> None:
-    """Hide sidebar container and toggle control on login screen."""
+    """Hide sidebar elements when user is on login view.
+
+    Returns:
+        None: Injects CSS override for sidebar components.
+    """
     st.markdown(
         """
         <style>
@@ -138,7 +159,11 @@ def _resolve_host() -> str:
 
 
 def _initialize_session_state() -> None:
-    """Initialize required Streamlit state keys with safe defaults."""
+    """Initialize required Streamlit session-state keys.
+
+    Returns:
+        None: Creates default keys when they do not exist.
+    """
     defaults = {
         "page": "overall",
         "logged_in": False,
@@ -150,7 +175,11 @@ def _initialize_session_state() -> None:
 
 
 def _restore_login_state_from_cookie() -> None:
-    """Restore login/session state from persisted browser cookie when available."""
+    """Restore login/session state from persisted cookie value.
+
+    Returns:
+        None: Restores session values in-place when cookie/session exists.
+    """
     if st.session_state.get("logged_in") and st.session_state.get("_user_id"):
         return
 
@@ -248,6 +277,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
     page_handlers: dict[str, PageHandler] = {
         "user_acquisition": user_acquisition.show_user_acquisition_page,
         "brand_awareness": brand_awareness.show_brand_awareness_page,
+        "deposit_report": deposit.show_deposit_page,
         "register": register.create_account,
         "update_data": update_data.show_update_page,
     }
@@ -262,7 +292,11 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
 
 
 def main() -> None:
-    """Run Streamlit dashboard app with role-based navigation."""
+    """Run dashboard app lifecycle and dispatch selected page.
+
+    Returns:
+        None: Renders Streamlit application as side effects.
+    """
     _inject_navigation_style()
     _initialize_session_state()
     _restore_login_state_from_cookie()

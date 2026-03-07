@@ -1,3 +1,9 @@
+"""Auth module.
+
+This module is part of `app.api.v1.endpoint` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import secrets
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status

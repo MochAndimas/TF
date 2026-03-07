@@ -1,3 +1,9 @@
+"""Utils module.
+
+This module is part of `streamlit_app.functions` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import logging
 import re
 import httpx

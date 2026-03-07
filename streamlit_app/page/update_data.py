@@ -1,3 +1,9 @@
+"""Update Data module.
+
+This module is part of `streamlit_app.page` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import datetime as dt
 import httpx
 import streamlit as st

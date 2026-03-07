@@ -1,3 +1,9 @@
+"""Campaign Utils module.
+
+This module is part of `app.utils` and contains runtime logic used by the
+Traders Family application.
+"""
+
 from __future__ import annotations
 
 import asyncio

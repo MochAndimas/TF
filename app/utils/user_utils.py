@@ -1,3 +1,9 @@
+"""User Utils module.
+
+This module is part of `app.utils` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import uuid
 from datetime import datetime, timedelta
 from fastapi.security import OAuth2PasswordBearer

@@ -1,3 +1,9 @@
+"""Feature module.
+
+This module is part of `app.api.v1.endpoint` and contains runtime logic used by the
+Traders Family application.
+"""
+
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession

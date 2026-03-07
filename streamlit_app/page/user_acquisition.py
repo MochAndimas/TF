@@ -1,3 +1,9 @@
+"""User Acquisition module.
+
+This module is part of `streamlit_app.page` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import datetime as dt
 import textwrap
 
@@ -31,7 +37,15 @@ PAGE_STYLE = """
 
 
 def _set_transparent_chart_background(figure):
-    """Force transparent plot and paper background for non-table charts."""
+    """Apply transparent background for non-table Plotly figures.
+
+    Args:
+        figure: Plotly figure object generated from API payload.
+
+    Returns:
+        object: Same figure instance with transparent paper/plot background
+        when it is not a table chart.
+    """
     if not figure.data:
         return figure
     if any(getattr(trace, "type", "") == "table" for trace in figure.data):
@@ -44,7 +58,16 @@ def _set_transparent_chart_background(figure):
 
 
 def _build_performance_dataframe(detail_rows: list[dict], level_column: str) -> pd.DataFrame:
-    """Build one performance table grouped by selected level."""
+    """Aggregate campaign detail rows for selected grouping dimension.
+
+    Args:
+        detail_rows (list[dict]): Raw detail rows from overview payload.
+        level_column (str): Grouping key (`campaign_id`, `ad_group`, `ad_name`).
+
+    Returns:
+        pd.DataFrame: Aggregated performance dataframe with derived metrics
+        (`click->lead`, `ctr`, `cpc`, `cpm`, `cost_per_leads`).
+    """
     if not detail_rows:
         return pd.DataFrame()
 
@@ -91,7 +114,16 @@ def _build_performance_dataframe(detail_rows: list[dict], level_column: str) -> 
 
 
 def _format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFrame:
-    """Format dataframe for display readability."""
+    """Format aggregated dataframe values for UI readability.
+
+    Args:
+        df (pd.DataFrame): Aggregated dataframe before display formatting.
+        level_label (str): Active grouping label used as display column name.
+
+    Returns:
+        pd.DataFrame: Display-ready dataframe with currency, separator, and
+        percentage formatting applied.
+    """
     if df.empty:
         return df
 
@@ -101,13 +133,13 @@ def _format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFr
             lambda value: textwrap.fill(value, width=46, break_long_words=False)
         )
 
-    for col in ("Cost", "CPC", "CPM", "Cost per Leads"):
+    for col in ("Cost", "CPC", "CPM", "Cost/Leads", "Cost per Leads"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"Rp {float(v):,.0f}")
     for col in ("Impressions", "Clicks", "Leads"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"{int(float(v)):,}")
-    for col in ("Avg. Click to Leads", "Avg. CTR"):
+    for col in ("Click->Leads %", "Avg. Click to Leads", "Avg. CTR"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"{float(v):,.2f}%")
 
@@ -115,7 +147,14 @@ def _format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFr
 
 
 async def show_user_acquisition_page(host: str) -> None:
-    """Render campaign ads dashboard page."""
+    """Render User Acquisition dashboard page and keep payload cache in sync.
+
+    Args:
+        host (str): API base URL used for protected backend requests.
+
+    Returns:
+        None: Renders Streamlit components as side effects.
+    """
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
     st.markdown('<div class="campaign-title">User Acquisition</div>', unsafe_allow_html=True)
 
@@ -125,39 +164,39 @@ async def show_user_acquisition_page(host: str) -> None:
         "TikTok Ads": "tiktok",
     }
     presets = campaign_preset_ranges(dt.date.today())
+    date_range_key = "campaign_ads_date_range"
+    if date_range_key not in st.session_state:
+        st.session_state[date_range_key] = presets["Last 7 Day"]
     with st.container(border=True):
-        with st.form("campaign_ads_filters", border=False):
-            filter_col, source_col = st.columns([2, 2], gap="small")
-            with filter_col:
-                period_key = st.selectbox(
-                    "Periods",
-                    options=list(presets.keys()),
-                    index=0,
-                    key="campaign_ads_period",
+        filter_col, source_col = st.columns([2, 2], gap="small")
+        with filter_col:
+            period_key = st.selectbox(
+                "Periods",
+                options=list(presets.keys()),
+                index=0,
+                key="campaign_ads_period",
+            )
+            if period_key == "Custom Range":
+                selected = st.date_input(
+                    "Select Date Range",
+                    key=date_range_key,
                 )
+                if not isinstance(selected, tuple) or len(selected) != 2:
+                    st.warning("Please select a valid date range.")
+                    return
+                start_date, end_date = selected
+            else:
+                start_date, end_date = presets[period_key]
+                if st.session_state.get(date_range_key) != (start_date, end_date):
+                    st.session_state[date_range_key] = (start_date, end_date)
 
-                if period_key == "Custom Range":
-                    selected = st.date_input(
-                        "Select Date Range",
-                        value=presets["Last 7 Day"],
-                        key="campaign_ads_custom_range",
-                    )
-                    if not isinstance(selected, tuple) or len(selected) != 2:
-                        st.warning("Please select a valid date range.")
-                        return
-                    start_date, end_date = selected
-                else:
-                    start_date, end_date = presets[period_key]
-
-            with source_col:
-                selected_source = st.selectbox(
-                    "Performance Source",
-                    options=list(source_options.keys()),
-                    index=0,
-                    key="campaign_ads_source",
-                )
-
-            apply_filter = st.form_submit_button("Apply Filters", type="primary")
+        with source_col:
+            selected_source = st.selectbox(
+                "Performance Source",
+                options=list(source_options.keys()),
+                index=0,
+                key="campaign_ads_source",
+            )
 
     if start_date > end_date:
         st.warning("Start date cannot be after end date.")
@@ -168,11 +207,12 @@ async def show_user_acquisition_page(host: str) -> None:
     cached_details = cached_payload.get("data", {}).get("ads_campaign_details", {})
     cached_selected_details = cached_details.get(selected_key, {}) if isinstance(cached_details, dict) else {}
     has_rows_schema = isinstance(cached_selected_details.get("rows"), list)
+    selected_range = (start_date, end_date)
 
     should_fetch = (
-        apply_filter
-        or "campaign_ads_payload" not in st.session_state
+        "campaign_ads_payload" not in st.session_state
         or not has_rows_schema
+        or st.session_state.get("campaign_ads_range") != selected_range
     )
 
     if should_fetch:
@@ -425,5 +465,12 @@ async def show_user_acquisition_page(host: str) -> None:
 
 
 async def show_campaign_ads_page(host: str) -> None:
-    """Backward-compatible alias for previous page handler name."""
+    """Backward-compatible alias for legacy page handler name.
+
+    Args:
+        host (str): API base URL used by underlying page renderer.
+
+    Returns:
+        None: Delegates rendering to ``show_user_acquisition_page``.
+    """
     await show_user_acquisition_page(host)

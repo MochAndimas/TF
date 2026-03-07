@@ -1,3 +1,9 @@
+"""User module.
+
+This module is part of `app.schemas` and contains runtime logic used by the
+Traders Family application.
+"""
+
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime

@@ -1,3 +1,9 @@
+"""Brand Awareness module.
+
+This module is part of `streamlit_app.page` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import datetime as dt
 import textwrap
 
@@ -31,7 +37,14 @@ PAGE_STYLE = """
 
 
 def _set_transparent_chart_background(figure):
-    """Force transparent chart backgrounds."""
+    """Apply transparent background style to Plotly chart.
+
+    Args:
+        figure: Plotly figure object.
+
+    Returns:
+        object: Styled figure with transparent paper and plot backgrounds.
+    """
     figure.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
@@ -40,7 +53,15 @@ def _set_transparent_chart_background(figure):
 
 
 def _build_brand_awareness_performance_dataframe(detail_rows: list[dict], level_column: str) -> pd.DataFrame:
-    """Build one Brand Awareness performance table grouped by selected level."""
+    """Aggregate Brand Awareness detail rows by selected performance level.
+
+    Args:
+        detail_rows (list[dict]): Raw detail rows from BA overview payload.
+        level_column (str): Grouping key (`campaign_id`, `ad_group`, `ad_name`).
+
+    Returns:
+        pd.DataFrame: Aggregated dataframe with derived CTR/CPM/CPC metrics.
+    """
     if not detail_rows:
         return pd.DataFrame()
 
@@ -78,7 +99,16 @@ def _build_brand_awareness_performance_dataframe(detail_rows: list[dict], level_
 
 
 def _format_brand_awareness_display(df: pd.DataFrame, level_label: str) -> pd.DataFrame:
-    """Format Brand Awareness dataframe for display readability."""
+    """Format Brand Awareness dataframe values for table display.
+
+    Args:
+        df (pd.DataFrame): Aggregated dataframe before text formatting.
+        level_label (str): Selected grouping label column name.
+
+    Returns:
+        pd.DataFrame: Display-ready dataframe with formatted currency,
+        percentages, and thousand separators.
+    """
     if df.empty:
         return df
 
@@ -100,7 +130,14 @@ def _format_brand_awareness_display(df: pd.DataFrame, level_label: str) -> pd.Da
 
 
 async def show_brand_awareness_page(host: str) -> None:
-    """Render Brand Awareness dashboard page."""
+    """Render Brand Awareness dashboard page with cached API payload strategy.
+
+    Args:
+        host (str): API base URL used to request overview payload.
+
+    Returns:
+        None: Renders Streamlit components as side effects.
+    """
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
     st.markdown('<div class="campaign-title">Brand Awareness</div>', unsafe_allow_html=True)
 
@@ -110,39 +147,39 @@ async def show_brand_awareness_page(host: str) -> None:
         "TikTok Ads": "tiktok",
     }
     presets = campaign_preset_ranges(dt.date.today())
+    date_range_key = "brand_awareness_date_range"
+    if date_range_key not in st.session_state:
+        st.session_state[date_range_key] = presets["Last 7 Day"]
     with st.container(border=True):
-        with st.form("brand_awareness_filters", border=False):
-            filter_col, source_col = st.columns([2, 2], gap="small")
-            with filter_col:
-                period_key = st.selectbox(
-                    "Periods",
-                    options=list(presets.keys()),
-                    index=0,
-                    key="brand_awareness_period",
+        filter_col, source_col = st.columns([2, 2], gap="small")
+        with filter_col:
+            period_key = st.selectbox(
+                "Periods",
+                options=list(presets.keys()),
+                index=0,
+                key="brand_awareness_period",
+            )
+            if period_key == "Custom Range":
+                selected = st.date_input(
+                    "Select Date Range",
+                    key=date_range_key,
                 )
+                if not isinstance(selected, tuple) or len(selected) != 2:
+                    st.warning("Please select a valid date range.")
+                    return
+                start_date, end_date = selected
+            else:
+                start_date, end_date = presets[period_key]
+                if st.session_state.get(date_range_key) != (start_date, end_date):
+                    st.session_state[date_range_key] = (start_date, end_date)
 
-                if period_key == "Custom Range":
-                    selected = st.date_input(
-                        "Select Date Range",
-                        value=presets["Last 7 Day"],
-                        key="brand_awareness_custom_range",
-                    )
-                    if not isinstance(selected, tuple) or len(selected) != 2:
-                        st.warning("Please select a valid date range.")
-                        return
-                    start_date, end_date = selected
-                else:
-                    start_date, end_date = presets[period_key]
-
-            with source_col:
-                selected_source = st.selectbox(
-                    "Performance Source",
-                    options=list(source_options.keys()),
-                    index=0,
-                    key="brand_awareness_source",
-                )
-
-            apply_filter = st.form_submit_button("Apply Filters", type="primary")
+        with source_col:
+            selected_source = st.selectbox(
+                "Performance Source",
+                options=list(source_options.keys()),
+                index=0,
+                key="brand_awareness_source",
+            )
 
     if start_date > end_date:
         st.warning("Start date cannot be after end date.")
@@ -154,8 +191,13 @@ async def show_brand_awareness_page(host: str) -> None:
     cached_charts = cached_data.get("charts", {})
     cached_selected = cached_charts.get(selected_key, {}) if isinstance(cached_charts, dict) else {}
     has_schema = isinstance(cached_selected.get("spend", {}).get("rows"), list)
+    selected_range = (start_date, end_date)
 
-    should_fetch = apply_filter or "brand_awareness_payload" not in st.session_state or not has_schema
+    should_fetch = (
+        "brand_awareness_payload" not in st.session_state
+        or not has_schema
+        or st.session_state.get("brand_awareness_range") != selected_range
+    )
     if should_fetch:
         token_data = get_user(st.session_state._user_id)
         if token_data is None or not getattr(token_data, "access_token", None):

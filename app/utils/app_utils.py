@@ -1,4 +1,11 @@
-"""Application bootstrap utilities for FastAPI service wiring."""
+"""Application bootstrap utilities for FastAPI service wiring.
+
+This module encapsulates application startup concerns including:
+    - FastAPI app construction and metadata,
+    - middleware registration (CORS, session, security headers, CSRF),
+    - versioned router registration,
+    - runtime server boot configuration.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ from uvicorn import run as uvicorn_run
 
 from app.api.v1.endpoint.auth import router as auth_router
 from app.api.v1.endpoint.campaign import router as campaign_router
+from app.api.v1.endpoint.deposit import router as deposit_router
 from app.api.v1.endpoint.feature import router as feature_router
 from app.core.config import settings
 from app.core.security import pwd_context
@@ -118,7 +126,16 @@ class FastApiApp:
         await sqlite_engine.dispose()
 
     async def _bootstrap_superadmin_if_enabled(self) -> None:
-        """Create first superadmin account once when bootstrap mode is enabled."""
+        """Create initial superadmin account when bootstrap mode is active.
+
+        This bootstrap routine is intentionally one-time and guarded by:
+            - environment validation,
+            - existing-account check for configured bootstrap email,
+            - empty-active-user check to prevent accidental overwrite.
+
+        Returns:
+            None: Writes bootstrap account into database when conditions pass.
+        """
         settings.validate_bootstrap_config()
         if not settings.BOOTSTRAP_SUPERADMIN:
             return
@@ -373,6 +390,7 @@ class FastApiApp:
         self.app.include_router(auth_router, tags=["Authentication"])
         self.app.include_router(feature_router, tags=["Update Data"])
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])
+        self.app.include_router(deposit_router, tags=["Deposit Analytics"])
 
     def run(self) -> None:
         """Start Uvicorn server with environment-aware runtime options.

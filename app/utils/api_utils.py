@@ -1,3 +1,9 @@
+"""Api Utils module.
+
+This module is part of `app.utils` and contains runtime logic used by the
+Traders Family application.
+"""
+
 import pandas as pd
 import numpy as np
 import requests
