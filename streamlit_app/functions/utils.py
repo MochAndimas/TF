@@ -310,6 +310,71 @@ def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_l
                 )
 
 
+def render_brand_awareness_metric_cards(st, source_metrics: dict[str, object], source_label: str) -> None:
+    """Render six KPI cards for selected Brand Awareness source."""
+    st.markdown(f'<div class="metric-section-title">{source_label} - Brand Awareness</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stMetricLabel"] > div {
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                font-size: 1.05rem !important;
+            }
+            div[data-testid="stMetricValue"] > div {
+                font-size: 1.8rem !important;
+                line-height: 1.15 !important;
+            }
+            div[data-testid="stMetricDelta"] > div {
+                font-size: 0.92rem !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    current_metrics = source_metrics.get("current_period", {}).get("metrics", {})
+    growth_metrics = source_metrics.get("growth_percentage", {})
+    cards = [
+        ("Spend", "cost"),
+        ("Impr.", "impressions"),
+        ("Clicks", "clicks"),
+        ("CTR", "ctr"),
+        ("CPM", "cpm"),
+        ("CPC", "cpc"),
+    ]
+
+    columns = st.columns(6, gap="small")
+    for column, (label, key) in zip(columns, cards):
+        with column:
+            with st.container(border=True):
+                raw_value = _campaign_metric_value(current_metrics, key)
+                if key in ("cost", "cpm", "cpc"):
+                    metric_value = _campaign_format_currency(raw_value, compact=True)
+                elif key == "ctr":
+                    metric_value = f"{raw_value:.2f}%"
+                else:
+                    metric_value = _campaign_format_number(raw_value)
+
+                growth_value = growth_metrics.get(key)
+                if growth_value is None:
+                    growth_value = _campaign_growth_from_periods(source_metrics, key)
+                if growth_value is None:
+                    growth_text = "N/A"
+                else:
+                    sign = "+" if growth_value > 0 else ""
+                    growth_text = f"{sign}{growth_value:.2f}%"
+                st.metric(
+                    label=label,
+                    value=metric_value,
+                    delta=growth_text,
+                )
+
+
 def get_streamlit():
     """Yield synchronous SQLAlchemy session for Streamlit components.
 

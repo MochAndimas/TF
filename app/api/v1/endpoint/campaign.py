@@ -5,31 +5,47 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.functions.fetch_campaign import (
-    fetch_campaign_overview_payload
+    fetch_brand_awareness_overview_payload,
+    fetch_user_acquisition_overview_payload,
 )
 from app.db.models.user import TfUser
 from app.db.session import get_db
-from app.schemas.campaign import ChartType
 from app.utils.campaign_utils import CampaignData
 from app.utils.user_utils import get_current_user
 
 router = APIRouter()
 
 
-@router.get("/api/campaign")
-async def campaign_overview(
+async def _build_campaign_data(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+) -> CampaignData:
+    """Validate date range and preload campaign data service."""
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be after end_date.",
+        )
+    return await CampaignData.load_data(
+        session=session,
+        from_date=start_date,
+        to_date=end_date,
+    )
+
+
+@router.get("/api/campaign/user-acquisition")
+async def user_acquisition_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
-    chart: ChartType = Query("both"),
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
-    """Generate campaign overview payload for dashboard rendering.
+    """Generate User Acquisition payload for dashboard rendering.
 
     Args:
         start_date (date): Start of requested reporting window (inclusive).
         end_date (date): End of requested reporting window (inclusive).
-        chart (ChartType): Chart mode for leads-by-source payload (`table`, `pie`, `both`).
         session (AsyncSession): Injected asynchronous database session.
         current_user (TfUser): Authenticated user resolved from access token.
 
@@ -44,21 +60,14 @@ async def campaign_overview(
         HTTPException: ``500`` when unexpected server-side processing fails.
     """
     try:
-        if start_date > end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="start_date cannot be after end_date.",
-            )
-
-        campaign_data = await CampaignData.load_data(
+        campaign_data = await _build_campaign_data(
             session=session,
-            from_date=start_date,
-            to_date=end_date,
+            start_date=start_date,
+            end_date=end_date,
         )
 
-        data = await fetch_campaign_overview_payload(
+        data = await fetch_user_acquisition_overview_payload(
             campaign_data=campaign_data,
-            chart=chart,
             start_date=start_date,
             end_date=end_date,
         )
@@ -66,7 +75,7 @@ async def campaign_overview(
         return JSONResponse(
             content={
                 "success": True,
-                "message": "Campaign overview generated.",
+                "message": "User acquisition overview generated.",
                 "data": data,
             }
         )
@@ -80,5 +89,47 @@ async def campaign_overview(
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating campaign overview: {error}",
+            detail=f"An error occurred while generating user acquisition overview: {error}",
+        )
+
+
+@router.get("/api/campaign/brand-awareness")
+async def brand_awareness_overview(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+):
+    """Generate Brand Awareness payload for dashboard rendering."""
+    try:
+        campaign_data = await _build_campaign_data(
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        data = await fetch_brand_awareness_overview_payload(
+            campaign_data=campaign_data,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": "Brand awareness overview generated.",
+                "data": data,
+            }
+        )
+    except HTTPException:
+        raise
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while generating brand awareness overview: {error}",
         )

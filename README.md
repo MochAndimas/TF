@@ -40,7 +40,7 @@ Dashboard internal untuk memantau data campaign dan sinkronisasi data dari beber
 |  |- schemas/                # pydantic schemas (auth/feature/campaign)
 |  |- utils/                  # app bootstrap, user utils, gsheet utils
 |- streamlit_app/
-|  |- page/                   # login, campaign_ads, register, update_data
+|  |- page/                   # login, user_acquisition, brand_awareness, register, update_data
 |  |- functions/              # helper streamlit (cookie/session)
 |- main.py                    # entrypoint FastAPI
 |- streamlit_run.py           # entrypoint Streamlit
@@ -129,12 +129,12 @@ python run_app.py
 - `POST /api/register`
 - `DELETE /api/delete_account/{user_id}`
 - `POST /api/feature-data/update-external-api`
-- `GET /api/campaign/overview?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&chart=both`
-- `GET /api/campaign/leads-by-source?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&chart=both`
+- `GET /api/campaign/user-acquisition?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&chart=both`
+- `GET /api/campaign/brand-awareness?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 
 ## User Acquisition Flow
 
-Frontend `streamlit_app/page/campaign_ads.py` menggunakan endpoint `GET /api/campaign/overview` untuk sekali request:
+Frontend `streamlit_app/page/user_acquisition.py` menggunakan endpoint `GET /api/campaign/user-acquisition` untuk sekali request:
 
 - `leads_by_source`:
   - table (Plotly JSON)

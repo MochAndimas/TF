@@ -10,7 +10,7 @@ from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import campaign_ads, login, register, update_data
+from streamlit_app.page import brand_awareness, login, register, update_data, user_acquisition
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -23,26 +23,28 @@ PageHandler = Callable[[str], Awaitable[None]]
 
 PAGE_LABELS: dict[str, str] = {
     "user_acquisition": "User Acquisition",
+    "brand_awareness": "Brand Awareness",
     "register": "Create Account",
     "update_data": "Update Data",
 }
 
 PAGE_BUTTON_TYPES: dict[str, str] = {
     "user_acquisition": "tertiary",
+    "brand_awareness": "tertiary",
     "register": "tertiary",
     "update_data": "tertiary",
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
-    "Campaign": ["user_acquisition"],
+    "Campaign": ["user_acquisition", "brand_awareness"],
     "Settings": ["register", "update_data"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["user_acquisition", "register", "update_data"],
-    "admin": ["user_acquisition"],
-    "digital_marketing": ["user_acquisition"],
-    "sales": ["user_acquisition"],
+    "superadmin": ["user_acquisition", "brand_awareness", "register", "update_data"],
+    "admin": ["user_acquisition", "brand_awareness"],
+    "digital_marketing": ["user_acquisition", "brand_awareness"],
+    "sales": ["user_acquisition", "brand_awareness"],
 }
 
 
@@ -244,7 +246,8 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         return
 
     page_handlers: dict[str, PageHandler] = {
-        "user_acquisition": campaign_ads.show_user_acquisition_page,
+        "user_acquisition": user_acquisition.show_user_acquisition_page,
+        "brand_awareness": brand_awareness.show_brand_awareness_page,
         "register": register.create_account,
         "update_data": update_data.show_update_page,
     }

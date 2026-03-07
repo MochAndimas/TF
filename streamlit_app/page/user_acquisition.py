@@ -185,12 +185,11 @@ async def show_user_acquisition_page(host: str) -> None:
             response = await fetch_data(
                 st=st,
                 host=host,
-                uri="campaign",
+                uri="campaign/user-acquisition",
                 method="GET",
                 params={
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
-                    "chart": "both",
                 },
             )
 
@@ -206,26 +205,10 @@ async def show_user_acquisition_page(host: str) -> None:
 
     payload = st.session_state.get("campaign_ads_payload", {})
     overview_data = payload.get("data", {})
-    leads_by_source = overview_data.get("leads_by_source", {})
     ads_metrics = overview_data.get("ads_metrics_with_growth", {})
     leads_performance_charts = overview_data.get("leads_performance_charts", {})
     ads_campaign_details = overview_data.get("ads_campaign_details", {})
-
-    table_payload = leads_by_source.get("table", {}).get("figure")
-    pie_payload = leads_by_source.get("pie", {}).get("figure")
-    table_figure = campaign_figure_from_payload(table_payload, "Leads Source")
-    pie_figure = campaign_figure_from_payload(pie_payload, "Leads Source")
-    pie_figure = _set_transparent_chart_background(pie_figure)
-    table_figure.update_layout(height=460)
-    pie_figure.update_layout(height=460)
-
-    left_col, right_col = st.columns(2, gap="small")
-    with left_col:
-        with st.container(border=True):
-            st.plotly_chart(table_figure, width="stretch")
-    with right_col:
-        with st.container(border=True):
-            st.plotly_chart(pie_figure, width="stretch")
+    ua_insight_charts = overview_data.get("ua_insight_charts", {})
 
     selected_metrics = ads_metrics.get(selected_key, {})
     render_campaign_metric_cards(st, selected_metrics, selected_source)
@@ -268,7 +251,7 @@ async def show_user_acquisition_page(host: str) -> None:
     selected_details = ads_campaign_details.get(selected_key, {})
     detail_rows = selected_details.get("rows", [])
     level_options = {
-        "Ad Campaign Performance": ("campaign_name", "Campaign Name"),
+        "Ad Campaign Performance": ("campaign_id", "Campaign ID"),
         "Ad group Performance": ("ad_group", "Ad Group"),
         "Ad Name Performance": ("ad_name", "Ad Name"),
     }
@@ -284,6 +267,109 @@ async def show_user_acquisition_page(host: str) -> None:
     if performance_df.empty:
         st.info("No campaign data for selected date range.")
         return
+
+    selected_insight_source = ua_insight_charts.get("spend_vs_leads", {}).get(selected_key, {})
+    scatter_payload = selected_insight_source.get(level_column, {}).get("figure")
+    top_payload = (
+        ua_insight_charts.get("top_leads", {})
+        .get(selected_key, {})
+        .get(level_column, {})
+        .get("figure")
+    )
+    top_n = int(ua_insight_charts.get("top_n", 10) or 10)
+    ratio_trends_payload = (
+        ua_insight_charts.get("ratio_trends", {})
+        .get(selected_key, {})
+        .get(level_column, {})
+    )
+    cpl_payload = ratio_trends_payload.get("cost_per_lead", {}).get("figure")
+    click_per_lead_payload = ratio_trends_payload.get("click_per_lead", {}).get("figure")
+    ctl_payload = ratio_trends_payload.get("click_through_lead", {}).get("figure")
+    cpl_figure = campaign_figure_from_payload(
+        cpl_payload,
+        f"{selected_source} Cost per Lead Trend",
+    )
+    click_per_lead_figure = campaign_figure_from_payload(
+        click_per_lead_payload,
+        f"{selected_source} Click per Lead Trend",
+    )
+    ctl_figure = campaign_figure_from_payload(
+        ctl_payload,
+        f"{selected_source} Click Through Lead Trend",
+    )
+    cpl_figure = _set_transparent_chart_background(cpl_figure)
+    click_per_lead_figure = _set_transparent_chart_background(click_per_lead_figure)
+    ctl_figure = _set_transparent_chart_background(ctl_figure)
+    cpl_figure.update_layout(height=390)
+    click_per_lead_figure.update_layout(height=390)
+    ctl_figure.update_layout(height=390)
+
+    scatter_figure = campaign_figure_from_payload(
+        scatter_payload,
+        f"{selected_source} Spend vs Leads",
+    )
+    top_n_figure = campaign_figure_from_payload(
+        top_payload,
+        f"Top {top_n} {selected_source} by Leads",
+    )
+    scatter_figure = _set_transparent_chart_background(scatter_figure)
+    top_n_figure = _set_transparent_chart_background(top_n_figure)
+    scatter_figure.update_layout(height=430)
+    top_n_figure.update_layout(height=430)
+
+    st.markdown("### Campaign Insights")
+    trend_left, trend_mid, trend_right = st.columns(3, gap="small")
+    with trend_left:
+        with st.container(border=True):
+            st.plotly_chart(cpl_figure, width="stretch")
+    with trend_mid:
+        with st.container(border=True):
+            st.plotly_chart(click_per_lead_figure, width="stretch")
+    with trend_right:
+        with st.container(border=True):
+            st.plotly_chart(ctl_figure, width="stretch")
+
+    insight_left, insight_right = st.columns(2, gap="small")
+    with insight_left:
+        with st.container(border=True):
+            st.plotly_chart(scatter_figure, width="stretch")
+    with insight_right:
+        with st.container(border=True):
+            st.plotly_chart(top_n_figure, width="stretch")
+
+    cumulative_payload = (
+        ua_insight_charts.get("cumulative", {})
+        .get(selected_key, {})
+        .get(level_column, {})
+        .get("figure")
+    )
+    daily_mix_payload = (
+        ua_insight_charts.get("daily_mix", {})
+        .get(selected_key, {})
+        .get(level_column, {})
+        .get("figure")
+    )
+    cumulative_figure = campaign_figure_from_payload(
+        cumulative_payload,
+        f"{selected_source} Cumulative Leads vs Spend",
+    )
+    daily_mix_figure = campaign_figure_from_payload(
+        daily_mix_payload,
+        "Daily Mix (UA Leads by Source)",
+    )
+    cumulative_figure = _set_transparent_chart_background(cumulative_figure)
+    daily_mix_figure = _set_transparent_chart_background(daily_mix_figure)
+    cumulative_figure.update_layout(height=430)
+    daily_mix_figure.update_layout(height=430)
+
+    st.markdown("### Daily Pacing Insights")
+    pacing_left, pacing_right = st.columns(2, gap="small")
+    with pacing_left:
+        with st.container(border=True):
+            st.plotly_chart(cumulative_figure, width="stretch")
+    with pacing_right:
+        with st.container(border=True):
+            st.plotly_chart(daily_mix_figure, width="stretch")
 
     display_df = performance_df.rename(
         columns={
