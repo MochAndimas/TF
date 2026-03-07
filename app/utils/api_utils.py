@@ -112,7 +112,8 @@ class GoogleSheetApi:
             client_id=config("GSHEET_CLIENT_ID", cast=str),
             client_secret=config("GSHEET_CLIENT_SECRET", cast=str),
         )
-        self.service = build("sheets", version="v4", credentials=creds)
+        # Disable legacy discovery file cache to avoid oauth2client cache warning.
+        self.service = build("sheets", version="v4", credentials=creds, cache_discovery=False)
         self.sheet_id = config("GSHEET_SHEET_ID", cast=str)
         self.depo_source_url = config(
             "DEPO_SOURCE_URL",
@@ -264,20 +265,16 @@ class GoogleSheetApi:
             normalized = df[column].astype(str).str.strip().str.lower()
             df.loc[normalized.isin(null_markers), column] = None
         df = df[df["tag"].notna()]
-        df.fillna(
-            {
-                "id": 0,
-                "campaignid": 0,
-                "protection": 0,
-                "Analyst": 0,
-                "NMI": 0,
-                "Lot": 0,
-                "First Depo $": 0.0,
-            },
-            inplace=True,
-        )
+        # Avoid DataFrame.fillna on object arrays to prevent future pandas downcasting warning.
+        df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0)
+        df["campaignid"] = pd.to_numeric(df["campaignid"], errors="coerce").fillna(0)
+        df["protection"] = pd.to_numeric(df["protection"], errors="coerce").fillna(0)
+        df["Analyst"] = pd.to_numeric(df["Analyst"], errors="coerce").fillna(0)
+        df["NMI"] = pd.to_numeric(df["NMI"], errors="coerce").fillna(0)
+        df["Lot"] = pd.to_numeric(df["Lot"], errors="coerce").fillna(0)
+        df["First Depo $"] = pd.to_numeric(df["First Depo $"], errors="coerce").fillna(0.0)
 
-        df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0).astype(int)
+        df["id"] = df["id"].astype(int)
         df["tgl_regis"] = pd.to_datetime(
             df["tgl_regis"],
             format="%Y-%m-%dT%H:%M:%S.%fZ",
@@ -288,30 +285,26 @@ class GoogleSheetApi:
         df["email"] = df["email"].astype(str)
         df["phone"] = df["phone"].astype(str)
         df["Status\nNew / Existing"] = df["Status\nNew / Existing"].astype(str)
-        df["campaignid"] = pd.to_numeric(
-            df["campaignid"], errors="coerce"
-        ).fillna(0).astype(int).astype(str)
+        df["campaignid"] = df["campaignid"].astype(int).astype(str)
         df["tag"] = df["tag"].astype(str)
-        df["protection"] = pd.to_numeric(df["protection"], errors="coerce").fillna(0).astype(int)
+        df["protection"] = df["protection"].astype(int)
         df["Assign Date"] = pd.to_datetime(
             df["Assign Date"],
             format="%Y-%m-%dT%H:%M:%S.%fZ",
             utc=True,
             errors="coerce",
         ).dt.tz_localize(None).dt.date
-        df["Analyst"] = pd.to_numeric(df["Analyst"], errors="coerce").fillna(0).astype(int)
+        df["Analyst"] = df["Analyst"].astype(int)
         df["First Depo Date"] = pd.to_datetime(
             df["First Depo Date"],
             format="%Y-%m-%dT%H:%M:%S.%fZ",
             utc=True,
             errors="coerce",
         ).dt.tz_localize(None)
-        df["First Depo $"] = pd.to_numeric(
-            df["First Depo $"], errors="coerce"
-        ).fillna(0.0).astype(float)
+        df["First Depo $"] = df["First Depo $"].astype(float)
         df["Time To Closing"] = df["Time To Closing"].astype(str)
-        df["NMI"] = pd.to_numeric(df["NMI"], errors="coerce").fillna(0).astype(int)
-        df["Lot"] = pd.to_numeric(df["Lot"], errors="coerce").fillna(0).astype(int)
+        df["NMI"] = df["NMI"].astype(int)
+        df["Lot"] = df["Lot"].astype(int)
         df["Cabang"] = df["Cabang"].astype(str)
         df["Pool"] = df["Pool"].apply(
             lambda value: str(value).strip().lower() in {"true", "1", "yes", "y"}
@@ -353,25 +346,21 @@ class GoogleSheetApi:
         for column in object_columns:
             normalized = df[column].astype(str).str.strip().str.lower()
             df.loc[normalized.isin(null_markers), column] = None
-        df.fillna(
-            {
-                "campaign_id": "-",
-                "cost": 0,
-                "impressions": 0,
-                "clicks": 0,
-                "leads": 0,
-            },
-            inplace=True,
-        )
+        # Avoid object-dtype fillna downcasting warning on newer pandas.
+        df["campaign_id"] = df["campaign_id"].where(df["campaign_id"].notna(), "-")
+        df["cost"] = pd.to_numeric(df["cost"], errors="coerce").fillna(0)
+        df["impressions"] = pd.to_numeric(df["impressions"], errors="coerce").fillna(0)
+        df["clicks"] = pd.to_numeric(df["clicks"], errors="coerce").fillna(0)
+        df["leads"] = pd.to_numeric(df["leads"], errors="coerce").fillna(0)
         df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
         df["campaign_id"] = df["campaign_id"].astype(str)
         df["campaign_name"] = df["campaign_name"].astype(str)
         df["ad_group"] = df["ad_group"].astype(str)
         df["ad_name"] = df["ad_name"].astype(str)
-        df["cost"] = pd.to_numeric(df["cost"], errors="coerce").fillna(0)
-        df["impressions"] = pd.to_numeric(df["impressions"], errors="coerce").fillna(0).astype(int)
-        df["clicks"] = pd.to_numeric(df["clicks"], errors="coerce").fillna(0).astype(int)
-        df["leads"] = pd.to_numeric(df["leads"], errors="coerce").fillna(0).astype(int)
+        df["cost"] = df["cost"].astype(float)
+        df["impressions"] = df["impressions"].astype(int)
+        df["clicks"] = df["clicks"].astype(int)
+        df["leads"] = df["leads"].astype(int)
         df = df[df["date"].notna()]
         return df
 
@@ -560,4 +549,3 @@ class GoogleSheetApi:
             raise
         except Exception as error:
             raise HTTPException(500, f"Google Sheets error: {str(error)}")
-
