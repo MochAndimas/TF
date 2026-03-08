@@ -4,7 +4,7 @@ This module is part of `app.db.models` and contains runtime logic used by the
 Traders Family application.
 """
 
-from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Integer
+from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Index, Integer, UniqueConstraint
 from sqlalchemy import String, DateTime, JSON, Boolean, Float, Date
 from sqlalchemy.orm import relationship
 from app.db.base import SqliteBase
@@ -72,6 +72,14 @@ class DataDepo(SqliteBase):
     __tablename__ = "data_depo"
     __table_args__ = (
         ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "user_id",
+            "tanggal_regis",
+            "campaign_id",
+            name="uq_data_depo_user_regis_campaign",
+        ),
+        Index("ix_data_depo_tanggal_regis", "tanggal_regis"),
+        Index("ix_data_depo_campaign_id", "campaign_id"),
         {"schema": None}
     )
     __mapper_args__ = {
@@ -114,7 +122,7 @@ class GoogleAds(SqliteBase):
         id (int): Primary key.
         date (Date): Metric date.
         campaign_id (str): Foreign key to campaign table.
-        cost (int | None): Advertising cost.
+        cost (float | None): Advertising cost.
         impressions (int | None): Impression count.
         clicks (int | None): Click count.
         leads (int | None): Lead count.
@@ -123,6 +131,15 @@ class GoogleAds(SqliteBase):
     __tablename__ = "google_ads"
     __table_args__ = (
         ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "date",
+            "campaign_id",
+            "ad_group",
+            "ad_name",
+            name="uq_google_ads_date_campaign_adgroup_adname",
+        ),
+        Index("ix_google_ads_date", "date"),
+        Index("ix_google_ads_campaign_id", "campaign_id"),
         {"schema": None}
     )
     __mapper_args__ = {
@@ -135,7 +152,7 @@ class GoogleAds(SqliteBase):
     campaign_name = Column("campaign_name", String, nullable=False)
     ad_group = Column("ad_group", String, nullable=False)
     ad_name = Column("ad_name", String, nullable=False)
-    cost = Column("cost", Integer, nullable=True)
+    cost = Column("cost", Float, nullable=True)
     impressions = Column("impressions", Integer, nullable=True)
     clicks = Column("clicks", Integer, nullable=True)
     leads = Column("leads", Integer, nullable=True)
@@ -156,7 +173,7 @@ class FacebookAds(SqliteBase):
         id (int): Primary key.
         date (Date): Metric date.
         campaign_id (str): Foreign key to campaign table.
-        cost (int | None): Advertising cost.
+        cost (float | None): Advertising cost.
         impressions (int | None): Impression count.
         clicks (int | None): Click count.
         leads (int | None): Lead count.
@@ -165,6 +182,15 @@ class FacebookAds(SqliteBase):
     __tablename__ = "facebook_ads"
     __table_args__ = (
         ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "date",
+            "campaign_id",
+            "ad_group",
+            "ad_name",
+            name="uq_facebook_ads_date_campaign_adgroup_adname",
+        ),
+        Index("ix_facebook_ads_date", "date"),
+        Index("ix_facebook_ads_campaign_id", "campaign_id"),
         {"schema": None}
     )
     __mapper_args__ = {
@@ -177,7 +203,7 @@ class FacebookAds(SqliteBase):
     campaign_name = Column("campaign_name", String, nullable=False)
     ad_group = Column("ad_group", String, nullable=False)
     ad_name = Column("ad_name", String, nullable=False)
-    cost = Column("cost", Integer, nullable=True)
+    cost = Column("cost", Float, nullable=True)
     impressions = Column("impressions", Integer, nullable=True)
     clicks = Column("clicks", Integer, nullable=True)
     leads = Column("leads", Integer, nullable=True)
@@ -198,7 +224,7 @@ class TikTokAds(SqliteBase):
         id (int): Primary key.
         date (Date): Metric date.
         campaign_id (str): Foreign key to campaign table.
-        cost (int | None): Advertising cost.
+        cost (float | None): Advertising cost.
         impressions (int | None): Impression count.
         clicks (int | None): Click count.
         leads (int | None): Lead count.
@@ -207,6 +233,15 @@ class TikTokAds(SqliteBase):
     __tablename__ = "tiktok_ads"
     __table_args__ = (
         ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "date",
+            "campaign_id",
+            "ad_group",
+            "ad_name",
+            name="uq_tiktok_ads_date_campaign_adgroup_adname",
+        ),
+        Index("ix_tiktok_ads_date", "date"),
+        Index("ix_tiktok_ads_campaign_id", "campaign_id"),
         {"schema": None}
     )
     __mapper_args__ = {
@@ -219,7 +254,7 @@ class TikTokAds(SqliteBase):
     campaign_name = Column("campaign_name", String, nullable=False)
     ad_group = Column("ad_group", String, nullable=False)
     ad_name = Column("ad_name", String, nullable=False)
-    cost = Column("cost", Integer, nullable=True)
+    cost = Column("cost", Float, nullable=True)
     impressions = Column("impressions", Integer, nullable=True)
     clicks = Column("clicks", Integer, nullable=True)
     leads = Column("leads", Integer, nullable=True)
@@ -231,3 +266,40 @@ class TikTokAds(SqliteBase):
         back_populates='tiktok_ads', 
         viewonly=True
     )
+
+
+class StgDepoRaw(SqliteBase):
+    """Raw staging table for deposit source payload."""
+
+    __tablename__ = "stg_depo_raw"
+    __table_args__ = (
+        Index("ix_stg_depo_raw_run_id", "run_id"),
+        Index("ix_stg_depo_raw_ingested_at", "ingested_at"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    run_id = Column("run_id", String, nullable=True)
+    source = Column("source", String, nullable=False)
+    payload = Column("payload", JSON, nullable=False)
+    payload_hash = Column("payload_hash", String, nullable=False)
+    ingested_at = Column("ingested_at", DateTime, nullable=False)
+
+
+class StgAdsRaw(SqliteBase):
+    """Raw staging table for ads source payload."""
+
+    __tablename__ = "stg_ads_raw"
+    __table_args__ = (
+        Index("ix_stg_ads_raw_run_id", "run_id"),
+        Index("ix_stg_ads_raw_ingested_at", "ingested_at"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    run_id = Column("run_id", String, nullable=True)
+    source = Column("source", String, nullable=False)
+    range_name = Column("range_name", String, nullable=True)
+    payload = Column("payload", JSON, nullable=False)
+    payload_hash = Column("payload_hash", String, nullable=False)
+    ingested_at = Column("ingested_at", DateTime, nullable=False)

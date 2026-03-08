@@ -9,6 +9,7 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
 - Auth: JWT access token + session token table + CSRF validation
 - Integrasi data: Google Sheets (campaign ads) + sumber eksternal depo
 - Logging: request/response API disimpan ke tabel `log_data`
+- ETL update external API sudah asynchronous job-based (`run_id` + status polling)
 
 ## Fitur Utama
 
@@ -42,6 +43,7 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
 |  |- api/v1/functions/       # payload builder untuk campaign/deposit
 |  |- core/                   # config + security helpers
 |  |- db/                     # session + SQLAlchemy models
+|  |- etl/                    # extract, transform, load, staging, quality, pipelines
 |  |- schemas/                # pydantic schemas
 |  |- utils/                  # app bootstrap + business/service utils
 |- streamlit_app/
@@ -50,6 +52,7 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
 |- main.py                    # entrypoint FastAPI
 |- streamlit_run.py           # entrypoint Streamlit dashboard
 |- run_app.py                 # shortcut run Streamlit
+|- tests/                     # unit/integration tests ETL
 ```
 
 ## Kebutuhan
@@ -137,6 +140,7 @@ python run_app.py
 ### Data Update
 
 - `POST /api/feature-data/update-external-api`
+- `GET /api/feature-data/update-external-api/{run_id}`
 
 ### Campaign Analytics
 
@@ -184,6 +188,59 @@ curl "http://localhost:5505/api/campaign/brand-awareness?start_date=2026-01-01&e
 curl "http://localhost:5505/api/deposit/daily-report?start_date=2026-01-01&end_date=2026-01-31&campaign_type=all" \
   -H "Authorization: Bearer <access_token>"
 ```
+
+### Update External API (Async Job)
+
+```bash
+curl -X POST "http://localhost:5505/api/feature-data/update-external-api" \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "types": "manual",
+    "start_date": "2025-12-01",
+    "end_date": "2025-12-31",
+    "data": "tiktok_ads"
+  }'
+```
+
+```bash
+curl "http://localhost:5505/api/feature-data/update-external-api/<run_id>" \
+  -H "Authorization: Bearer <access_token>"
+```
+
+## ETL Runtime Notes
+
+- ETL update flow dipisah jadi layer:
+  - `extract.py`: ambil data dari Google Sheets/URL JSON
+  - `transform.py`: parsing + normalisasi data
+  - `quality.py`: data quality checks
+  - `staging.py`: simpan raw payload ke tabel staging
+  - `load.py`: upsert ke tabel final
+  - `pipelines.py`: orchestration flow per source
+- Untuk `tiktok_ads`, rows dengan key sama akan di-aggregate dulu per:
+  - `date, campaign_id, ad_group, ad_name`
+- Untuk `google_ads`/`facebook_ads`, flow tetap tanpa agregasi khusus.
+
+## Tabel Baru Terkait ETL
+
+- `etl_runs`: metadata run (`run_id`, source, status, message, error, window, timestamps)
+- `stg_depo_raw`: raw staging payload depo
+- `stg_ads_raw`: raw staging payload ads
+
+Catatan: tabel baru dibuat saat backend startup (`create_all`) di DB aktif (`DEV_DB_URL` saat development).
+
+## Menjalankan Test
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+## Smoke Test Cepat ETL
+
+1. Trigger update via UI/POST endpoint.
+2. Pastikan response berisi `run_id`.
+3. Poll endpoint status sampai `success` atau `failed`.
+4. Verifikasi data masuk ke tabel target + `etl_runs` ter-update.
 
 ## Payload Ringkas Dashboard
 

@@ -33,6 +33,7 @@ from app.api.v1.endpoint.feature import router as feature_router
 from app.core.config import settings
 from app.core.security import pwd_context
 from app.db.base import SqliteBase
+import app.db.models  # noqa: F401
 from app.db.models.user import LogData, TfUser
 from app.db.session import sqlite_async_session, sqlite_engine
 
@@ -116,8 +117,10 @@ class FastApiApp:
             # SQLite + multi-worker startup can race on DDL and raise "table already exists".
             if "already exists" in str(error).lower():
                 self.logger.warning(
-                    "Schema bootstrap race detected during startup; existing tables will be reused."
+                    "Schema bootstrap race detected during startup; retrying schema bootstrap."
                 )
+                async with sqlite_engine.begin() as connection:
+                    await connection.run_sync(SqliteBase.metadata.create_all)
             else:
                 raise
         await self._bootstrap_superadmin_if_enabled()

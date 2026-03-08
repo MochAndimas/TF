@@ -5,8 +5,7 @@ Traders Family application.
 """
 
 from pydantic import BaseModel
-from typing import Dict
-from datetime import datetime
+from datetime import date, datetime
 
 
 class UpdateData(BaseModel):
@@ -28,3 +27,21 @@ class UpdateDataResponse(BaseModel):
     """Schema for update endpoint response payload."""
 
     message: str
+    run_id: str
+    status: str
+
+
+class UpdateDataStatusResponse(BaseModel):
+    """Schema for checking asynchronous ETL run status."""
+
+    run_id: str
+    pipeline: str
+    source: str
+    mode: str
+    status: str
+    message: str | None
+    error_detail: str | None
+    window_start: date | None
+    window_end: date | None
+    started_at: datetime
+    ended_at: datetime | None

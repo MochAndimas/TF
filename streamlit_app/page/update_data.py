@@ -4,6 +4,7 @@ This module is part of `streamlit_app.page` and contains runtime logic used by t
 Traders Family application.
 """
 
+import asyncio
 import datetime as dt
 import httpx
 import streamlit as st
@@ -157,7 +158,71 @@ async def show_update_page(host):
                 st.error(message)
                 return
 
-            st.success(data.get("message", "Update completed successfully."))
+            run_id = data.get("run_id")
+            if not run_id:
+                st.success(data.get("message", "Update request accepted."))
+                return
+
+            status_url = f"{host}/api/feature-data/update-external-api/{run_id}"
+            st.info(f"Job accepted. Run ID: `{run_id}`")
+            status_placeholder = st.empty()
+            progress_placeholder = st.empty()
+
+            max_wait_seconds = 300
+            poll_interval_seconds = 2
+            elapsed = 0
+            final_status = None
+            final_message = None
+            final_error = None
+
+            async with httpx.AsyncClient(timeout=120) as client:
+                while elapsed < max_wait_seconds:
+                    status_response = await client.get(
+                        status_url,
+                        headers={"Authorization": f"Bearer {user.access_token}"},
+                    )
+                    status_data = status_response.json() if status_response.content else {}
+                    if status_response.status_code >= 400:
+                        message = (
+                            status_data.get("detail")
+                            or status_data.get("message")
+                            or "Failed to fetch update status."
+                        )
+                        st.error(message)
+                        return
+
+                    final_status = status_data.get("status")
+                    final_message = status_data.get("message")
+                    final_error = status_data.get("error_detail")
+                    status_placeholder.info(
+                        f"Current status: `{final_status}` | Elapsed: {elapsed}s / {max_wait_seconds}s"
+                    )
+                    progress_placeholder.progress(min(elapsed / max_wait_seconds, 1.0))
+
+                    if final_status in {"success", "failed"}:
+                        break
+
+                    await asyncio.sleep(poll_interval_seconds)
+                    elapsed += poll_interval_seconds
+
+            if final_status == "success":
+                status_placeholder.empty()
+                progress_placeholder.empty()
+                st.success(final_message or "Update completed successfully.")
+                return
+
+            if final_status == "failed":
+                status_placeholder.empty()
+                progress_placeholder.empty()
+                st.error(final_error or final_message or "Update failed.")
+                return
+
+            status_placeholder.warning("Current status: `running`")
+            progress_placeholder.progress(1.0)
+            st.warning(
+                "Update still running. Please check again later using this run_id: "
+                f"`{run_id}`"
+            )
         except httpx.RequestError as error:
             st.error(f"Network error while updating data: {error}")
         except Exception as error:
