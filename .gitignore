@@ -173,7 +173,7 @@ dmypy.json
 cython_debug/
 
 # VScode Workspace
-fastapi.code-workspace
+*.code-workspace
 googleads.yaml
 client_secret.json
 generate_refresh_token.py
