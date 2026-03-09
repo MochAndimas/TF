@@ -66,6 +66,16 @@ PAGE_STYLE = """
     font-weight: 700;
     margin: 1.0rem 0 0.5rem 0;
 }
+div[data-testid="stMetricLabel"] > div {
+    font-size: 1.05rem !important;
+}
+div[data-testid="stMetricValue"] > div {
+    font-size: 2.1rem !important;
+    line-height: 1.1 !important;
+}
+div[data-testid="stMetricDelta"] > div {
+    font-size: 0.9rem !important;
+}
 </style>
 """
 
@@ -79,7 +89,7 @@ def _format_amount(value: float | int) -> str:
     Returns:
         str: Currency text with dollar sign and thousands separators.
     """
-    return f"${float(value):,.2f}"
+    return f"${float(value):,.0f}"
 
 
 def _format_qty(value: float | int) -> str:
@@ -103,7 +113,7 @@ def _format_aov(value: float | int) -> str:
     Returns:
         str: Currency text with dollar sign and two decimals.
     """
-    return f"${float(value):,.2f}"
+    return f"${float(value):,.0f}"
 
 
 def _metric_formatter(metric_key: str, value: float | int) -> str:

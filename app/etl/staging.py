@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import datetime
 
+from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import StgAdsRaw, StgDepoRaw
@@ -30,17 +31,16 @@ async def stage_depo_raw(
 
     ingested_at = datetime.now()
     rows = [
-        StgDepoRaw(
-            run_id=run_id,
-            source=source,
-            payload=item,
-            payload_hash=_payload_hash(item),
-            ingested_at=ingested_at,
-        )
+        {
+            "run_id": run_id,
+            "source": source,
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
         for item in raw_data
     ]
-    session.add_all(rows)
-    await session.flush()
+    await session.execute(insert(StgDepoRaw), rows)
     return len(rows)
 
 
@@ -65,20 +65,19 @@ async def stage_ads_raw(
         payloads = [dict(zip(headers, row)) for row in raw_rows[1:]]
 
     rows = [
-        StgAdsRaw(
-            run_id=run_id,
-            source=source,
-            range_name=range_name,
-            payload=item,
-            payload_hash=_payload_hash(item),
-            ingested_at=ingested_at,
-        )
+        {
+            "run_id": run_id,
+            "source": source,
+            "range_name": range_name,
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
         for item in payloads
     ]
     if not rows:
         return 0
 
-    session.add_all(rows)
-    await session.flush()
+    await session.execute(insert(StgAdsRaw), rows)
     return len(rows)
 
