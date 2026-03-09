@@ -318,7 +318,8 @@ def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_l
 
 def render_brand_awareness_metric_cards(st, source_metrics: dict[str, object], source_label: str) -> None:
     """Render six KPI cards for selected Brand Awareness source."""
-    st.markdown(f'<div class="metric-section-title">{source_label} - Brand Awareness</div>', unsafe_allow_html=True)
+    if source_label:
+        st.markdown(f'<div class="metric-section-title">{source_label} - Brand Awareness</div>', unsafe_allow_html=True)
     st.markdown(
         """
         <style>
@@ -374,6 +375,145 @@ def render_brand_awareness_metric_cards(st, source_metrics: dict[str, object], s
                 else:
                     sign = "+" if growth_value > 0 else ""
                     growth_text = f"{sign}{growth_value:.2f}%"
+                st.metric(
+                    label=label,
+                    value=metric_value,
+                    delta=growth_text,
+                )
+
+
+def render_overview_metric_cards(st, summary_payload: dict[str, object]) -> None:
+    """Render active-user overview metric cards.
+
+    Args:
+        st: Streamlit module/object used to render components.
+        summary_payload: ``stickiness_with_growth`` payload from
+            ``/api/overview/active-users``.
+    """
+    current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
+    growth_metrics = summary_payload.get("growth_percentage", {})
+    cards = [
+        ("Last Day Stickiness", "last_day_stickiness"),
+        ("Average Stickiness", "average_stickiness"),
+        ("Active User", "active_user"),
+    ]
+
+    columns = st.columns(3, gap="small")
+    for column, (label, key) in zip(columns, cards):
+        with column:
+            with st.container(border=True):
+                raw_value = _campaign_metric_value(current_metrics, key)
+                if key == "active_user":
+                    metric_value = _campaign_format_number(raw_value)
+                else:
+                    metric_value = f"{raw_value:.2f}%"
+
+                growth_value = growth_metrics.get(key)
+                if growth_value is None:
+                    growth_value = 0.0
+                growth_text = _campaign_format_growth(growth_value)
+
+                st.metric(
+                    label=label,
+                    value=metric_value,
+                    delta=growth_text,
+                )
+
+
+def render_overview_cost_metric_cards(st, summary_payload: dict[str, object]) -> None:
+    """Render ad-cost spend metric cards for Overview.
+
+    Args:
+        st: Streamlit module/object used to render components.
+        summary_payload: ``cost_metrics_with_growth`` payload from
+            ``/api/overview/campaign-cost``.
+    """
+    current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
+    growth_metrics = summary_payload.get("growth_percentage", {})
+    cards = [
+        ("Total Ad Cost", "total_ad_cost"),
+        ("Google Ad Cost", "google_ad_cost"),
+        ("Facebook Ad Cost", "facebook_ad_cost"),
+        ("Tiktok Ad Cost", "tiktok_ad_cost"),
+    ]
+
+    columns = st.columns(4, gap="small")
+    for column, (label, key) in zip(columns, cards):
+        with column:
+            with st.container(border=True):
+                raw_value = _campaign_metric_value(current_metrics, key)
+                metric_value = _campaign_format_currency(raw_value, compact=True)
+
+                growth_value = growth_metrics.get(key)
+                if growth_value is None:
+                    growth_value = 0.0
+                growth_text = _campaign_format_growth(growth_value)
+
+                st.metric(
+                    label=label,
+                    value=metric_value,
+                    delta=growth_text,
+                )
+
+
+def render_overview_leads_metric_cards(st, summary_payload: dict[str, object]) -> None:
+    """Render user-acquisition metric cards for Overview.
+
+    Args:
+        st: Streamlit module/object used to render components.
+        summary_payload: ``metrics_with_growth`` payload from
+            ``/api/overview/leads-acquisition``.
+    """
+    current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
+    growth_metrics = summary_payload.get("growth_percentage", {})
+    primary_cards = [
+        ("Cost", "cost"),
+        ("Impressions", "impressions"),
+        ("Clicks", "clicks"),
+        ("Leads", "leads"),
+        ("Cost/Leads", "cost_leads"),
+    ]
+    secondary_cards = [
+        ("First Deposit", "first_deposit"),
+        ("Cost to First Deposit", "cost_to_first_deposit"),
+    ]
+
+    columns = st.columns(5, gap="small")
+    for column, (label, key) in zip(columns, primary_cards):
+        with column:
+            with st.container(border=True):
+                raw_value = _campaign_metric_value(current_metrics, key)
+                if key in ("cost", "cost_leads"):
+                    metric_value = _campaign_format_currency(raw_value, compact=True)
+                else:
+                    metric_value = _campaign_format_number(raw_value)
+
+                growth_value = growth_metrics.get(key)
+                if growth_value is None:
+                    growth_value = 0.0
+                growth_text = _campaign_format_growth(growth_value)
+
+                st.metric(
+                    label=label,
+                    value=metric_value,
+                    delta=growth_text,
+                )
+
+    secondary_columns = st.columns(2, gap="small")
+    for column, (label, key) in zip(secondary_columns, secondary_cards):
+        with column:
+            with st.container(border=True):
+                raw_value = _campaign_metric_value(current_metrics, key)
+                if key == "first_deposit":
+                    metric_value = _campaign_format_currency(raw_value, compact=True)
+                else:
+                    metric_value = f"{raw_value:.2f}%"
+
+                growth_value = growth_metrics.get(key)
+                if growth_value is None:
+                    growth_value = 0.0
+                growth_text = _campaign_format_growth(growth_value)
+
                 st.metric(
                     label=label,
                     value=metric_value,

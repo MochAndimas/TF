@@ -16,8 +16,17 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
 - Login/logout dengan CSRF protection
 - Bootstrap one-time akun `superadmin` via ENV (opsional)
 - Role-based navigation di Streamlit:
-  - `superadmin`: User Acquisition, Brand Awareness, Deposit Report, Create Account, Update Data
-  - `admin`, `digital_marketing`, `sales`: User Acquisition, Brand Awareness, Deposit Report
+  - `superadmin`: Overall, User Acquisition, Brand Awareness, First Deposit report, Create Account, Update Data
+  - `admin`, `digital_marketing`, `sales`: Overall, User Acquisition, Brand Awareness, First Deposit report
+- Dashboard `Overall`
+  - FireBase Active User (source App/Web) + stickiness metrics
+  - Ad Cost Spend (total/google/facebook/tiktok) + 3 pie breakdown charts
+  - Overall Performance Campaign User Acquisition
+    - metrics + growth (cost, impressions, clicks, leads, cost/leads, first deposit, cost to first deposit)
+    - leads by source (table + pie), cost vs leads, leads per day, cost to first deposit
+  - Overall Performance Campaign Brand Awareness
+    - metrics + growth (cost, impression, clicks, CTR, CPM, CPC)
+    - spend chart + performance chart
 - Dashboard `User Acquisition`
   - KPI cards per source + growth vs previous period
   - performance charts, insight charts, pacing charts
@@ -27,11 +36,11 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
   - spend/performance charts
   - insight trend charts CTR/CPM/CPC
   - performance table
-- Dashboard `Deposit Report` (Revenue)
+- Dashboard `First Deposit report` (Revenue/Deposit)
   - tabel cross-tab harian berdasarkan `tanggal_regis`
   - kolom per tanggal dengan subkolom `New`/`Existing`
   - section `TOTAL` + per `campaign_id`
-  - summary cards `New User`/`Existing User` dengan growth vs previous period
+  - summary cards `New User`/`Existing User` di section `First Deposit Summary` dengan growth vs previous period
 - Update data manual dari endpoint update external API
 
 ## Struktur Project
@@ -39,15 +48,15 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
 ```text
 .
 |- app/
-|  |- api/v1/endpoint/        # auth, feature update, campaign, deposit
-|  |- api/v1/functions/       # payload builder untuk campaign/deposit
+|  |- api/v1/endpoint/        # auth, feature update, campaign, deposit, overview
+|  |- api/v1/functions/       # payload builder untuk campaign/deposit/overview
 |  |- core/                   # config + security helpers
 |  |- db/                     # session + SQLAlchemy models
 |  |- etl/                    # extract, transform, load, staging, quality, pipelines
 |  |- schemas/                # pydantic schemas
-|  |- utils/                  # app bootstrap + business/service utils
+|  |- utils/                  # app bootstrap + business/service utils (termasuk overview_utils)
 |- streamlit_app/
-|  |- page/                   # login, UA, BA, deposit, register, update_data
+|  |- page/                   # login, overall/overview, UA, BA, deposit, register, update_data
 |  |- functions/              # helper streamlit (cookie/session/request)
 |- main.py                    # entrypoint FastAPI
 |- streamlit_run.py           # entrypoint Streamlit dashboard
@@ -89,6 +98,7 @@ Minimal key yang digunakan:
 - `GA4_TOKEN_URI`
 - `GA4_CLIENT_ID`
 - `GA4_CLIENT_SECRET`
+- `USD_TO_IDR_RATE` (opsional, default `16000`, dipakai untuk konversi First Deposit USD -> IDR di overview UA)
 - `BOOTSTRAP_SUPERADMIN`
 - `INITIAL_SUPERADMIN_NAME`
 - `INITIAL_SUPERADMIN_EMAIL`
@@ -155,6 +165,13 @@ python run_app.py
 ### Deposit Analytics
 
 - `GET /api/deposit/daily-report?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&campaign_type=all|user_acquisition|brand_awareness`
+
+### Overall / Overview Analytics
+
+- `GET /api/overview/active-users?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&source=app|web`
+- `GET /api/overview/campaign-cost?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+- `GET /api/overview/leads-acquisition?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+- `GET /api/overview/brand-awareness?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 
 ## Contoh Request API
 
@@ -270,6 +287,34 @@ python -m unittest discover -s tests -p "test_*.py"
 - `report.timeline`
 - `report.sections` (`TOTAL` + per campaign)
 - `report.summary` (current/previous period + growth)
+
+### Overview Active Users (`/api/overview/active-users`)
+
+- `start_date`, `end_date`, `source`
+- `stickiness_with_growth` (last day stickiness, average stickiness, active user)
+- `active_users_chart` (`figure`, `rows`)
+
+### Overview Campaign Cost (`/api/overview/campaign-cost`)
+
+- `cost_metrics_with_growth` (total/google/facebook/tiktok ad cost)
+- `cost_breakdown_charts`
+  - `cost_by_campaign_type`
+  - `ua_cost_by_platform`
+  - `ba_cost_by_platform`
+
+### Overview Leads Acquisition (`/api/overview/leads-acquisition`)
+
+- `metrics_with_growth` (cost, impressions, clicks, leads, cost_leads, first_deposit, cost_to_first_deposit)
+- `leads_by_source` (table + pie chart)
+- `cost_vs_leads_chart`
+- `leads_per_day_chart`
+- `cost_to_revenue_chart` (ditampilkan sebagai Cost To First Deposit)
+
+### Overview Brand Awareness (`/api/overview/brand-awareness`)
+
+- `metrics_with_growth` (cost, impressions, clicks, ctr, cpm, cpc)
+- `spend_chart`
+- `performance_chart`
 
 ## Contoh Response JSON (Ringkas)
 
@@ -410,7 +455,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ## Detail Per Page (Frontend)
 
-### Revenue > Deposit Report
+### First Deposit > First Deposit report
 
 - Filter:
   - `Periods`: Last 7 Day, Last 30 Day, This Month, Last Month, Custom Range
@@ -419,9 +464,19 @@ python -m unittest discover -s tests -p "test_*.py"
   - `Select Date Range` hanya muncul saat `Custom Range`
   - data auto-fetch saat filter berubah (tanpa tombol apply)
 - Komponen:
-  - `Deposit Summary` cards (New User / Existing User)
+  - `First Deposit Summary` cards (New User / Existing User)
   - growth di card: compare ke previous period dengan durasi sama
   - tabel cross-tab harian (kolom = tanggal, subkolom = New/Existing)
+
+### Overall > Overview
+
+- Filter:
+  - `Periods` (preset + custom range)
+- Komponen utama:
+  - FireBase Active User: source selector App/Web, 3 KPI card, line dual-axis
+  - Ad Cost Spend: 4 KPI card + 3 pie charts
+  - User Acquisition: 7 KPI card, leads by source table+pie, 3 chart performa
+  - Brand Awareness: 6 KPI card + spend/performance chart
 
 ### Campaign > User Acquisition
 

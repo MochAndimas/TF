@@ -30,6 +30,7 @@ from app.api.v1.endpoint.auth import router as auth_router
 from app.api.v1.endpoint.campaign import router as campaign_router
 from app.api.v1.endpoint.deposit import router as deposit_router
 from app.api.v1.endpoint.feature import router as feature_router
+from app.api.v1.endpoint.overview import router as overview_router
 from app.core.config import settings
 from app.core.security import pwd_context
 from app.db.base import SqliteBase
@@ -392,6 +393,7 @@ class FastApiApp:
         """
         self.app.include_router(auth_router, tags=["Authentication"])
         self.app.include_router(feature_router, tags=["Update Data"])
+        self.app.include_router(overview_router, tags=["Overview Analytics"])
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])
         self.app.include_router(deposit_router, tags=["Deposit Analytics"])
 

@@ -185,7 +185,7 @@ def _render_metric_cards(report: dict[str, object]) -> None:
     new_growth = growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0})
     existing_growth = growth.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0})
 
-    st.markdown('<div class="metric-section-title">Deposit Summary</div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-section-title">First Deposit Summary</div>', unsafe_allow_html=True)
     left_col, right_col = st.columns(2, gap="small")
     with left_col:
         _render_status_cards("New User", new_totals, new_growth)
@@ -266,7 +266,7 @@ async def show_deposit_page(host: str) -> None:
         None: Renders page components as side effects.
     """
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
-    st.markdown('<div class="deposit-title">Deposit Daily Report</div>', unsafe_allow_html=True)
+    st.markdown('<div class="deposit-title">First Deposit Report</div>', unsafe_allow_html=True)
 
     presets = campaign_preset_ranges(dt.date.today())
     type_options = {

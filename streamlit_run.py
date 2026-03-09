@@ -16,7 +16,7 @@ from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import brand_awareness, deposit, login, register, update_data, user_acquisition
+from streamlit_app.page import brand_awareness, deposit, login, overview, register, update_data, user_acquisition
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -28,14 +28,16 @@ st.set_page_config(
 PageHandler = Callable[[str], Awaitable[None]]
 
 PAGE_LABELS: dict[str, str] = {
+    "overview": "Overview",
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
-    "deposit_report": "Deposit Report",
+    "deposit_report": "First Deposit",
     "register": "Create Account",
     "update_data": "Update Data",
 }
 
 PAGE_BUTTON_TYPES: dict[str, str] = {
+    "overview": "tertiary",
     "user_acquisition": "tertiary",
     "brand_awareness": "tertiary",
     "deposit_report": "tertiary",
@@ -44,16 +46,17 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
+    "Overall": ["overview"],
     "Revenue": ["deposit_report"],
     "Campaign": ["user_acquisition", "brand_awareness"],
     "Settings": ["register", "update_data"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["user_acquisition", "brand_awareness", "deposit_report", "register", "update_data"],
-    "admin": ["user_acquisition", "brand_awareness", "deposit_report"],
-    "digital_marketing": ["user_acquisition", "brand_awareness", "deposit_report"],
-    "sales": ["user_acquisition", "brand_awareness", "deposit_report"],
+    "superadmin": ["overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data"],
+    "admin": ["overview", "user_acquisition", "brand_awareness", "deposit_report"],
+    "digital_marketing": ["overview", "user_acquisition", "brand_awareness", "deposit_report"],
+    "sales": ["overview", "user_acquisition", "brand_awareness", "deposit_report"],
 }
 
 
@@ -275,6 +278,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         return
 
     page_handlers: dict[str, PageHandler] = {
+        "overview": overview.show_overview_page,
         "user_acquisition": user_acquisition.show_user_acquisition_page,
         "brand_awareness": brand_awareness.show_brand_awareness_page,
         "deposit_report": deposit.show_deposit_page,

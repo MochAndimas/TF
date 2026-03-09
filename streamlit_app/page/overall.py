@@ -1,7 +1,10 @@
-"""Overall module.
+"""Streamlit page renderer for the Overall/Overview dashboard.
 
-This module is part of `streamlit_app.page` and contains runtime logic used by the
-Traders Family application.
+This page orchestrates:
+- period filtering
+- cached API fetching for overview endpoints
+- metric card rendering (active users, ad cost, UA, BA)
+- table and chart rendering for each overview block
 """
 
 import streamlit as st
@@ -16,13 +19,13 @@ from streamlit_app.functions.utils import get_date_range
 
 async def show_overall_page(host):
     """
-    Render overall dashboard page and filter controls.
+    Render the Overall dashboard with period filter and all overview sections.
 
     Args:
-        host (str): Base URL for backend API requests.
+        host (str): Backend base URL used for all overview API requests.
 
     Returns:
-        None: UI side effects only.
+        None: Function renders Streamlit components and updates session state.
     """
     # Form Input and Submission
     st.markdown(f"""<h1 align="center">Overview Data</h1>""", unsafe_allow_html=True)
