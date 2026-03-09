@@ -8,7 +8,7 @@ from datetime import datetime
 from time import perf_counter
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import DataDepo, Ga4DailyMetrics
@@ -171,6 +171,7 @@ class GoogleSheetApi:
                     return "Data is already updated!"
 
             raw_data = await self._fetch_json_url(self.depo_source_url)
+            raw_count = len(raw_data)
             staged_count = await stage_depo_raw(
                 session=session,
                 raw_data=raw_data,
@@ -179,31 +180,74 @@ class GoogleSheetApi:
             )
             await session.commit()
             df = self._parse_depo_dataframe(raw_data)
+            parsed_count = len(df)
             if df.empty:
+                self._log_event(
+                    "etl_data_depo_no_rows_after_parse",
+                    run_id=run_id,
+                    raw_count=raw_count,
+                    staged_count=staged_count,
+                    parsed_count=parsed_count,
+                    dropped_count=max(staged_count - parsed_count, 0),
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found from source."
 
             df = df[(df["tgl_regis"] >= target_start) & (df["tgl_regis"] <= target_end)]
+            in_window_count = len(df)
 
             if df.empty:
                 self._log_event(
                     "etl_data_depo_no_rows_in_window",
                     run_id=run_id,
-                    raw_count=len(raw_data),
+                    raw_count=raw_count,
                     staged_count=staged_count,
+                    parsed_count=parsed_count,
+                    in_window_count=in_window_count,
+                    dropped_count=max(staged_count - in_window_count, 0),
                     duration_sec=round(perf_counter() - started_at, 3),
                 )
                 return "No data found for selected date range."
 
             validate_depo_dataframe(df)
             rows = self._build_depo_models(df=df, pull_date=datetime.now().date())
+            # Keep target window fully synchronized with latest source snapshot:
+            # remove old rows in-window, then load transformed rows for this run.
+            await session.execute(
+                delete(DataDepo).where(DataDepo.tanggal_regis.between(target_start, target_end))
+            )
             await upsert_depo_rows(session=session, rows=rows)
             await session.commit()
+            loaded_in_window = await session.scalar(
+                select(func.count(DataDepo.id)).where(
+                    DataDepo.tanggal_regis.between(target_start, target_end)
+                )
+            )
+            if int(loaded_in_window or 0) != len(rows):
+                mismatch = (
+                    "Load mismatch for data_depo: "
+                    f"expected {len(rows)} rows in window {target_start}..{target_end}, "
+                    f"but found {int(loaded_in_window or 0)}."
+                )
+                self._log_event(
+                    "etl_data_depo_load_mismatch",
+                    run_id=run_id,
+                    expected_count=len(rows),
+                    actual_count=int(loaded_in_window or 0),
+                    target_start=target_start,
+                    target_end=target_end,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
+                raise HTTPException(500, mismatch)
             self._log_event(
                 "etl_data_depo_completed",
                 run_id=run_id,
-                raw_count=len(raw_data),
+                raw_count=raw_count,
                 staged_count=staged_count,
-                loaded_count=len(rows),
+                parsed_count=parsed_count,
+                in_window_count=in_window_count,
+                dropped_count=max(staged_count - in_window_count, 0),
+                loaded_count=int(loaded_in_window or 0),
                 duration_sec=round(perf_counter() - started_at, 3),
             )
             return "Data is being updated!"

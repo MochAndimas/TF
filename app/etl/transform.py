@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 
 import numpy as np
 import pandas as pd
@@ -85,6 +86,7 @@ def parse_depo_dataframe(raw_data: list) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Cleaned dataframe with standardized dtypes and nullable
         handling, ready for DQ checks and load phase.
+        Note: row is no longer dropped when ``tag`` is null/empty.
 
     Raises:
         ValueError: Raised when required columns are missing.
@@ -123,9 +125,29 @@ def parse_depo_dataframe(raw_data: list) -> pd.DataFrame:
         normalized = df[column].astype(str).str.strip().str.lower()
         df.loc[normalized.isin(null_markers), column] = None
 
-    df = df[df["tag"].notna()]
-    df["id"] = pd.to_numeric(df["id"], errors="coerce").fillna(0)
-    df["campaignid"] = pd.to_numeric(df["campaignid"], errors="coerce").fillna(0)
+    def _to_int_or_zero(value) -> int:
+        if value is None:
+            return 0
+        try:
+            return int(Decimal(str(value).strip()))
+        except (InvalidOperation, ValueError, TypeError):
+            return 0
+
+    def _to_identifier(value) -> str:
+        if value is None:
+            return "0"
+        text = str(value).strip()
+        if not text:
+            return "0"
+        try:
+            dec = Decimal(text)
+            if dec == dec.to_integral_value():
+                return str(int(dec))
+            return text
+        except (InvalidOperation, ValueError):
+            return text
+
+    df["id"] = df["id"].apply(_to_int_or_zero)
     df["protection"] = pd.to_numeric(df["protection"], errors="coerce").fillna(0)
     df["Analyst"] = pd.to_numeric(df["Analyst"], errors="coerce").fillna(0)
     df["NMI"] = pd.to_numeric(df["NMI"], errors="coerce").fillna(0)
@@ -143,7 +165,7 @@ def parse_depo_dataframe(raw_data: list) -> pd.DataFrame:
     df["email"] = df["email"].astype(str)
     df["phone"] = df["phone"].astype(str)
     df["Status\nNew / Existing"] = df["Status\nNew / Existing"].astype(str)
-    df["campaignid"] = df["campaignid"].astype(int).astype(str)
+    df["campaignid"] = df["campaignid"].apply(_to_identifier)
     df["tag"] = df["tag"].astype(str)
     df["protection"] = df["protection"].astype(int)
     df["Assign Date"] = pd.to_datetime(

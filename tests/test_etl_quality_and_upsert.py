@@ -15,7 +15,7 @@ from app.db.base import SqliteBase
 from app.db.models.external_api import Campaign, GoogleAds
 from app.etl.load import upsert_ads_rows
 from app.etl.quality import validate_ads_dataframe, validate_depo_dataframe
-from app.etl.transform import dedupe_ads_dataframe
+from app.etl.transform import dedupe_ads_dataframe, parse_depo_dataframe
 
 
 class TestEtlQuality(TestCase):
@@ -93,6 +93,33 @@ class TestEtlQuality(TestCase):
         self.assertEqual(int(deduped.iloc[0]["impressions"]), 200)
         self.assertEqual(int(deduped.iloc[0]["clicks"]), 20)
         self.assertEqual(int(deduped.iloc[0]["leads"]), 2)
+
+    def test_parse_depo_dataframe_preserves_large_campaign_id_and_keeps_null_tag_row(self):
+        raw = [
+            {
+                "id": "1",
+                "tgl_regis": "2026-03-01T00:00:00.000Z",
+                "fullname": "A",
+                "email": "a@test.com",
+                "phone": "123",
+                "Status\nNew / Existing": "New",
+                "campaignid": "1850184394007650",
+                "tag": None,
+                "protection": "0",
+                "Assign Date": "2026-03-01T00:00:00.000Z",
+                "Analyst": "0",
+                "First Depo Date": "2026-03-01T00:00:00.000Z",
+                "First Depo $": "10",
+                "Time To Closing": "1d",
+                "NMI": "0",
+                "Lot": "0",
+                "Cabang": "JKT",
+                "Pool": "false",
+            }
+        ]
+        df = parse_depo_dataframe(raw)
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["campaignid"], "1850184394007650")
 
 
 class TestEtlUpsert(IsolatedAsyncioTestCase):
