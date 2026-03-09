@@ -268,8 +268,39 @@ class TikTokAds(SqliteBase):
     )
 
 
+class Ga4DailyMetrics(SqliteBase):
+    """Store GA4 daily user metrics split by logical source (`app`/`web`).
+
+    Business key is ``date + source`` so ETL loads are idempotent and can be
+    safely re-run for the same window.
+    """
+
+    __tablename__ = "ga4_daily_metrics"
+    __table_args__ = (
+        UniqueConstraint(
+            "date",
+            "source",
+            name="uq_ga4_daily_metrics_date_source",
+        ),
+        Index("ix_ga4_daily_metrics_date", "date"),
+        Index("ix_ga4_daily_metrics_source", "source"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    source = Column("source", String, nullable=False)
+    daily_active_users = Column("daily_active_users", Integer, nullable=False, default=0)
+    monthly_active_users = Column("monthly_active_users", Integer, nullable=False, default=0)
+    active_users = Column("active_users", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class StgDepoRaw(SqliteBase):
-    """Raw staging table for deposit source payload."""
+    """Raw staging table for deposit source payload.
+
+    Stores immutable extracted records for audit/replay and ETL traceability.
+    """
 
     __tablename__ = "stg_depo_raw"
     __table_args__ = (
@@ -287,7 +318,10 @@ class StgDepoRaw(SqliteBase):
 
 
 class StgAdsRaw(SqliteBase):
-    """Raw staging table for ads source payload."""
+    """Raw staging table for ads and GA4 source payload.
+
+    Stores immutable extracted records for audit/replay and ETL traceability.
+    """
 
     __tablename__ = "stg_ads_raw"
     __table_args__ = (

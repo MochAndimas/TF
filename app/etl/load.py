@@ -9,7 +9,14 @@ from sqlalchemy import case, literal, select, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import Campaign, DataDepo, FacebookAds, GoogleAds, TikTokAds
+from app.db.models.external_api import (
+    Campaign,
+    DataDepo,
+    FacebookAds,
+    Ga4DailyMetrics,
+    GoogleAds,
+    TikTokAds,
+)
 
 
 SQLITE_MAX_VARIABLES = 999
@@ -17,7 +24,15 @@ SQLITE_VARIABLE_HEADROOM = 50
 
 
 def _iter_row_chunks(rows: list[dict], columns_per_row: int):
-    """Yield row chunks sized to stay under SQLite variable limit."""
+    """Yield insert chunks sized to stay below SQLite bind-variable limit.
+
+    Args:
+        rows (list[dict]): Insert/upsert payload rows.
+        columns_per_row (int): Number of columns per row payload.
+
+    Yields:
+        list[dict]: Chunked row slices sized for safe SQLite statements.
+    """
     if not rows:
         return
     safe_limit = max(SQLITE_MAX_VARIABLES - SQLITE_VARIABLE_HEADROOM, columns_per_row)
@@ -27,7 +42,14 @@ def _iter_row_chunks(rows: list[dict], columns_per_row: int):
 
 
 async def rebuild_unique_campaign(session: AsyncSession) -> str:
-    """Upsert campaign dimension rows from all ad-source fact tables."""
+    """Rebuild campaign dimension table from all ads fact tables.
+
+    Args:
+        session (AsyncSession): Active database session.
+
+    Returns:
+        str: Human-readable ETL status message.
+    """
     campaign_union = union_all(
         select(GoogleAds.campaign_id, GoogleAds.campaign_name),
         select(FacebookAds.campaign_id, FacebookAds.campaign_name),
@@ -73,7 +95,15 @@ async def rebuild_unique_campaign(session: AsyncSession) -> str:
 
 
 def build_depo_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
-    """Convert normalized deposit DataFrame into DataDepo insert dictionaries."""
+    """Convert normalized deposit dataframe into insert dictionaries.
+
+    Args:
+        df (pd.DataFrame): Validated deposit dataframe.
+        pull_date (date): ETL pull date stamped on loaded rows.
+
+    Returns:
+        list[dict]: ``DataDepo``-compatible payload rows.
+    """
     rows = []
     for _, row in df.iterrows():
         rows.append(
@@ -103,7 +133,15 @@ def build_depo_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
 
 
 def build_ads_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
-    """Convert normalized ads DataFrame into ads insert dictionaries."""
+    """Convert normalized ads dataframe into insert dictionaries.
+
+    Args:
+        df (pd.DataFrame): Validated ads dataframe.
+        pull_date (date): ETL pull date stamped on loaded rows.
+
+    Returns:
+        list[dict]: Ads-table-compatible payload rows.
+    """
     rows = []
     for _, row in df.iterrows():
         rows.append(
@@ -123,8 +161,41 @@ def build_ads_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     return rows
 
 
+def build_ga4_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized GA4 dataframe into insert dictionaries.
+
+    Args:
+        df (pd.DataFrame): Validated GA4 dataframe at ``date + source`` grain.
+        pull_date (date): ETL pull date stamped on loaded rows.
+
+    Returns:
+        list[dict]: ``ga4_daily_metrics``-compatible payload rows.
+    """
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "date": row["date"],
+                "source": row["source"],
+                "daily_active_users": row["daily_active_users"],
+                "monthly_active_users": row["monthly_active_users"],
+                "active_users": row["active_users"],
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
 async def upsert_depo_rows(session: AsyncSession, rows: list[dict]) -> None:
-    """Upsert rows into ``data_depo`` using business key."""
+    """Upsert rows into ``data_depo`` table using deposit business key.
+
+    Args:
+        session (AsyncSession): Active database session.
+        rows (list[dict]): Prepared ``DataDepo`` payload rows.
+
+    Returns:
+        None: Writes data as side effect.
+    """
     if not rows:
         return
     columns_per_row = len(rows[0])
@@ -155,7 +226,16 @@ async def upsert_depo_rows(session: AsyncSession, rows: list[dict]) -> None:
 
 
 async def upsert_ads_rows(session: AsyncSession, model_cls, rows: list[dict]) -> None:
-    """Upsert rows into ads table using business key."""
+    """Upsert rows into ads fact table using ads business key.
+
+    Args:
+        session (AsyncSession): Active database session.
+        model_cls: Target ads SQLAlchemy model (`GoogleAds`/`FacebookAds`/`TikTokAds`).
+        rows (list[dict]): Prepared ads payload rows.
+
+    Returns:
+        None: Writes data as side effect.
+    """
     if not rows:
         return
     columns_per_row = len(rows[0])
@@ -169,6 +249,33 @@ async def upsert_ads_rows(session: AsyncSession, model_cls, rows: list[dict]) ->
                 "impressions": insert_stmt.excluded.impressions,
                 "clicks": insert_stmt.excluded.clicks,
                 "leads": insert_stmt.excluded.leads,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_ga4_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``ga4_daily_metrics`` using GA4 business key.
+
+    Args:
+        session (AsyncSession): Active database session.
+        rows (list[dict]): Prepared GA4 payload rows.
+
+    Returns:
+        None: Writes data as side effect.
+    """
+    if not rows:
+        return
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(Ga4DailyMetrics).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date", "source"],
+            set_={
+                "daily_active_users": insert_stmt.excluded.daily_active_users,
+                "monthly_active_users": insert_stmt.excluded.monthly_active_users,
+                "active_users": insert_stmt.excluded.active_users,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

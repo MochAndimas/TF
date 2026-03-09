@@ -36,7 +36,19 @@ async def _execute_update_job(
     start_date,
     end_date,
 ) -> None:
-    """Execute update job in background and persist run status."""
+    """Execute ETL update job asynchronously and persist run lifecycle.
+
+    Args:
+        run_id (str): ETL run identifier generated when request is accepted.
+        data (str): Source selector (for example ``google_ads`` or
+            ``ga4_daily_metrics``).
+        types (str): Update mode (`auto` or `manual`).
+        start_date: Requested start date for manual mode.
+        end_date: Requested end date for manual mode.
+
+    Returns:
+        None: Updates ETL run metadata as side effect.
+    """
     logger.info(
         json.dumps(
             {
@@ -89,6 +101,14 @@ async def _execute_update_job(
                     end_date=end_date,
                     session=session,
                     classes=TikTokAds,
+                    run_id=run_id,
+                )
+            elif data == "ga4_daily_metrics":
+                message = await gsheet.ga4_daily_metrics(
+                    types=types,
+                    start_date=start_date,
+                    end_date=end_date,
+                    session=session,
                     run_id=run_id,
                 )
             else:
@@ -215,7 +235,20 @@ async def update_data_status(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
-    """Fetch ETL run status by run identifier."""
+    """Fetch ETL run status payload by run identifier.
+
+    Args:
+        run_id (str): ETL run identifier to inspect.
+        session (AsyncSession): Database session injected by FastAPI.
+        current_user (TfUser): Authenticated user resolved from bearer token.
+
+    Returns:
+        UpdateDataStatusResponse: Current ETL run metadata including status,
+        message/error, and execution timestamps.
+
+    Raises:
+        HTTPException: ``404`` when run identifier is not found.
+    """
     result = await session.execute(select(EtlRun).where(EtlRun.run_id == run_id))
     run = result.scalar_one_or_none()
     if run is None:

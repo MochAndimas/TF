@@ -9,7 +9,12 @@ from app.db.base import SqliteBase
 
 
 class EtlRun(SqliteBase):
-    """Track ETL pipeline execution lifecycle."""
+    """Track ETL pipeline execution lifecycle and status transitions.
+
+    Each row represents one trigger request and stores immutable run metadata
+    (source/mode/window) plus mutable execution status fields
+    (`running/success/failed`) used by status polling endpoint.
+    """
 
     __tablename__ = "etl_run"
     __table_args__ = (

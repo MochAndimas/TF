@@ -17,6 +17,7 @@ DATA_SOURCE_OPTIONS = {
     "Facebook Ads (GSheet)": "facebook_ads",
     "TikTok Ads (GSheet)": "tiktok_ads",
     "Data Depo": "data_depo",
+    "GA4 Daily Users (App/Web)": "ga4_daily_metrics",
 }
 
 

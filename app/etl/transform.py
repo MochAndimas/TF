@@ -10,7 +10,19 @@ from fastapi import HTTPException
 
 
 def normalize_date(value) -> date:
-    """Convert date-like input into ``datetime.date``."""
+    """Convert date-like input into ``datetime.date``.
+
+    Args:
+        value: Date-like value from request payload (`date`, `datetime`, or
+            parseable string).
+
+    Returns:
+        date: Normalized date value.
+
+    Raises:
+        ValueError: Raised when value is ``None``.
+        pandas.errors.ParserError: Raised when string date parsing fails.
+    """
     if value is None:
         raise ValueError("Date value is required.")
     if isinstance(value, datetime):
@@ -21,7 +33,19 @@ def normalize_date(value) -> date:
 
 
 def resolve_date_window(types: str, start_date, end_date) -> tuple[date, date]:
-    """Resolve target date window from mode and user input."""
+    """Resolve effective ETL date window based on update mode.
+
+    Args:
+        types (str): Update mode (`auto` or `manual`).
+        start_date: User-provided manual start date.
+        end_date: User-provided manual end date.
+
+    Returns:
+        tuple[date, date]: Inclusive target date window used by ETL pipeline.
+
+    Raises:
+        fastapi.HTTPException: Raised when mode is invalid or date window is invalid.
+    """
     if types not in {"auto", "manual"}:
         raise HTTPException(400, "Invalid update type. Use 'auto' or 'manual'.")
 
@@ -37,7 +61,15 @@ def resolve_date_window(types: str, start_date, end_date) -> tuple[date, date]:
 
 
 def normalize_columns(columns: list[str]) -> list[str]:
-    """Normalize source header names into snake_case keys."""
+    """Normalize source header names into machine-friendly keys.
+
+    Args:
+        columns (list[str]): Raw header labels from external source payload.
+
+    Returns:
+        list[str]: Normalized lower-case headers with spaces/newlines replaced
+        by underscore separators.
+    """
     normalized = []
     for column in columns:
         normalized.append(str(column).strip().lower().replace("\n", " ").replace(" ", "_"))
@@ -45,7 +77,18 @@ def normalize_columns(columns: list[str]) -> list[str]:
 
 
 def parse_depo_dataframe(raw_data: list) -> pd.DataFrame:
-    """Parse deposit source payload into normalized DataFrame."""
+    """Parse deposit source payload into normalized dataframe.
+
+    Args:
+        raw_data (list): Raw JSON records from deposit source endpoint.
+
+    Returns:
+        pd.DataFrame: Cleaned dataframe with standardized dtypes and nullable
+        handling, ready for DQ checks and load phase.
+
+    Raises:
+        ValueError: Raised when required columns are missing.
+    """
     df = pd.DataFrame(raw_data)
     if df.empty:
         return df
@@ -128,7 +171,19 @@ def parse_depo_dataframe(raw_data: list) -> pd.DataFrame:
 
 
 def parse_ads_dataframe(raw_rows: list) -> pd.DataFrame:
-    """Parse Google Sheets rows into normalized ads DataFrame."""
+    """Parse Google Sheets rows into normalized ads dataframe.
+
+    Args:
+        raw_rows (list): Raw values rows where first row is header and the rest
+            are campaign daily metric rows.
+
+    Returns:
+        pd.DataFrame: Normalized ads dataframe with required business-key and
+        metric columns in numeric/date dtypes.
+
+    Raises:
+        ValueError: Raised when required headers are missing.
+    """
     if not raw_rows or len(raw_rows) < 2:
         return pd.DataFrame()
 
@@ -174,7 +229,16 @@ def parse_ads_dataframe(raw_rows: list) -> pd.DataFrame:
 
 
 def aggregate_ads_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate ads rows into daily business-grain records for loading."""
+    """Aggregate ads rows into daily business-grain records for loading.
+
+    Args:
+        df (pd.DataFrame): Parsed ads dataframe that may contain duplicate
+            business keys.
+
+    Returns:
+        pd.DataFrame: Aggregated dataframe grouped by
+        ``date/campaign_id/ad_group/ad_name`` with summed metrics.
+    """
     if df.empty:
         return df
 
@@ -193,3 +257,49 @@ def aggregate_ads_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     aggregated["clicks"] = aggregated["clicks"].astype(int)
     aggregated["leads"] = aggregated["leads"].astype(int)
     return aggregated
+
+
+def parse_ga4_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse GA4 report rows into normalized daily dataframe.
+
+    Args:
+        raw_rows (list[dict]): Raw rows returned by GA4 runReport extractor.
+
+    Returns:
+        pd.DataFrame: Aggregated dataframe at ``date + source`` grain with
+        metric columns ``daily_active_users``, ``monthly_active_users``,
+        and ``active_users``.
+
+    Raises:
+        ValueError: Raised when expected GA4 fields are missing.
+    """
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "platform",
+        "daily_active_users",
+        "monthly_active_users",
+        "active_users",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in GA4 payload: {missing_columns}")
+
+    df["date"] = pd.to_datetime(df["date"], format="%Y%m%d", errors="coerce").dt.date
+    df["platform"] = df["platform"].astype(str).str.strip().str.upper()
+    df["source"] = np.where(df["platform"] == "WEB", "web", "app")
+    df["daily_active_users"] = pd.to_numeric(df["daily_active_users"], errors="coerce").fillna(0).astype(int)
+    df["monthly_active_users"] = pd.to_numeric(df["monthly_active_users"], errors="coerce").fillna(0).astype(int)
+    df["active_users"] = pd.to_numeric(df["active_users"], errors="coerce").fillna(0).astype(int)
+    df = df[df["date"].notna()]
+    df = (
+        df.groupby(["date", "source"], as_index=False)[
+            ["daily_active_users", "monthly_active_users", "active_users"]
+        ]
+        .sum()
+        .sort_values(["date", "source"])
+    )
+    return df

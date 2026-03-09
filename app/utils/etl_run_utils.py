@@ -25,7 +25,21 @@ async def _ensure_not_running_conflict(
     window_start: date | None,
     window_end: date | None,
 ) -> None:
-    """Raise 409 when an equivalent ETL run is already running."""
+    """Reject duplicate active ETL runs for the same source/window.
+
+    Args:
+        session (AsyncSession): Active database session.
+        source (str): ETL source identifier (for example ``google_ads``).
+        mode (str): ETL mode (`auto` or `manual`).
+        window_start (date | None): Inclusive run window start.
+        window_end (date | None): Inclusive run window end.
+
+    Returns:
+        None: Validation-only helper.
+
+    Raises:
+        HTTPException: ``409`` when a matching running ETL run already exists.
+    """
     existing = await session.execute(
         select(EtlRun.run_id)
         .where(
@@ -58,7 +72,22 @@ async def start_run(
     window_end: date | None,
     triggered_by: str | None,
 ) -> str:
-    """Create and persist a new ETL run in running state."""
+    """Create and persist a new ETL run in ``running`` status.
+
+    Args:
+        session (AsyncSession): Active database session.
+        source (str): ETL source identifier.
+        mode (str): ETL mode (`auto` or `manual`).
+        window_start (date | None): Inclusive run window start.
+        window_end (date | None): Inclusive run window end.
+        triggered_by (str | None): User identifier that triggered the job.
+
+    Returns:
+        str: Generated ``run_id`` used for status polling.
+
+    Raises:
+        HTTPException: Propagated conflict error from duplicate active runs.
+    """
     await _ensure_not_running_conflict(
         session=session,
         source=source,
@@ -85,7 +114,16 @@ async def start_run(
 
 
 async def finish_run(session: AsyncSession, run_id: str, message: str | None = None) -> None:
-    """Mark an ETL run as success."""
+    """Mark an ETL run as ``success`` and finalize metadata.
+
+    Args:
+        session (AsyncSession): Active database session.
+        run_id (str): ETL run identifier.
+        message (str | None): Optional completion message from pipeline.
+
+    Returns:
+        None: Persists status change as side effect.
+    """
     await session.execute(
         update(EtlRun)
         .where(EtlRun.run_id == run_id)
@@ -100,7 +138,16 @@ async def finish_run(session: AsyncSession, run_id: str, message: str | None = N
 
 
 async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> None:
-    """Mark an ETL run as failed."""
+    """Mark an ETL run as ``failed`` and store truncated error detail.
+
+    Args:
+        session (AsyncSession): Active database session.
+        run_id (str): ETL run identifier.
+        error_detail (str): Error text persisted into run metadata.
+
+    Returns:
+        None: Persists status change as side effect.
+    """
     await session.rollback()
     await session.execute(
         update(EtlRun)

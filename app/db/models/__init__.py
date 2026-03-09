@@ -7,6 +7,7 @@ from app.db.models.external_api import (  # noqa: F401
     Campaign,
     DataDepo,
     FacebookAds,
+    Ga4DailyMetrics,
     GoogleAds,
     StgAdsRaw,
     StgDepoRaw,

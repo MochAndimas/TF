@@ -84,6 +84,11 @@ Minimal key yang digunakan:
 - `GSHEET_CLIENT_ID`
 - `GSHEET_CLIENT_SECRET`
 - `GSHEET_SHEET_ID`
+- `GA4_PROPERTY_ID`
+- `GA4_REFRESH_TOKEN`
+- `GA4_TOKEN_URI`
+- `GA4_CLIENT_ID`
+- `GA4_CLIENT_SECRET`
 - `BOOTSTRAP_SUPERADMIN`
 - `INITIAL_SUPERADMIN_NAME`
 - `INITIAL_SUPERADMIN_EMAIL`
@@ -217,6 +222,7 @@ curl "http://localhost:5505/api/feature-data/update-external-api/<run_id>" \
   - `staging.py`: simpan raw payload ke tabel staging
   - `load.py`: upsert ke tabel final
   - `pipelines.py`: orchestration flow per source
+- Source tambahan: `ga4_daily_metrics` (dimension: `date`, source app/web; metrics: DAU, MAU, active users)
 - Untuk `tiktok_ads`, rows dengan key sama akan di-aggregate dulu per:
   - `date, campaign_id, ad_group, ad_name`
 - Untuk `google_ads`/`facebook_ads`, flow tetap tanpa agregasi khusus.
