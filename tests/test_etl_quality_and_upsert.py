@@ -15,7 +15,7 @@ from app.db.base import SqliteBase
 from app.db.models.external_api import Campaign, GoogleAds
 from app.etl.load import upsert_ads_rows
 from app.etl.quality import validate_ads_dataframe, validate_depo_dataframe
-from app.etl.transform import aggregate_ads_dataframe
+from app.etl.transform import dedupe_ads_dataframe
 
 
 class TestEtlQuality(TestCase):
@@ -59,7 +59,7 @@ class TestEtlQuality(TestCase):
         with self.assertRaisesRegex(ValueError, "negative metrics"):
             validate_ads_dataframe(df)
 
-    def test_aggregate_ads_dataframe_sums_duplicate_keys(self):
+    def test_dedupe_ads_dataframe_keeps_last_duplicate(self):
         df = pd.DataFrame(
             [
                 {
@@ -86,12 +86,13 @@ class TestEtlQuality(TestCase):
                 },
             ]
         )
-        aggregated = aggregate_ads_dataframe(df)
-        self.assertEqual(len(aggregated), 1)
-        self.assertEqual(float(aggregated.iloc[0]["cost"]), 30.5)
-        self.assertEqual(int(aggregated.iloc[0]["impressions"]), 300)
-        self.assertEqual(int(aggregated.iloc[0]["clicks"]), 30)
-        self.assertEqual(int(aggregated.iloc[0]["leads"]), 3)
+        deduped, dropped_count = dedupe_ads_dataframe(df)
+        self.assertEqual(len(deduped), 1)
+        self.assertEqual(dropped_count, 1)
+        self.assertEqual(float(deduped.iloc[0]["cost"]), 20.0)
+        self.assertEqual(int(deduped.iloc[0]["impressions"]), 200)
+        self.assertEqual(int(deduped.iloc[0]["clicks"]), 20)
+        self.assertEqual(int(deduped.iloc[0]["leads"]), 2)
 
 
 class TestEtlUpsert(IsolatedAsyncioTestCase):

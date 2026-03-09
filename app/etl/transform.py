@@ -259,6 +259,23 @@ def aggregate_ads_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return aggregated
 
 
+def dedupe_ads_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Drop duplicate ads business keys without metric aggregation.
+
+    Keeps the last row for each business key:
+    ``date, campaign_id, ad_group, ad_name``.
+    """
+    if df.empty:
+        return df, 0
+
+    deduped = df.drop_duplicates(
+        subset=["date", "campaign_id", "ad_group", "ad_name"],
+        keep="last",
+    ).copy()
+    dropped_count = len(df) - len(deduped)
+    return deduped, dropped_count
+
+
 def parse_ga4_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse GA4 report rows into normalized daily dataframe.
 

@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import DataDepo, Ga4DailyMetrics, TikTokAds
+from app.db.models.external_api import DataDepo, Ga4DailyMetrics
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
     build_ads_rows,
@@ -24,7 +24,7 @@ from app.etl.load import (
 from app.etl.quality import validate_ads_dataframe, validate_depo_dataframe, validate_ga4_dataframe
 from app.etl.staging import stage_ads_raw, stage_depo_raw, stage_ga4_raw
 from app.etl.transform import (
-    aggregate_ads_dataframe,
+    dedupe_ads_dataframe,
     normalize_columns,
     normalize_date,
     parse_ads_dataframe,
@@ -299,7 +299,6 @@ class GoogleSheetApi:
 
             df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
             filtered_count = len(df)
-            aggregated_applied = False
 
             if df.empty:
                 self._log_event(
@@ -308,16 +307,14 @@ class GoogleSheetApi:
                     source=classes.__tablename__,
                     raw_count=max(len(raw_rows) - 1, 0),
                     staged_count=staged_count,
-                    aggregated_applied=aggregated_applied,
+                    dedupe_applied=False,
+                    dedupe_dropped_count=0,
                     duration_sec=round(perf_counter() - started_at, 3),
                 )
                 return "No data found for selected date range."
 
-            aggregated_count = len(df)
-            if classes is TikTokAds:
-                df = aggregate_ads_dataframe(df)
-                aggregated_count = len(df)
-                aggregated_applied = True
+            df, dedupe_dropped_count = dedupe_ads_dataframe(df)
+            dedupe_applied = dedupe_dropped_count > 0
             validate_ads_dataframe(df)
             rows = self._build_ads_models(df=df, model_cls=classes, pull_date=datetime.now().date())
             await upsert_ads_rows(session=session, model_cls=classes, rows=rows)
@@ -328,8 +325,8 @@ class GoogleSheetApi:
                 source=classes.__tablename__,
                 raw_count=max(len(raw_rows) - 1, 0),
                 filtered_count=filtered_count,
-                aggregated_count=aggregated_count,
-                aggregated_applied=aggregated_applied,
+                dedupe_applied=dedupe_applied,
+                dedupe_dropped_count=dedupe_dropped_count,
                 staged_count=staged_count,
                 loaded_count=len(rows),
                 duration_sec=round(perf_counter() - started_at, 3),

@@ -85,9 +85,8 @@ def validate_ads_dataframe(df: pd.DataFrame) -> None:
     if negative_metric:
         raise ValueError(f"DQ failed: ads data has {int(negative_metric)} rows with negative metrics.")
 
-    dup_ratio = _duplicate_ratio(df, ["date", "campaign_id", "ad_group", "ad_name"])
-    if dup_ratio > 0:
-        raise ValueError(f"DQ failed: ads duplicate key ratio {dup_ratio:.2%}.")
+    # Duplicate business keys are handled in transform stage (dedupe), so
+    # ads validation intentionally does not fail on duplicates here.
 
 
 def validate_ga4_dataframe(df: pd.DataFrame) -> None:
@@ -128,4 +127,3 @@ def validate_ga4_dataframe(df: pd.DataFrame) -> None:
     dup_ratio = _duplicate_ratio(df, ["date", "source"])
     if dup_ratio > 0:
         raise ValueError(f"DQ failed: ga4 duplicate key ratio {dup_ratio:.2%}.")
-
