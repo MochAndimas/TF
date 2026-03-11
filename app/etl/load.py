@@ -23,6 +23,29 @@ SQLITE_MAX_VARIABLES = 999
 SQLITE_VARIABLE_HEADROOM = 50
 
 
+def _optional_int(value):
+    """Convert optional numeric value to int while preserving null-like inputs."""
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
+def _optional_float(value):
+    """Convert optional numeric value to float while preserving null-like inputs."""
+    if value is None or pd.isna(value):
+        return None
+    return float(value)
+
+
+def _normalize_sql_value(value):
+    """Convert pandas/numpy null-like scalars into DB-safe Python values."""
+    if value is None:
+        return None
+    if pd.isna(value):
+        return None
+    return value
+
+
 def _iter_row_chunks(rows: list[dict], columns_per_row: int):
     """Yield insert chunks sized to stay below SQLite bind-variable limit.
 
@@ -208,10 +231,6 @@ async def upsert_ga4_rows(session: AsyncSession, rows: list[dict]) -> None:
 def build_first_deposit_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     """Convert normalized first-deposit rows into ``data_depo`` payload dicts.
 
-    Only the subset of columns needed by the current deposit-reporting use case
-    is populated here. Optional legacy fields on ``DataDepo`` are intentionally
-    left unset so the ETL stays minimal and focused on first-deposit reporting.
-
     Args:
         df (pd.DataFrame): Normalized and validated first-deposit dataframe.
         pull_date (date): Date stamp recorded on each loaded row.
@@ -222,17 +241,28 @@ def build_first_deposit_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     """
     rows = []
     for _, row in df.iterrows():
-        rows.append(
-            {
-                "user_id": int(row["user_id"]),
-                "tanggal_regis": row["tanggal_regis"],
-                "email": row["email"] or None,
-                "user_status": row["user_status"] or None,
-                "campaign_id": row["campaign_id"],
-                "first_depo": float(row["first_depo"]),
-                "pull_date": pull_date,
-            }
-        )
+        payload = {
+            "user_id": int(row["user_id"]),
+            "tanggal_regis": row["tanggal_regis"],
+            "fullname": row.get("fullname") or None,
+            "email": row["email"] or None,
+            "phone": row.get("phone") or None,
+            "user_status": row["user_status"] or None,
+            "campaign_id": row["campaign_id"],
+            "tag": row.get("tag") or None,
+            "protection": _optional_int(row.get("protection")),
+            "assign_date": row.get("assign_date") or None,
+            "analyst": _optional_int(row.get("analyst")),
+            "first_depo_date": row.get("first_depo_date") or None,
+            "first_depo": float(row["first_depo"]),
+            "time_to_closing": row.get("time_to_closing") or None,
+            "nmi": _optional_float(row.get("nmi")),
+            "lot": _optional_float(row.get("lot")),
+            "cabang": row.get("cabang") or None,
+            "pool": bool(row["pool"]) if pd.notna(row.get("pool")) else None,
+            "pull_date": pull_date,
+        }
+        rows.append({key: _normalize_sql_value(value) for key, value in payload.items()})
     return rows
 
 
@@ -309,9 +339,21 @@ async def upsert_first_deposit_rows(session: AsyncSession, rows: list[dict]) -> 
         upsert_stmt = insert_stmt.on_conflict_do_update(
             index_elements=["user_id", "tanggal_regis", "campaign_id"],
             set_={
+                "fullname": insert_stmt.excluded.fullname,
                 "email": insert_stmt.excluded.email,
+                "phone": insert_stmt.excluded.phone,
                 "user_status": insert_stmt.excluded.user_status,
+                "tag": insert_stmt.excluded.tag,
+                "protection": insert_stmt.excluded.protection,
+                "assign_date": insert_stmt.excluded.assign_date,
+                "analyst": insert_stmt.excluded.analyst,
+                "first_depo_date": insert_stmt.excluded.first_depo_date,
                 "first_depo": insert_stmt.excluded.first_depo,
+                "time_to_closing": insert_stmt.excluded.time_to_closing,
+                "nmi": insert_stmt.excluded.nmi,
+                "lot": insert_stmt.excluded.lot,
+                "cabang": insert_stmt.excluded.cabang,
+                "pool": insert_stmt.excluded.pool,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

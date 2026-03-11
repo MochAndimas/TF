@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import SqliteBase
 from app.db.models.external_api import Campaign, DataDepo, GoogleAds
-from app.etl.load import upsert_ads_rows, upsert_first_deposit_rows
+from app.etl.load import build_first_deposit_rows, upsert_ads_rows, upsert_first_deposit_rows
 from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataframe
 from app.etl.transform import dedupe_ads_dataframe, parse_first_deposit_dataframe
 
@@ -99,6 +99,85 @@ class TestEtlQuality(TestCase):
         self.assertEqual(int(df.iloc[0]["user_id"]), 101)
         self.assertEqual(str(df.iloc[0]["campaign_id"]), "-")
         self.assertEqual(float(df.iloc[0]["first_depo"]), 50.0)
+
+    def test_parse_first_deposit_dataframe_maps_optional_fields(self):
+        df = parse_first_deposit_dataframe(
+            [
+                {
+                    "id": 201,
+                    "fullname": "Test User",
+                    "email": "USER@Example.COM",
+                    "phone": 8123456789,
+                    "tgl_regis": "2026-01-10T05:00:00.000Z",
+                    "tag": "CP1Google",
+                    "campaignid": "cmp-10",
+                    "protection": 1,
+                    "Status\nNew / Existing": "New",
+                    "Assign Date": "2026-01-12T08:00:00.000Z",
+                    "Analyst": 2,
+                    "First Depo Date": "2026-01-13T09:00:00.000Z",
+                    "First Depo $": 125,
+                    "Time To Closing": "25:00:00",
+                    "NMI": 50.5,
+                    "Lot": 0.75,
+                    "Cabang": "TFJ",
+                    "Pool": True,
+                }
+            ]
+        )
+        self.assertEqual(len(df), 1)
+        row = df.iloc[0]
+        self.assertEqual(row["fullname"], "Test User")
+        self.assertEqual(row["email"], "user@example.com")
+        self.assertEqual(row["phone"], "8123456789")
+        self.assertEqual(row["tag"], "CP1Google")
+        self.assertEqual(int(row["protection"]), 1)
+        self.assertEqual(row["assign_date"], date(2026, 1, 12))
+        self.assertEqual(int(row["analyst"]), 2)
+        self.assertEqual(row["first_depo_date"], date(2026, 1, 13))
+        self.assertEqual(row["time_to_closing"], "25:00:00")
+        self.assertEqual(float(row["nmi"]), 50.5)
+        self.assertEqual(float(row["lot"]), 0.75)
+        self.assertEqual(row["cabang"], "TFJ")
+        self.assertTrue(bool(row["pool"]))
+
+    def test_build_first_deposit_rows_includes_extended_data_depo_fields(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "user_id": 201,
+                    "tanggal_regis": date(2026, 1, 10),
+                    "fullname": "Test User",
+                    "email": "user@example.com",
+                    "phone": "8123456789",
+                    "user_status": "New",
+                    "campaign_id": "cmp-10",
+                    "tag": "CP1Google",
+                    "protection": 1,
+                    "assign_date": date(2026, 1, 12),
+                    "analyst": 2,
+                    "first_depo_date": date(2026, 1, 13),
+                    "first_depo": 125.0,
+                    "time_to_closing": "25:00:00",
+                    "nmi": 50.5,
+                    "lot": 0.75,
+                    "cabang": "TFJ",
+                    "pool": True,
+                }
+            ]
+        )
+        rows = build_first_deposit_rows(df, pull_date=date(2026, 1, 14))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["fullname"], "Test User")
+        self.assertEqual(rows[0]["phone"], "8123456789")
+        self.assertEqual(rows[0]["tag"], "CP1Google")
+        self.assertEqual(rows[0]["assign_date"], date(2026, 1, 12))
+        self.assertEqual(rows[0]["first_depo_date"], date(2026, 1, 13))
+        self.assertEqual(rows[0]["time_to_closing"], "25:00:00")
+        self.assertEqual(rows[0]["nmi"], 50.5)
+        self.assertEqual(rows[0]["lot"], 0.75)
+        self.assertEqual(rows[0]["cabang"], "TFJ")
+        self.assertTrue(rows[0]["pool"])
 
     def test_validate_first_deposit_dataframe_raises_on_non_positive_metric(self):
         df = pd.DataFrame(

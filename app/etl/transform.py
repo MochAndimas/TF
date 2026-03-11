@@ -260,22 +260,60 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     if missing_columns:
         raise ValueError(f"Missing columns in first deposit payload: {missing_columns}")
 
+    def _optional_series(column_name: str) -> pd.Series:
+        return df[column_name] if column_name in df.columns else pd.Series([None] * len(df), index=df.index)
+
+    def _clean_string(series: pd.Series, *, lowercase: bool = False) -> pd.Series:
+        cleaned = series.fillna("").astype(str).str.strip()
+        cleaned = cleaned.replace({"": None, "-": None, "nan": None, "None": None})
+        if lowercase:
+            cleaned = cleaned.str.lower()
+        return cleaned
+
+    def _clean_date(series: pd.Series) -> pd.Series:
+        parsed_dates = pd.to_datetime(series.replace({0: None, "0": None, "": None}), errors="coerce")
+        if getattr(parsed_dates.dt, "tz", None) is not None:
+            parsed_dates = parsed_dates.dt.tz_localize(None)
+        # Spreadsheet zero-dates such as 1899-12-30 are placeholders, not real business dates.
+        parsed_dates = parsed_dates.where(parsed_dates >= pd.Timestamp("1900-01-01"))
+        return parsed_dates.dt.date
+
     parsed = pd.DataFrame(
         {
             "user_id": pd.to_numeric(df["id"], errors="coerce"),
-            "email": df["email"].astype(str).str.strip().str.lower(),
+            "fullname": _clean_string(_optional_series("fullname")),
+            "email": _clean_string(df["email"], lowercase=True),
+            "phone": _clean_string(_optional_series("phone")),
             "tanggal_regis": pd.to_datetime(df["tgl_regis"], errors="coerce").dt.date,
             "campaign_id": df["campaignid"].fillna("").astype(str).str.strip(),
-            "user_status": df["Status\nNew / Existing"].astype(str).str.strip(),
+            "tag": _clean_string(_optional_series("tag")),
+            "protection": pd.to_numeric(_optional_series("protection"), errors="coerce"),
+            "user_status": _clean_string(df["Status\nNew / Existing"]),
+            "assign_date": _clean_date(_optional_series("Assign Date")),
+            "analyst": pd.to_numeric(_optional_series("Analyst"), errors="coerce"),
+            "first_depo_date": _clean_date(_optional_series("First Depo Date")),
             "first_depo": pd.to_numeric(df["First Depo $"], errors="coerce"),
+            "time_to_closing": _clean_string(_optional_series("Time To Closing")),
+            "nmi": pd.to_numeric(_optional_series("NMI"), errors="coerce"),
+            "lot": pd.to_numeric(_optional_series("Lot"), errors="coerce"),
+            "cabang": _clean_string(_optional_series("Cabang")),
+            "pool": _optional_series("Pool"),
         }
     )
     parsed["campaign_id"] = parsed["campaign_id"].replace({"": "-", "0": "-"})
     parsed["first_depo"] = parsed["first_depo"].fillna(0.0).astype(float)
+    parsed["protection"] = pd.to_numeric(parsed["protection"], errors="coerce").fillna(0).astype(int)
+    parsed["analyst"] = pd.to_numeric(parsed["analyst"], errors="coerce")
+    parsed["nmi"] = pd.to_numeric(parsed["nmi"], errors="coerce")
+    parsed["lot"] = pd.to_numeric(parsed["lot"], errors="coerce")
+    parsed["pool"] = parsed["pool"].where(parsed["pool"].notna(), None)
     parsed = parsed.loc[parsed["tanggal_regis"].notna() & (parsed["first_depo"] > 0)].copy()
     parsed = parsed.loc[parsed["user_id"].notna()].copy()
     if parsed.empty:
         return parsed
 
     parsed["user_id"] = parsed["user_id"].astype(int)
+    parsed["analyst"] = parsed["analyst"].where(parsed["analyst"].notna(), None)
+    parsed["nmi"] = parsed["nmi"].where(parsed["nmi"].notna(), None)
+    parsed["lot"] = parsed["lot"].where(parsed["lot"].notna(), None)
     return parsed
