@@ -87,9 +87,21 @@ class ExternalApiExtractor:
             raise ValueError("GSHEET_SA_CREDS is required for Google Sheets service-account auth.")
 
         normalized = raw_value.strip().strip("'").strip('"')
+        if normalized.startswith("{"):
+            try:
+                return json.loads(normalized)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    "GSHEET_SA_CREDS JSON string is invalid. Make sure it is valid single-line JSON."
+                ) from exc
+
         path_candidate = Path(normalized)
-        if path_candidate.exists():
-            return json.loads(path_candidate.read_text(encoding="utf-8"))
+        try:
+            if path_candidate.exists():
+                return json.loads(path_candidate.read_text(encoding="utf-8"))
+        except OSError:
+            # Some OSes raise "file name too long" when a raw JSON blob is probed as a path.
+            pass
 
         try:
             return json.loads(normalized)
