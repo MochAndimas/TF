@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import date
+from pathlib import Path
 
 from decouple import config
 from google.oauth2.credentials import Credentials
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
 import httpx
 
@@ -21,12 +24,10 @@ class ExternalApiExtractor:
     """
 
     def __init__(self) -> None:
-        creds = Credentials(
-            None,
-            refresh_token=config("GSHEET_REFRESH_TOKEN", cast=str),
-            token_uri=config("GSHEET_TOKEN_URI", cast=str),
-            client_id=config("GSHEET_CLIENT_ID", cast=str),
-            client_secret=config("GSHEET_CLIENT_SECRET", cast=str),
+        gsheet_sa_creds = self._load_gsheet_service_account_info()
+        creds = ServiceAccountCredentials.from_service_account_info(
+            gsheet_sa_creds,
+            scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
         )
         self.service = build("sheets", version="v4", credentials=creds, cache_discovery=False)
         self.sheet_id = config("GSHEET_SHEET_ID", cast=str)
@@ -66,6 +67,36 @@ class ExternalApiExtractor:
                 credentials=ga4_creds,
                 cache_discovery=False,
             )
+
+    @staticmethod
+    def _load_gsheet_service_account_info() -> dict:
+        """Load Google Sheets service-account credentials from env.
+
+        Supported formats for ``GSHEET_SA_CREDS``:
+        - full JSON string on a single line
+        - filesystem path to a service-account JSON file
+
+        Returns:
+            dict: Parsed service-account credentials payload.
+
+        Raises:
+            ValueError: If the env value is missing or not a valid JSON/path.
+        """
+        raw_value = config("GSHEET_SA_CREDS", default="", cast=str).strip()
+        if not raw_value:
+            raise ValueError("GSHEET_SA_CREDS is required for Google Sheets service-account auth.")
+
+        normalized = raw_value.strip().strip("'").strip('"')
+        path_candidate = Path(normalized)
+        if path_candidate.exists():
+            return json.loads(path_candidate.read_text(encoding="utf-8"))
+
+        try:
+            return json.loads(normalized)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "GSHEET_SA_CREDS must be either a single-line JSON string or a path to a service-account JSON file."
+            ) from exc
 
     async def fetch_sheet_values(self, range_name: str) -> list:
         """Fetch raw row values from one Google Sheets range.

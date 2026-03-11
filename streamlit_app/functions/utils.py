@@ -794,7 +794,7 @@ async def logout(st, host, session_id):
         session_id: Persisted session identifier (currently unused in request payload).
     """
     
-    if st.button("Log Out", width="stretch"):
+    if st.button("Log Out", type="secondary", width="stretch"):
         with st.spinner("Logging out..."):
             try:
                 user = get_user(st.session_state._user_id)

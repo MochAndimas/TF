@@ -88,10 +88,7 @@ Minimal key yang digunakan:
 - `ACCESS_TOKEN_EXPIRE_MINUTES`
 - `REFRESH_TOKEN_EXPIRE_DAYS`
 - `ALGORITHM`
-- `GSHEET_REFRESH_TOKEN`
-- `GSHEET_TOKEN_URI`
-- `GSHEET_CLIENT_ID`
-- `GSHEET_CLIENT_SECRET`
+- `GSHEET_SA_CREDS` (JSON string service account Google Sheets)
 - `GSHEET_SHEET_ID`
 - `GA4_PROPERTY_ID`
 - `GA4_REFRESH_TOKEN`
@@ -233,7 +230,7 @@ curl "http://localhost:5505/api/feature-data/update-external-api/<run_id>" \
 ## ETL Runtime Notes
 
 - ETL update flow dipisah jadi layer:
-  - `extract.py`: ambil data dari Google Sheets/GA4 API
+- `extract.py`: ambil data dari Google Sheets/GA4 API
   - `transform.py`: parsing + normalisasi data
   - `quality.py`: data quality checks
   - `staging.py`: simpan raw payload ke tabel staging
@@ -537,3 +534,4 @@ Gunakan hanya saat inisialisasi pertama ketika DB belum berisi user aktif.
 - Tabel database dibuat otomatis saat startup FastAPI.
 - Kredensial produksi sebaiknya lewat secret manager, bukan hardcoded di repo.
 - Folder `lib/` adalah dependency environment, bukan source aplikasi.
+- Google Sheets sekarang memakai service account via `GSHEET_SA_CREDS`; spreadsheet target harus di-share ke email service account tersebut.

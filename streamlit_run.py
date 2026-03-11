@@ -16,7 +16,7 @@ from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import brand_awareness, deposit, login, overview, register, update_data, user_acquisition
+from streamlit_app.page import brand_awareness, deposit, home, login, overview, register, update_data, user_acquisition
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -28,6 +28,7 @@ st.set_page_config(
 PageHandler = Callable[[str], Awaitable[None]]
 
 PAGE_LABELS: dict[str, str] = {
+    "home": "Home",
     "overview": "Overview",
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
@@ -37,6 +38,7 @@ PAGE_LABELS: dict[str, str] = {
 }
 
 PAGE_BUTTON_TYPES: dict[str, str] = {
+    "home": "secondary",
     "overview": "tertiary",
     "user_acquisition": "tertiary",
     "brand_awareness": "tertiary",
@@ -46,6 +48,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
+    "Portal": ["home"],
     "Overall": ["overview"],
     "Revenue": ["deposit_report"],
     "Campaign": ["user_acquisition", "brand_awareness"],
@@ -53,10 +56,10 @@ NAV_GROUPS: dict[str, list[str]] = {
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data"],
-    "admin": ["overview", "user_acquisition", "brand_awareness", "deposit_report"],
-    "digital_marketing": ["overview", "user_acquisition", "brand_awareness", "deposit_report"],
-    "sales": ["overview", "user_acquisition", "brand_awareness", "deposit_report"],
+    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
+    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
+    "sales": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
 }
 
 
@@ -76,6 +79,9 @@ def _inject_navigation_style() -> None:
                 opacity: 0.72;
                 margin-top: 0.35rem;
                 margin-bottom: 0.2rem;
+            }
+            .tf-nav-standalone {
+                margin-bottom: 0.7rem;
             }
             .tf-nav-divider {
                 border-bottom: 1px solid var(--secondary-background-color);
@@ -168,7 +174,7 @@ def _initialize_session_state() -> None:
         None: Creates default keys when they do not exist.
     """
     defaults = {
-        "page": "overall",
+        "page": "home",
         "logged_in": False,
         "role": None,
     }
@@ -213,6 +219,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
         str | None: Selected page key for dispatcher, or ``None`` when not logged in.
     """
     available_pages = _allowed_pages_for_role(st.session_state.role)
+    st.session_state["allowed_pages"] = available_pages
     if not available_pages:
         st.warning("No page access configured for your account role.")
         asyncio.run(logout(st, host, None))
@@ -230,9 +237,27 @@ def _render_sidebar_navigation(host: str) -> str | None:
         collapse_nav_once = st.session_state.get("collapse_nav_once", False)
         selected_page = current_page
 
+        if "home" in available_pages:
+            st.markdown('<div class="tf-nav-standalone">', unsafe_allow_html=True)
+            if st.button(
+                PAGE_LABELS["home"],
+                key="nav_home",
+                type=PAGE_BUTTON_TYPES.get("home", "secondary"),
+                width="stretch",
+            ):
+                selected_page = "home"
+                st.session_state["collapse_nav_once"] = True
+                st.session_state["collapse_sidebar_once"] = True
+                st.session_state["collapse_sidebar_nonce"] = (
+                    st.session_state.get("collapse_sidebar_nonce", 0) + 1
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
+
         for group_title, group_pages in NAV_GROUPS.items():
             visible_pages = [page_key for page_key in group_pages if page_key in available_pages]
             if not visible_pages:
+                continue
+            if visible_pages == ["home"]:
                 continue
 
             group_expanded = False if collapse_nav_once else (current_page in visible_pages)
@@ -255,6 +280,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
             st.session_state["collapse_nav_once"] = False
 
         st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="tf-nav-title">Session</div>', unsafe_allow_html=True)
         asyncio.run(logout(st, host, None))
         return selected_page
 
@@ -278,6 +304,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         return
 
     page_handlers: dict[str, PageHandler] = {
+        "home": home.show_home_page,
         "overview": overview.show_overview_page,
         "user_acquisition": user_acquisition.show_user_acquisition_page,
         "brand_awareness": brand_awareness.show_brand_awareness_page,
