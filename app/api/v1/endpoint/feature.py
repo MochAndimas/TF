@@ -5,8 +5,6 @@ Traders Family application.
 """
 
 import asyncio
-import json
-import logging
 
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Depends
@@ -16,162 +14,12 @@ from app.db.session import get_db
 from app.utils.user_utils import get_current_user
 from app.db.models.user import TfUser
 from app.schemas.feature import UpdateData, UpdateDataResponse, UpdateDataStatusResponse
-from app.db.models.external_api import GoogleAds, FacebookAds, TikTokAds
-from app.etl.load import rebuild_unique_campaign
-from app.etl.pipelines import GoogleSheetApi
-from app.utils.etl_run_utils import fail_run, finish_run, start_run
+from app.etl.job_runner import execute_update_job, resolve_run_window
+from app.utils.etl_run_utils import fail_run, start_run
 from app.db.models.etl_run import EtlRun
-from app.db.session import sqlite_async_session
 
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
-
-
-async def _execute_update_job(
-    *,
-    run_id: str,
-    data: str,
-    types: str,
-    start_date,
-    end_date,
-) -> None:
-    """Execute ETL update job asynchronously and persist run lifecycle.
-
-    Args:
-        run_id (str): ETL run identifier generated when request is accepted.
-        data (str): Source selector (for example ``google_ads`` or
-            ``ga4_daily_metrics``).
-        types (str): Update mode (`auto` or `manual`).
-        start_date: Requested start date for manual mode.
-        end_date: Requested end date for manual mode.
-
-    Returns:
-        None: Updates ETL run metadata as side effect.
-    """
-    logger.info(
-        json.dumps(
-            {
-                "event": "etl_background_job_started",
-                "run_id": run_id,
-                "source": data,
-                "types": types,
-            },
-            default=str,
-        )
-    )
-    async def _mark_success(message: str) -> None:
-        async with sqlite_async_session() as status_session:
-            await finish_run(session=status_session, run_id=run_id, message=message)
-
-    async def _mark_failed(error_detail: str) -> None:
-        async with sqlite_async_session() as status_session:
-            await fail_run(session=status_session, run_id=run_id, error_detail=error_detail)
-
-    async with sqlite_async_session() as session:
-        try:
-            gsheet = GoogleSheetApi()
-            if data == "unique_campaign":
-                message = await rebuild_unique_campaign(session=session)
-            elif data == "google_ads":
-                message = await gsheet.campaign_ads(
-                    types=types,
-                    range_name="'Google Ads Campaign'!A:I",
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    classes=GoogleAds,
-                    run_id=run_id,
-                )
-            elif data == "facebook_ads":
-                message = await gsheet.campaign_ads(
-                    types=types,
-                    range_name="'Meta Ads Campaign'!A:I",
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    classes=FacebookAds,
-                    run_id=run_id,
-                )
-            elif data == "tiktok_ads":
-                message = await gsheet.campaign_ads(
-                    types=types,
-                    range_name="'TikTok Ads Campaign'!A:I",
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    classes=TikTokAds,
-                    run_id=run_id,
-                )
-            elif data == "ga4_daily_metrics":
-                message = await gsheet.ga4_daily_metrics(
-                    types=types,
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    run_id=run_id,
-                )
-            elif data == "first_deposit":
-                message = await gsheet.first_deposit(
-                    types=types,
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    run_id=run_id,
-                )
-            else:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Please chose one data to update!",
-                )
-
-            if not message:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Something is error, data update is failed!",
-                )
-
-            await _mark_success(message=message)
-            logger.info(
-                json.dumps(
-                    {
-                        "event": "etl_background_job_completed",
-                        "run_id": run_id,
-                        "source": data,
-                        "status": "success",
-                        "message": message,
-                    },
-                    default=str,
-                )
-            )
-        except HTTPException as error:
-            await _mark_failed(error_detail=str(error.detail))
-            logger.error(
-                json.dumps(
-                    {
-                        "event": "etl_background_job_failed_http",
-                        "run_id": run_id,
-                        "source": data,
-                        "status": "failed",
-                        "error": str(error.detail),
-                    },
-                    default=str,
-                )
-            )
-        except Exception as error:
-            await _mark_failed(error_detail=str(error))
-            logger.error(
-                json.dumps(
-                    {
-                        "event": "etl_background_job_failed",
-                        "run_id": run_id,
-                        "source": data,
-                        "status": "failed",
-                        "error": str(error),
-                    },
-                    default=str,
-                )
-            )
 
 
 @router.post("/api/feature-data/update-external-api", response_model=UpdateDataResponse)
@@ -197,16 +45,22 @@ async def update_data(
         start_date = response.start_date
         end_date = response.end_date
         types = response.types
+        window_start, window_end = resolve_run_window(
+            data=response.data,
+            types=types,
+            start_date=start_date,
+            end_date=end_date,
+        )
         run_id = await start_run(
             session=session,
             source=response.data,
             mode=types,
-            window_start=start_date.date() if start_date else None,
-            window_end=end_date.date() if end_date else None,
+            window_start=window_start,
+            window_end=window_end,
             triggered_by=current_user.user_id,
         )
         asyncio.create_task(
-            _execute_update_job(
+            execute_update_job(
                 run_id=run_id,
                 data=response.data,
                 types=types,

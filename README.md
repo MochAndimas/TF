@@ -535,3 +535,30 @@ Gunakan hanya saat inisialisasi pertama ketika DB belum berisi user aktif.
 - Kredensial produksi sebaiknya lewat secret manager, bukan hardcoded di repo.
 - Folder `lib/` adalah dependency environment, bukan source aplikasi.
 - Google Sheets sekarang memakai service account via `GSHEET_SA_CREDS`; spreadsheet target harus di-share ke email service account tersebut.
+
+## Daily ETL Scheduler (Cron)
+
+- Scheduler entrypoint untuk Linux ada di `scripts/run_scheduled_etl.sh`
+- Runner Python yang dipanggil wrapper ada di `run_scheduled_etl.py`
+- Log default ditulis ke `logs/scheduled_etl.log`
+- Lock file default ada di `run/scheduled_etl.lock`
+- Urutan source default:
+  - `google_ads`
+  - `facebook_ads`
+  - `tiktok_ads`
+  - `unique_campaign`
+  - `ga4_daily_metrics`
+  - `first_deposit`
+
+Contoh crontab jam `08:00` setiap hari:
+
+```cron
+0 8 * * * /bin/bash /path/to/TF/scripts/run_scheduled_etl.sh
+```
+
+Ganti `/path/to/TF` dengan absolute path project di server Linux.
+
+Catatan production:
+- Wrapper memakai `flock` bila tersedia untuk mencegah job overlap.
+- Jika `flock` tidak tersedia, wrapper fallback ke lock file sederhana.
+- Kalau timezone server bukan WIB, bisa tambahkan `CRON_TZ=Asia/Jakarta` di crontab.
