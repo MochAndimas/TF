@@ -1,3 +1,4 @@
 # Run the Traders Family ETL every day at 08:00 server local time.
 # Optional: prepend `CRON_TZ=Asia/Jakarta` above this line if the server timezone is not WIB.
-0 8 * * * /bin/bash /path/to/TF/scripts/run_scheduled_etl.sh
+CRON_TZ=Asia/Jakarta
+00 08 * * * /bin/bash /Users/macbook/Documents/TF/scripts/run_scheduled_etl.sh
