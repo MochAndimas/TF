@@ -296,27 +296,6 @@ class Ga4DailyMetrics(SqliteBase):
     pull_date = Column("pull_date", Date, nullable=False)
 
 
-class StgDepoRaw(SqliteBase):
-    """Raw staging table for deposit source payload.
-
-    Stores immutable extracted records for audit/replay and ETL traceability.
-    """
-
-    __tablename__ = "stg_depo_raw"
-    __table_args__ = (
-        Index("ix_stg_depo_raw_run_id", "run_id"),
-        Index("ix_stg_depo_raw_ingested_at", "ingested_at"),
-        {"schema": None},
-    )
-
-    id = Column("id", Integer, primary_key=True, autoincrement=True)
-    run_id = Column("run_id", String, nullable=True)
-    source = Column("source", String, nullable=False)
-    payload = Column("payload", JSON, nullable=False)
-    payload_hash = Column("payload_hash", String, nullable=False)
-    ingested_at = Column("ingested_at", DateTime, nullable=False)
-
-
 class StgAdsRaw(SqliteBase):
     """Raw staging table for ads and GA4 source payload.
 

@@ -65,8 +65,9 @@ def _build_performance_dataframe(detail_rows: list[dict], level_column: str) -> 
         level_column (str): Grouping key (`campaign_id`, `ad_group`, `ad_name`).
 
     Returns:
-        pd.DataFrame: Aggregated performance dataframe with derived metrics
-        (`click->lead`, `ctr`, `cpc`, `cpm`, `cost_per_leads`).
+        pd.DataFrame: Aggregated performance dataframe with one row per source
+        and selected level value, plus derived metrics (`click->lead`, `ctr`,
+        `cpc`, `cpm`, `cost_per_leads`).
     """
     if not detail_rows:
         return pd.DataFrame()
@@ -121,8 +122,9 @@ def _format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFr
         level_label (str): Active grouping label used as display column name.
 
     Returns:
-        pd.DataFrame: Display-ready dataframe with currency, separator, and
-        percentage formatting applied.
+        pd.DataFrame: Display-ready dataframe with wrapped labels plus
+        currency, separator, and percentage formatting applied for
+        ``st.dataframe`` rendering.
     """
     if df.empty:
         return df

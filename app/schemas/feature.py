@@ -14,7 +14,7 @@ class UpdateData(BaseModel):
     Attributes:
         start_date (datetime): Inclusive start date for manual sync mode.
         end_date (datetime): Inclusive end date for manual sync mode.
-        data (str): Source identifier to update (e.g., `google_ads`, `data_depo`).
+        data (str): Source identifier to update (e.g., `google_ads`, `ga4_daily_metrics`).
         types (str): Update mode, usually `auto` or `manual`.
     """
     start_date: datetime
@@ -24,7 +24,13 @@ class UpdateData(BaseModel):
 
 
 class UpdateDataResponse(BaseModel):
-    """Schema for update endpoint response payload."""
+    """Response schema returned when an ETL update request is accepted.
+
+    Attributes:
+        message (str): Human-readable acceptance or status message.
+        run_id (str): Unique ETL run identifier used for polling progress.
+        status (str): Initial run status returned to the frontend.
+    """
 
     message: str
     run_id: str
@@ -32,7 +38,21 @@ class UpdateDataResponse(BaseModel):
 
 
 class UpdateDataStatusResponse(BaseModel):
-    """Schema for checking asynchronous ETL run status."""
+    """Response schema for asynchronous ETL run status polling.
+
+    Attributes:
+        run_id (str): Unique ETL run identifier.
+        pipeline (str): Logical pipeline family, for example external API sync.
+        source (str): Source selected by the user for this run.
+        mode (str): Trigger mode such as ``auto`` or ``manual``.
+        status (str): Current lifecycle state (`running`, `success`, `failed`).
+        message (str | None): Success/status message persisted by the ETL job.
+        error_detail (str | None): Failure detail stored when the job fails.
+        window_start (date | None): Inclusive ETL window start.
+        window_end (date | None): Inclusive ETL window end.
+        started_at (datetime): Timestamp when the ETL run started.
+        ended_at (datetime | None): Timestamp when the run finished, if any.
+    """
 
     run_id: str
     pipeline: str

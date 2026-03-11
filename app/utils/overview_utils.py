@@ -26,10 +26,26 @@ USD_TO_IDR_RATE = env("USD_TO_IDR_RATE", default=16000.0, cast=float)
 
 
 class OverviewData:
-    """Service object for loading and aggregating GA4 active-user overview data."""
+    """Service object for GA4-based active-user overview analytics.
+
+    This class owns the read/aggregate flow for the Overview dashboard's
+    Firebase active-user section, including:
+    - loading cached GA4 rows for a base window,
+    - rebuilding arbitrary comparison windows on demand,
+    - calculating stickiness metrics and period-over-period growth,
+    - generating FE-ready chart payloads.
+    """
 
     def __init__(self, session: AsyncSession, from_date: date, to_date: date, source: str) -> None:
-        """Initialize overview data container."""
+        """Initialize the GA4 overview service for one source and date window.
+
+        Args:
+            session (AsyncSession): Database session used for all reads.
+            from_date (date): Inclusive start date for the preload window.
+            to_date (date): Inclusive end date for the preload window.
+            source (str): Logical GA4 source selector, typically ``app`` or
+                ``web``.
+        """
         self.session = session
         self.from_date = from_date
         self.to_date = to_date
@@ -44,13 +60,27 @@ class OverviewData:
         to_date: date,
         source: str = "app",
     ) -> "OverviewData":
-        """Create service instance and preload GA4 rows for active window."""
+        """Create the service instance and preload GA4 rows for its base range.
+
+        Args:
+            session (AsyncSession): Database session used for all reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+            source (str): Logical GA4 source selector.
+
+        Returns:
+            OverviewData: Ready-to-use service with initial GA4 cache loaded.
+        """
         instance = cls(session=session, from_date=from_date, to_date=to_date, source=source)
         await instance._fetch_data()
         return instance
 
     async def _fetch_data(self) -> None:
-        """Populate in-memory dataframe for initialized date/source range."""
+        """Populate the in-memory GA4 cache for the initialized range/source.
+
+        Returns:
+            None: Writes the cached dataframe into ``self.df_ga4``.
+        """
         self.df_ga4 = await self._read_ga4_db_with_range(
             from_date=self.from_date,
             to_date=self.to_date,
@@ -59,7 +89,15 @@ class OverviewData:
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Compute previous period with identical day span."""
+        """Compute the previous comparison window with the same day span.
+
+        Args:
+            from_date (date): Current-period inclusive start date.
+            to_date (date): Current-period inclusive end date.
+
+        Returns:
+            tuple[date, date]: Previous-period ``(from_date, to_date)`` pair.
+        """
         period_days = (to_date - from_date).days + 1
         previous_to = from_date - timedelta(days=1)
         previous_from = previous_to - timedelta(days=period_days - 1)
@@ -67,7 +105,16 @@ class OverviewData:
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float:
-        """Calculate growth percentage with zero-denominator safeguard."""
+        """Calculate growth percentage with a zero-baseline safeguard.
+
+        Args:
+            current_value (float): Current-period metric value.
+            previous_value (float): Previous-period metric value.
+
+        Returns:
+            float: Rounded growth percentage. Returns ``100.0`` when the
+            current value is positive and the previous value is zero.
+        """
         if previous_value == 0:
             return 100.0 if current_value else 0.0
         return round(((current_value - previous_value) / previous_value) * 100, 2)
@@ -78,7 +125,18 @@ class OverviewData:
         to_date: date,
         source: str,
     ) -> pd.DataFrame:
-        """Read GA4 daily rows in arbitrary date range and source."""
+        """Read GA4 daily rows for an arbitrary date range and source.
+
+        Args:
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+            source (str): Logical source selector (`app` or `web`).
+
+        Returns:
+            pd.DataFrame: Dataframe containing GA4 metric rows for the
+            requested source and period. Returns an empty dataframe with the
+            expected schema when no rows are available.
+        """
         query = (
             select(
                 Ga4DailyMetrics.date.label("date"),
@@ -111,7 +169,16 @@ class OverviewData:
         return dataframe
 
     async def _frame_for_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Get dataframe slice for date range, querying DB when needed."""
+        """Return a GA4 dataframe for the requested range, using cache if valid.
+
+        Args:
+            from_date (date): Inclusive requested start date.
+            to_date (date): Inclusive requested end date.
+
+        Returns:
+            pd.DataFrame: Cached slice when the request is inside the preload
+            window, otherwise a freshly queried dataframe.
+        """
         if from_date >= self.from_date and to_date <= self.to_date and not self.df_ga4.empty:
             dataframe = self.df_ga4.loc[
                 (self.df_ga4["date"] >= from_date) & (self.df_ga4["date"] <= to_date)
@@ -126,7 +193,17 @@ class OverviewData:
 
     @staticmethod
     def _build_daily_series(dataframe: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
-        """Normalize GA4 dataframe into full daily series with zero-fill."""
+        """Normalize GA4 rows into a complete daily timeline with zero-filled gaps.
+
+        Args:
+            dataframe (pd.DataFrame): Raw GA4 dataframe for the requested range.
+            from_date (date): Inclusive series start date.
+            to_date (date): Inclusive series end date.
+
+        Returns:
+            pd.DataFrame: Daily timeline containing active-user metrics plus a
+            derived ``stickiness`` percentage for each day.
+        """
         timeline = pd.date_range(start=from_date, end=to_date, freq="D").date
         date_frame = pd.DataFrame({"date": timeline})
 
@@ -157,7 +234,17 @@ class OverviewData:
         return merged
 
     async def stickiness_with_growth(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build stickiness summary payload with growth against previous period."""
+        """Build stickiness summary payload with previous-period growth metrics.
+
+        Args:
+            from_date (date): Inclusive current-period start date.
+            to_date (date): Inclusive current-period end date.
+
+        Returns:
+            dict[str, object]: FE-ready summary payload containing current and
+            previous period metrics plus growth percentages for stickiness and
+            active-user totals.
+        """
         current_raw = await self._frame_for_range(from_date, to_date)
         current_df = self._build_daily_series(current_raw, from_date, to_date)
 
@@ -239,7 +326,16 @@ class OverviewData:
         }
 
     async def active_users_chart(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build dual-axis active-users chart payload for selected source."""
+        """Build the active-users chart payload for the selected GA4 source.
+
+        Args:
+            from_date (date): Inclusive chart start date.
+            to_date (date): Inclusive chart end date.
+
+        Returns:
+            dict[str, object]: Serialized chart payload containing both raw rows
+            and a Plotly figure for daily active-user visualization.
+        """
         daily = self._build_daily_series(await self._frame_for_range(from_date, to_date), from_date, to_date)
         source_label = self.source.upper()
         date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()
@@ -307,10 +403,23 @@ class OverviewData:
 
 
 class OverviewCampaignCostData:
-    """Service object for campaign cost summary and pie-chart breakdowns."""
+    """Service object for overview-level campaign cost analytics.
+
+    This class centralizes:
+    - loading ads cost data across all ad platforms,
+    - calculating summary cost metrics with previous-period growth,
+    - generating FE-ready pie chart payloads for campaign type and platform
+      breakdowns.
+    """
 
     def __init__(self, session: AsyncSession, from_date: date, to_date: date) -> None:
-        """Initialize overview campaign cost container."""
+        """Initialize the cost analytics service for one base window.
+
+        Args:
+            session (AsyncSession): Database session used for source reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+        """
         self.session = session
         self.from_date = from_date
         self.to_date = to_date
@@ -323,13 +432,27 @@ class OverviewCampaignCostData:
         from_date: date,
         to_date: date,
     ) -> "OverviewCampaignCostData":
-        """Create service instance and preload ads cost rows for active window."""
+        """Create the service instance and preload ads cost rows.
+
+        Args:
+            session (AsyncSession): Database session used for source reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+
+        Returns:
+            OverviewCampaignCostData: Ready-to-use service with cached ads cost
+            rows for the initialized range.
+        """
         instance = cls(session=session, from_date=from_date, to_date=to_date)
         await instance._fetch_data()
         return instance
 
     async def _fetch_data(self) -> None:
-        """Populate in-memory dataframe for initialized date range."""
+        """Populate the in-memory ads-cost cache for the initialized range.
+
+        Returns:
+            None: Writes the cached dataframe into ``self.df_cost``.
+        """
         self.df_cost = await self._read_ads_cost_db_with_range(
             from_date=self.from_date,
             to_date=self.to_date,
@@ -337,7 +460,15 @@ class OverviewCampaignCostData:
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Compute previous period with identical day span."""
+        """Compute the previous comparison window with the same day span.
+
+        Args:
+            from_date (date): Current-period inclusive start date.
+            to_date (date): Current-period inclusive end date.
+
+        Returns:
+            tuple[date, date]: Previous-period ``(from_date, to_date)`` pair.
+        """
         period_days = (to_date - from_date).days + 1
         previous_to = from_date - timedelta(days=1)
         previous_from = previous_to - timedelta(days=period_days - 1)
@@ -345,7 +476,15 @@ class OverviewCampaignCostData:
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float:
-        """Calculate growth percentage with zero-denominator safeguard."""
+        """Calculate growth percentage with a zero-baseline safeguard.
+
+        Args:
+            current_value (float): Current-period metric value.
+            previous_value (float): Previous-period metric value.
+
+        Returns:
+            float: Rounded growth percentage.
+        """
         if previous_value == 0:
             return 100.0 if current_value else 0.0
         return round(((current_value - previous_value) / previous_value) * 100, 2)
@@ -357,7 +496,18 @@ class OverviewCampaignCostData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Read cost rows from one ads source joined with campaign type metadata."""
+        """Read aggregated cost rows for one ads platform and date range.
+
+        Args:
+            model: SQLAlchemy ads model class for the source table.
+            source_key (str): Source label stored in the result dataframe.
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+
+        Returns:
+            pd.DataFrame: Per-day/per-campaign-type cost dataframe for one
+            ads platform with an added ``source`` column.
+        """
         query = (
             select(
                 model.date.label("date"),
@@ -381,7 +531,16 @@ class OverviewCampaignCostData:
         return dataframe
 
     async def _read_ads_cost_db_with_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Read all ads source cost rows in arbitrary date range."""
+        """Read and merge ads cost rows across all supported platforms.
+
+        Args:
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+
+        Returns:
+            pd.DataFrame: Unified cost dataframe across Google, Facebook, and
+            TikTok for the requested period.
+        """
         google = await self._read_one_source_cost(GoogleAds, "google", from_date, to_date)
         facebook = await self._read_one_source_cost(FacebookAds, "facebook", from_date, to_date)
         tiktok = await self._read_one_source_cost(TikTokAds, "tiktok", from_date, to_date)
@@ -394,14 +553,33 @@ class OverviewCampaignCostData:
         return dataframe
 
     async def _frame_for_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Get cost dataframe for range, querying DB when requested window differs."""
+        """Return a cost dataframe for the requested range, using cache if valid.
+
+        Args:
+            from_date (date): Inclusive requested start date.
+            to_date (date): Inclusive requested end date.
+
+        Returns:
+            pd.DataFrame: Cached slice when possible, otherwise a freshly
+            queried cost dataframe.
+        """
         if from_date >= self.from_date and to_date <= self.to_date and not self.df_cost.empty:
             return self.df_cost.loc[(self.df_cost["date"] >= from_date) & (self.df_cost["date"] <= to_date)].copy()
         return await self._read_ads_cost_db_with_range(from_date=from_date, to_date=to_date)
 
     @staticmethod
     async def _pie_payload(title: str, labels: list[str], values: list[float]) -> dict[str, object]:
-        """Build pie chart payload with empty fallback annotation."""
+        """Build a pie-chart payload with a safe empty-state fallback.
+
+        Args:
+            title (str): Figure title shown in the FE.
+            labels (list[str]): Pie-slice labels.
+            values (list[float]): Pie-slice numeric values.
+
+        Returns:
+            dict[str, object]: Payload containing serialized rows and a Plotly
+            figure JSON object ready for FE rendering.
+        """
         if not labels or not values or not any(float(v) > 0 for v in values):
             figure = go.Figure()
             figure.update_layout(
@@ -450,7 +628,16 @@ class OverviewCampaignCostData:
         return {"rows": rows, "figure": json.loads(chart_json)}
 
     async def cost_metrics_with_growth(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build cost metrics payload and growth versus previous period."""
+        """Build top-level campaign cost metrics with previous-period growth.
+
+        Args:
+            from_date (date): Inclusive current-period start date.
+            to_date (date): Inclusive current-period end date.
+
+        Returns:
+            dict[str, object]: Summary payload containing total/platform cost
+            metrics for current and previous periods plus growth percentages.
+        """
         current_df = await self._frame_for_range(from_date, to_date)
         previous_from, previous_to = self._previous_period_range(from_date, to_date)
         previous_df = await self._read_ads_cost_db_with_range(previous_from, previous_to)
@@ -501,7 +688,17 @@ class OverviewCampaignCostData:
         }
 
     async def cost_breakdown_charts(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build 3 pie charts: by campaign type, UA by platform, BA by platform."""
+        """Build pie-chart breakdown payloads for overview cost sections.
+
+        Args:
+            from_date (date): Inclusive chart start date.
+            to_date (date): Inclusive chart end date.
+
+        Returns:
+            dict[str, object]: Three serialized chart payloads covering:
+            total cost by campaign type, UA cost by platform, and BA cost by
+            platform.
+        """
         cost_df = await self._frame_for_range(from_date, to_date)
         if cost_df.empty:
             empty_cost_by_type = await self._pie_payload(
@@ -577,10 +774,20 @@ class OverviewCampaignCostData:
 
 
 class OverviewLeadsAcquisitionData:
-    """Service object for UA leads-acquisition metrics, tables, and charts."""
+    """Service object for overview-level user-acquisition analytics.
+
+    This class combines ads spend/leads data with first-deposit revenue data to
+    power the Overview page's UA KPI cards, source table, and trend charts.
+    """
 
     def __init__(self, session: AsyncSession, from_date: date, to_date: date) -> None:
-        """Initialize UA overview service state and in-memory caches."""
+        """Initialize the UA analytics service and in-memory caches.
+
+        Args:
+            session (AsyncSession): Database session used for source reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+        """
         self.session = session
         self.from_date = from_date
         self.to_date = to_date
@@ -594,13 +801,28 @@ class OverviewLeadsAcquisitionData:
         from_date: date,
         to_date: date,
     ) -> "OverviewLeadsAcquisitionData":
-        """Instantiate service and preload UA ads + first-deposit datasets."""
+        """Instantiate the service and preload UA ads plus deposit datasets.
+
+        Args:
+            session (AsyncSession): Database session used for source reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+
+        Returns:
+            OverviewLeadsAcquisitionData: Ready-to-use service with cached ads
+            and first-deposit frames for the initialized window.
+        """
         instance = cls(session=session, from_date=from_date, to_date=to_date)
         await instance._fetch_data()
         return instance
 
     async def _fetch_data(self) -> None:
-        """Populate in-memory dataframes for configured initialization window."""
+        """Populate in-memory ads and revenue caches for the base window.
+
+        Returns:
+            None: Writes cached frames into ``self.df_ads`` and
+            ``self.df_revenue``.
+        """
         self.df_ads = await self._read_ads_ua_with_range(self.from_date, self.to_date)
         self.df_revenue = await self._read_revenue_ua_with_range(self.from_date, self.to_date)
 
@@ -993,6 +1215,8 @@ class OverviewLeadsAcquisitionData:
                 y=cost_values,
                 name="Cost",
                 marker_color="#6176ff",
+                yaxis="y",
+                offsetgroup="cost",
                 hovertemplate="<b>%{x}</b><br>Cost: Rp. %{y:,.0f}<extra></extra>",
             )
         )
@@ -1002,6 +1226,8 @@ class OverviewLeadsAcquisitionData:
                 y=revenue_values,
                 name="First Deposit",
                 marker_color="#13c39c",
+                yaxis="y2",
+                offsetgroup="deposit",
                 hovertemplate="<b>%{x}</b><br>First Deposit: Rp. %{y:,.0f}<extra></extra>",
             )
         )
@@ -1011,17 +1237,33 @@ class OverviewLeadsAcquisitionData:
                 y=ratio_values,
                 mode="lines+markers",
                 name="Cost To First Deposit",
-                yaxis="y2",
+                yaxis="y3",
                 line=dict(color="#ff6248", width=2),
                 hovertemplate="<b>%{x}</b><br>Cost To First Deposit: %{y:.2f}%<extra></extra>",
             )
         )
         figure.update_layout(
             title="Cost To First Deposit Per Hari",
-            barmode="stack",
+            barmode="group",
             xaxis=dict(type="category"),
-            yaxis=dict(title="Cost / First Deposit"),
-            yaxis2=dict(title="Cost To First Deposit", overlaying="y", side="right", ticksuffix="%"),
+            yaxis=dict(title="Cost"),
+            yaxis2=dict(
+                title="First Deposit",
+                overlaying="y",
+                side="right",
+                anchor="free",
+                position=0.94,
+                showgrid=False,
+            ),
+            yaxis3=dict(
+                title="Cost To First Deposit",
+                overlaying="y",
+                side="right",
+                anchor="free",
+                position=1,
+                ticksuffix="%",
+                showgrid=False,
+            ),
             legend=dict(orientation="h", y=1.12, x=0),
         )
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)

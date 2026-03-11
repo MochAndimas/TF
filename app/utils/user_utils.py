@@ -20,7 +20,15 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
 
 def _credential_exception(detail: str = "Invalid email or Password!") -> HTTPException:
-    """Build a consistent HTTP 401 exception for authentication failures."""
+    """Build the standard authentication error used across user helpers.
+
+    Args:
+        detail (str): Human-readable error message exposed to the client.
+
+    Returns:
+        HTTPException: Preconfigured 401 exception with the bearer-auth header
+        required by FastAPI auth flows.
+    """
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
@@ -84,14 +92,16 @@ async def roles(
         email: str,
         session: AsyncSession
         ):
-    """Retrieve role value for a user by email.
+    """Retrieve the stored role for a user by email address.
 
     Args:
         email (str): User email used for lookup.
         session (AsyncSession): Async database session.
 
     Returns:
-        str | bool: User role string when found, otherwise `False`.
+        str | bool: User role string when the account exists, otherwise
+        `False`. Soft-deleted users are still considered because some admin
+        flows need to inspect historical account state.
     """
     user = await get_user_by_email(email=email, session=session, include_deleted=True)
     
@@ -287,11 +297,14 @@ async def logout(
         session: AsyncSession,
         user_id
 ):
-    """Revoke active token row and set user session as logged out.
+    """Revoke a user's active token row and mark the session as logged out.
 
     Args:
         session (AsyncSession): Async database session.
         user_id: User identifier associated with token row.
+
+    Returns:
+        bool: `True` when a token row was found and updated, otherwise `False`.
     """
     today = datetime.now()
     query = select(UserToken).filter_by(user_id=user_id)

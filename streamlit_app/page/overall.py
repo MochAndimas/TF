@@ -18,14 +18,17 @@ from streamlit_app.functions.utils import get_date_range
 
 
 async def show_overall_page(host):
-    """
-    Render the Overall dashboard with period filter and all overview sections.
+    """Render the legacy overall dashboard shell and period controls.
+
+    This page currently only renders the title, date-range filter container,
+    and submit button scaffold. It exists as an older entry point separate from
+    the newer `overview.py` page implementation.
 
     Args:
-        host (str): Backend base URL used for all overview API requests.
+        host (str): Backend base URL reserved for overview API requests.
 
     Returns:
-        None: Function renders Streamlit components and updates session state.
+        None: Writes Streamlit UI elements as side effects.
     """
     # Form Input and Submission
     st.markdown(f"""<h1 align="center">Overview Data</h1>""", unsafe_allow_html=True)

@@ -50,7 +50,16 @@ div[data-testid="stForm"] {
 
 
 def _extract_error_message(payload: dict, default: str) -> str:
-    """Extract the most useful error message from API payload."""
+    """Extract the most useful human-readable error text from an API payload.
+
+    Args:
+        payload (dict): JSON response payload returned by the backend.
+        default (str): Fallback message used when the payload has no useful
+            ``detail`` or ``message`` field.
+
+    Returns:
+        str: Best-effort error message for FE display.
+    """
     return payload.get("detail") or payload.get("message") or default
 
 
@@ -60,7 +69,18 @@ async def _request_csrf_token(
     email: str,
     password: str,
 ) -> tuple[str | None, str | None, str | None]:
-    """Initialize CSRF token and return `(csrf_token, server_session, error_message)`."""
+    """Initialize CSRF/login cookies before the actual login request.
+
+    Args:
+        client (httpx.AsyncClient): Shared HTTP client used for auth requests.
+        host (str): Backend API base URL.
+        email (str): Submitted login email.
+        password (str): Submitted login password.
+
+    Returns:
+        tuple[str | None, str | None, str | None]: Tuple containing
+        ``(csrf_token, server_session, error_message)``.
+    """
     response = await client.post(
         f"{host}/api/login/csrf-token",
         data={"username": email, "password": password},
@@ -86,7 +106,20 @@ async def _request_login(
     csrf_token: str,
     server_session: str | None = None,
 ) -> tuple[dict, httpx.Response]:
-    """Send login request and return `(payload, response)`."""
+    """Send the authenticated login request after CSRF initialization.
+
+    Args:
+        client (httpx.AsyncClient): Shared HTTP client used for auth requests.
+        host (str): Backend API base URL.
+        email (str): Submitted login email.
+        password (str): Submitted login password.
+        csrf_token (str): CSRF token returned by the initialization request.
+        server_session (str | None): Optional server-side session cookie value.
+
+    Returns:
+        tuple[dict, httpx.Response]: Parsed JSON payload plus the raw HTTP
+        response object so the caller can inspect headers and cookies.
+    """
     request_cookies = {"csrf_token": csrf_token}
     if server_session:
         request_cookies["session"] = server_session

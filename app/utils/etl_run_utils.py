@@ -124,7 +124,7 @@ async def finish_run(session: AsyncSession, run_id: str, message: str | None = N
     Returns:
         None: Persists status change as side effect.
     """
-    await session.execute(
+    result = await session.execute(
         update(EtlRun)
         .where(EtlRun.run_id == run_id)
         .values(
@@ -134,6 +134,11 @@ async def finish_run(session: AsyncSession, run_id: str, message: str | None = N
             error_detail=None,
         )
     )
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ETL run not found while finishing run_id: {run_id}",
+        )
     await session.commit()
 
 
@@ -149,7 +154,7 @@ async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> Non
         None: Persists status change as side effect.
     """
     await session.rollback()
-    await session.execute(
+    result = await session.execute(
         update(EtlRun)
         .where(EtlRun.run_id == run_id)
         .values(
@@ -158,4 +163,9 @@ async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> Non
             ended_at=datetime.now(),
         )
     )
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ETL run not found while failing run_id: {run_id}",
+        )
     await session.commit()

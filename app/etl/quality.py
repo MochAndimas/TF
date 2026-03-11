@@ -21,38 +21,6 @@ def _duplicate_ratio(df: pd.DataFrame, keys: list[str]) -> float:
     return duplicate_count / len(df)
 
 
-def validate_depo_dataframe(df: pd.DataFrame) -> None:
-    """Validate transformed deposit dataframe before load.
-
-    Args:
-        df (pd.DataFrame): Parsed and normalized deposit dataframe.
-
-    Returns:
-        None: Validation-only function.
-
-    Raises:
-        ValueError: Raised when dataframe violates key/date/metric quality rules.
-    """
-    if df.empty:
-        return
-
-    missing_key = df[["id", "tgl_regis", "campaignid"]].isna().any(axis=1).sum()
-    if missing_key:
-        raise ValueError(f"DQ failed: data_depo has {int(missing_key)} rows with missing business keys.")
-
-    invalid_dates = ((df["tgl_regis"].isna()) | (df["tgl_regis"] < pd.Timestamp("2022-01-01").date())).sum()
-    if invalid_dates:
-        raise ValueError(f"DQ failed: data_depo has {int(invalid_dates)} rows with invalid registration dates.")
-
-    negative_depo = (pd.to_numeric(df["First Depo $"], errors="coerce").fillna(0) < 0).sum()
-    if negative_depo:
-        raise ValueError(f"DQ failed: data_depo has {int(negative_depo)} rows with negative first deposit.")
-
-    dup_ratio = _duplicate_ratio(df, ["id", "tgl_regis", "campaignid"])
-    if dup_ratio > 0:
-        raise ValueError(f"DQ failed: data_depo duplicate key ratio {dup_ratio:.2%}.")
-
-
 def validate_ads_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed ads dataframe before load.
 
@@ -127,3 +95,47 @@ def validate_ga4_dataframe(df: pd.DataFrame) -> None:
     dup_ratio = _duplicate_ratio(df, ["date", "source"])
     if dup_ratio > 0:
         raise ValueError(f"DQ failed: ga4 duplicate key ratio {dup_ratio:.2%}.")
+
+
+def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed first-deposit data before the load step.
+
+    The first-deposit pipeline only keeps rows that should contribute to
+    deposit analytics, so validation here is intentionally strict:
+    - business-key columns must be present,
+    - registration date must be parseable and within a sane historical range,
+    - ``first_depo`` must be strictly positive.
+
+    Args:
+        df (pd.DataFrame): Transformed first-deposit dataframe that has already
+            passed extraction and field mapping.
+
+    Returns:
+        None: Validation-only function with no mutation side effects.
+
+    Raises:
+        ValueError: Raised when key fields, dates, or metric values do not
+        satisfy the ETL quality rules.
+    """
+    if df.empty:
+        return
+
+    missing_key = df[["user_id", "tanggal_regis", "campaign_id"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: first deposit data has {int(missing_key)} rows with missing business keys."
+        )
+
+    invalid_dates = (
+        (df["tanggal_regis"].isna()) | (df["tanggal_regis"] < pd.Timestamp("2022-01-01").date())
+    ).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: first deposit data has {int(invalid_dates)} rows with invalid registration dates."
+        )
+
+    invalid_metric = (pd.to_numeric(df["first_depo"], errors="coerce").fillna(0) <= 0).sum()
+    if invalid_metric:
+        raise ValueError(
+            f"DQ failed: first deposit data has {int(invalid_metric)} rows with non-positive first deposit."
+        )

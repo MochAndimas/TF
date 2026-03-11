@@ -7,7 +7,7 @@ Dashboard internal untuk memantau performa campaign dan revenue deposit, dengan 
 - Backend: FastAPI (`main.py`) + SQLAlchemy async + SQLite
 - Frontend: Streamlit (`streamlit_run.py`)
 - Auth: JWT access token + session token table + CSRF validation
-- Integrasi data: Google Sheets (campaign ads) + sumber eksternal depo
+- Integrasi data: Google Sheets (campaign ads) + GA4 Analytics Data API
 - Logging: request/response API disimpan ke tabel `log_data`
 - ETL update external API sudah asynchronous job-based (`run_id` + status polling)
 
@@ -233,7 +233,7 @@ curl "http://localhost:5505/api/feature-data/update-external-api/<run_id>" \
 ## ETL Runtime Notes
 
 - ETL update flow dipisah jadi layer:
-  - `extract.py`: ambil data dari Google Sheets/URL JSON
+  - `extract.py`: ambil data dari Google Sheets/GA4 API
   - `transform.py`: parsing + normalisasi data
   - `quality.py`: data quality checks
   - `staging.py`: simpan raw payload ke tabel staging
@@ -247,7 +247,6 @@ curl "http://localhost:5505/api/feature-data/update-external-api/<run_id>" \
 ## Tabel Baru Terkait ETL
 
 - `etl_runs`: metadata run (`run_id`, source, status, message, error, window, timestamps)
-- `stg_depo_raw`: raw staging payload depo
 - `stg_ads_raw`: raw staging payload ads
 
 Catatan: tabel baru dibuat saat backend startup (`create_all`) di DB aktif (`DEV_DB_URL` saat development).

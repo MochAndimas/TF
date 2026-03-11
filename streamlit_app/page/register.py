@@ -42,7 +42,15 @@ TABLE_STYLE = """
 
 
 def _render_page_header(host: str, token) -> None:
-    """Render title and create-account action row."""
+    """Render the admin page header and primary create-account action.
+
+    Args:
+        host (str): Backend base URL forwarded to the modal helper.
+        token: Authenticated session token object used by account actions.
+
+    Returns:
+        None: Writes header content and may open the create-account modal.
+    """
     left_col, _, _, right_col = st.columns([4, 2, 2, 4], gap="xxlarge", vertical_alignment="center")
     with left_col:
         st.markdown('<p class="tf-admin-title">Account Management</p>', unsafe_allow_html=True)
@@ -56,7 +64,11 @@ def _render_page_header(host: str, token) -> None:
 
 
 def _render_table_header() -> None:
-    """Render account table header."""
+    """Render the static header row for the account management table.
+
+    Returns:
+        None: Writes Streamlit column labels and divider markup.
+    """
     col_email, col_fullname, col_role, col_action = st.columns([4, 3, 3, 3], vertical_alignment="center")
     col_email.markdown('<div class="header-text">Email</div>', unsafe_allow_html=True)
     col_fullname.markdown('<div class="header-text">Fullname</div>', unsafe_allow_html=True)
@@ -66,7 +78,14 @@ def _render_table_header() -> None:
 
 
 def _render_stats(users) -> None:
-    """Render compact account statistics cards."""
+    """Render summary metrics for the current account dataset.
+
+    Args:
+        users: Tabular user dataset returned by ``get_accounts``.
+
+    Returns:
+        None: Displays Streamlit metric cards for total users and role counts.
+    """
     total_users = len(users)
     admin_users = len(users[users["role"] == "admin"])
     superadmin_users = len(users[users["role"] == "superadmin"])
@@ -84,7 +103,18 @@ def _render_stats(users) -> None:
 
 
 def _filter_users(users):
-    """Render table filters and return filtered DataFrame."""
+    """Render account filters and return the filtered dataset.
+
+    The function applies a free-text search across email and fullname plus an
+    optional exact role filter, returning a new filtered view without mutating
+    the original dataset.
+
+    Args:
+        users: Source user dataframe shown in the management table.
+
+    Returns:
+        DataFrame: Filtered user dataframe based on current UI controls.
+    """
     search_col, role_col = st.columns([3, 2], vertical_alignment="center")
     with search_col:
         search_term = st.text_input("Search", placeholder="Search by email or fullname")
@@ -110,7 +140,16 @@ def _filter_users(users):
 
 
 def _render_account_rows(host: str, token, users) -> None:
-    """Render account rows and action buttons."""
+    """Render account rows with per-user management actions.
+
+    Args:
+        host (str): Backend base URL forwarded to the edit modal helper.
+        token: Authenticated session token object used by account actions.
+        users: Filtered user dataframe to display.
+
+    Returns:
+        None: Writes one row per account and may open the manage modal.
+    """
     if users.empty:
         st.info("No account records found.")
         return

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 
 import numpy as np
 import pandas as pd
@@ -75,121 +74,6 @@ def normalize_columns(columns: list[str]) -> list[str]:
     for column in columns:
         normalized.append(str(column).strip().lower().replace("\n", " ").replace(" ", "_"))
     return normalized
-
-
-def parse_depo_dataframe(raw_data: list) -> pd.DataFrame:
-    """Parse deposit source payload into normalized dataframe.
-
-    Args:
-        raw_data (list): Raw JSON records from deposit source endpoint.
-
-    Returns:
-        pd.DataFrame: Cleaned dataframe with standardized dtypes and nullable
-        handling, ready for DQ checks and load phase.
-        Note: row is no longer dropped when ``tag`` is null/empty.
-
-    Raises:
-        ValueError: Raised when required columns are missing.
-    """
-    df = pd.DataFrame(raw_data)
-    if df.empty:
-        return df
-
-    required_columns = [
-        "id",
-        "tgl_regis",
-        "fullname",
-        "email",
-        "phone",
-        "Status\nNew / Existing",
-        "campaignid",
-        "tag",
-        "protection",
-        "Assign Date",
-        "Analyst",
-        "First Depo Date",
-        "First Depo $",
-        "Time To Closing",
-        "NMI",
-        "Lot",
-        "Cabang",
-        "Pool",
-    ]
-    missing_columns = [column for column in required_columns if column not in df.columns]
-    if missing_columns:
-        raise ValueError(f"Missing columns in depo source: {missing_columns}")
-
-    null_markers = {"null", "none", "nan", ""}
-    object_columns = df.select_dtypes(include=["object"]).columns
-    for column in object_columns:
-        normalized = df[column].astype(str).str.strip().str.lower()
-        df.loc[normalized.isin(null_markers), column] = None
-
-    def _to_int_or_zero(value) -> int:
-        if value is None:
-            return 0
-        try:
-            return int(Decimal(str(value).strip()))
-        except (InvalidOperation, ValueError, TypeError):
-            return 0
-
-    def _to_identifier(value) -> str:
-        if value is None:
-            return "0"
-        text = str(value).strip()
-        if not text:
-            return "0"
-        try:
-            dec = Decimal(text)
-            if dec == dec.to_integral_value():
-                return str(int(dec))
-            return text
-        except (InvalidOperation, ValueError):
-            return text
-
-    df["id"] = df["id"].apply(_to_int_or_zero)
-    df["protection"] = pd.to_numeric(df["protection"], errors="coerce").fillna(0)
-    df["Analyst"] = pd.to_numeric(df["Analyst"], errors="coerce").fillna(0)
-    df["NMI"] = pd.to_numeric(df["NMI"], errors="coerce").fillna(0)
-    df["Lot"] = pd.to_numeric(df["Lot"], errors="coerce").fillna(0)
-    df["First Depo $"] = pd.to_numeric(df["First Depo $"], errors="coerce").fillna(0.0)
-
-    df["id"] = df["id"].astype(int)
-    df["tgl_regis"] = pd.to_datetime(
-        df["tgl_regis"],
-        format="%Y-%m-%dT%H:%M:%S.%fZ",
-        utc=True,
-        errors="coerce",
-    ).dt.tz_localize(None).dt.date
-    df["fullname"] = df["fullname"].astype(str)
-    df["email"] = df["email"].astype(str)
-    df["phone"] = df["phone"].astype(str)
-    df["Status\nNew / Existing"] = df["Status\nNew / Existing"].astype(str)
-    df["campaignid"] = df["campaignid"].apply(_to_identifier)
-    df["tag"] = df["tag"].astype(str)
-    df["protection"] = df["protection"].astype(int)
-    df["Assign Date"] = pd.to_datetime(
-        df["Assign Date"],
-        format="%Y-%m-%dT%H:%M:%S.%fZ",
-        utc=True,
-        errors="coerce",
-    ).dt.tz_localize(None).dt.date
-    df["Analyst"] = df["Analyst"].astype(int)
-    df["First Depo Date"] = pd.to_datetime(
-        df["First Depo Date"],
-        format="%Y-%m-%dT%H:%M:%S.%fZ",
-        utc=True,
-        errors="coerce",
-    ).dt.tz_localize(None).dt.date
-    df["First Depo $"] = df["First Depo $"].astype(float)
-    df["Time To Closing"] = df["Time To Closing"].astype(str)
-    df["NMI"] = df["NMI"].astype(int)
-    df["Lot"] = df["Lot"].astype(int)
-    df["Cabang"] = df["Cabang"].astype(str)
-    df["Pool"] = df["Pool"].apply(lambda value: str(value).strip().lower() in {"true", "1", "yes", "y"})
-    df = df[df["tgl_regis"].notna()]
-    df.replace({np.nan: None}, inplace=True)
-    return df
 
 
 def parse_ads_dataframe(raw_rows: list) -> pd.DataFrame:
@@ -342,3 +226,56 @@ def parse_ga4_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         .sort_values(["date", "source"])
     )
     return df
+
+
+def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse raw first-deposit API payload into a load-ready dataframe.
+
+    The upstream response is a list of JSON objects with mixed field naming and
+    many records that are not useful for downstream reporting. This transformer:
+    - maps source keys into project-standard column names,
+    - parses registration timestamps into ``date`` objects,
+    - normalizes blank campaign IDs into the placeholder ``"-"``,
+    - coerces ``First Depo $`` into numeric form,
+    - keeps only rows with valid registration dates and positive first deposits,
+    - drops rows that do not have a usable user identifier.
+
+    Args:
+        raw_rows (list[dict]): Raw JSON rows fetched from the first-deposit API.
+
+    Returns:
+        pd.DataFrame: Normalized dataframe containing only rows that are valid
+        for DQ checks and upsert into ``data_depo``.
+
+    Raises:
+        ValueError: Raised when the payload does not contain the expected source
+        columns required by the ETL mapping.
+    """
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = ["id", "email", "tgl_regis", "campaignid", "Status\nNew / Existing", "First Depo $"]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in first deposit payload: {missing_columns}")
+
+    parsed = pd.DataFrame(
+        {
+            "user_id": pd.to_numeric(df["id"], errors="coerce"),
+            "email": df["email"].astype(str).str.strip().str.lower(),
+            "tanggal_regis": pd.to_datetime(df["tgl_regis"], errors="coerce").dt.date,
+            "campaign_id": df["campaignid"].fillna("").astype(str).str.strip(),
+            "user_status": df["Status\nNew / Existing"].astype(str).str.strip(),
+            "first_depo": pd.to_numeric(df["First Depo $"], errors="coerce"),
+        }
+    )
+    parsed["campaign_id"] = parsed["campaign_id"].replace({"": "-", "0": "-"})
+    parsed["first_depo"] = parsed["first_depo"].fillna(0.0).astype(float)
+    parsed = parsed.loc[parsed["tanggal_regis"].notna() & (parsed["first_depo"] > 0)].copy()
+    parsed = parsed.loc[parsed["user_id"].notna()].copy()
+    if parsed.empty:
+        return parsed
+
+    parsed["user_id"] = parsed["user_id"].astype(int)
+    return parsed

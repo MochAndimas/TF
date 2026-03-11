@@ -32,7 +32,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(subject: str | Any, expires_delta: timedelta | None = None) -> str:
-    """Create signed access JWT token.
+    """Create a signed access JWT used for authenticated API requests.
 
     Args:
         subject (str | Any): Identity value to store in JWT ``sub`` claim.
@@ -51,7 +51,7 @@ def create_access_token(subject: str | Any, expires_delta: timedelta | None = No
 
 
 def create_refresh_token(subject: str | Any, expires_delta: timedelta | None = None) -> str:
-    """Create signed refresh JWT token.
+    """Create a signed refresh JWT used to rotate access credentials.
 
     Args:
         subject (str | Any): Identity value to store in JWT ``sub`` claim.
@@ -86,7 +86,7 @@ def _encode_token(subject: str | Any, token_type: str, expiry: datetime, secret:
 
 
 def _decode_token(token: str, secret: str) -> dict[str, Any]:
-    """Decode JWT token payload.
+    """Decode and verify a JWT payload using the supplied signing secret.
 
     Args:
         token (str): Encoded JWT token.
@@ -119,14 +119,14 @@ async def _get_user_token(sqlite_session: AsyncSession, user_id: str | None) -> 
 
 
 async def refresh_access_token(sqlite_session: AsyncSession, refresh_token: str) -> str:
-    """Validate refresh token and rotate access token in storage.
+    """Validate a refresh token and persist a newly issued access token.
 
     Args:
         sqlite_session (AsyncSession): Active async SQLAlchemy session.
         refresh_token (str): Refresh token sent by client.
 
     Returns:
-        str: Newly generated access token.
+        str: Newly generated access token that replaces the stored one.
 
     Raises:
         JWTError: Raised when refresh token is invalid, revoked, or mismatched.
@@ -146,7 +146,7 @@ async def refresh_access_token(sqlite_session: AsyncSession, refresh_token: str)
 
 
 async def verify_access_token(sqlite_session: AsyncSession, token: str) -> TokenData:
-    """Validate access token and map it into ``TokenData``.
+    """Validate an access token and map it into application ``TokenData``.
 
     Args:
         sqlite_session (AsyncSession): Active async SQLAlchemy session.

@@ -366,7 +366,25 @@ class CampaignData:
         dimension: str,
         ad_type: str | None = None,
     ) -> pd.DataFrame:
-        """Build ads performance dataframe grouped by selected dimension."""
+        """Aggregate ads performance metrics by a chosen campaign dimension.
+
+        This helper prepares the normalized grouped dataset used by several
+        chart and table endpoints. It loads detailed ads rows for the requested
+        source and date range, optionally narrows them to one ``campaign_type``,
+        and derives spend, CTR, CPC, CPM, and lead-efficiency metrics.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date): Inclusive start date.
+            to_date (date): Inclusive end date.
+            dimension (str): Column used for grouping, such as
+                ``campaign_id``, ``ad_group``, or ``ad_name``.
+            ad_type (str | None): Optional campaign type filter.
+
+        Returns:
+            pd.DataFrame: Grouped metrics dataframe sorted by spend descending
+            with a stable frontend-oriented schema.
+        """
         base = await self._ads_base_details_dataframe(
             data=data,
             from_date=from_date,
@@ -431,7 +449,25 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build UA scatter chart mapping spend against leads for one source/dimension."""
+        """Build a user-acquisition scatter chart comparing spend against leads.
+
+        Each point represents one grouped dimension value. Marker size is
+        derived from clicks and marker color is derived from CTR so the chart
+        can show volume and efficiency in a single response payload.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Grouping column rendered as the point label.
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, grouped rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the requested date window is invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -525,7 +561,27 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build UA top-N leads ranking chart for one source/dimension."""
+        """Build a ranking chart for top user-acquisition dimensions by leads.
+
+        The payload includes both the rendered horizontal bar chart and the
+        grouped ranking rows so the frontend can reuse the same response for
+        tables, exports, or drill-down interactions.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Grouping column used to rank rows.
+            top_n (int): Maximum number of dimension values to keep.
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, ranking rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the date window is invalid or ``top_n`` is not
+            positive.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -619,7 +675,25 @@ class CampaignData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Build daily UA aggregates for spend/leads with fallback when campaign_type is missing."""
+        """Build daily spend and lead aggregates for user-acquisition campaigns.
+
+        The method prefers rows explicitly tagged as ``user_acquisition``. If a
+        source does not have that tag populated, it falls back to all
+        non-placeholder campaigns in the selected range so legacy data remains
+        visible in overview metrics.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date): Inclusive start date.
+            to_date (date): Inclusive end date.
+
+        Returns:
+            pd.DataFrame: Daily dataframe with ``date``, ``cost``, and
+            ``leads`` columns.
+
+        Raises:
+            ValueError: If the source key is unsupported.
+        """
         source = data.strip().lower()
         frames = self._ads_frame_map()
         if source not in frames:
@@ -664,7 +738,25 @@ class CampaignData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Build daily UA dataframe grouped by dimension with spend/leads metrics."""
+        """Build a daily user-acquisition dataframe grouped by one dimension.
+
+        This is the base dataset for trend charts that compare campaign,
+        ad-group, or ad-name efficiency over time. Missing dimension labels are
+        normalized and the result keeps one row per day and dimension value.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Grouping column to retain per day.
+            from_date (date): Inclusive start date.
+            to_date (date): Inclusive end date.
+
+        Returns:
+            pd.DataFrame: Daily grouped dataframe with a normalized
+            ``dimension_name`` column for charting.
+
+        Raises:
+            ValueError: If the source key is unsupported.
+        """
         source = data.strip().lower()
         frames = self._ads_frame_map()
         if source not in frames:
@@ -713,7 +805,28 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build UA trend chart for derived lead-efficiency metrics by selected dimension."""
+        """Build a user-acquisition trend chart for derived efficiency metrics.
+
+        Supported metrics are cost per lead, clicks per lead, and click-through
+        lead rate. The method keeps the top dimensions by total leads and
+        returns both serialized rows and a multi-series Plotly line chart.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Dimension used to split the trend lines.
+            metric (str): Requested derived metric key.
+            top_n (int): Number of top-performing dimensions to include.
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, serialized rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the date range, metric, or ``top_n`` value is
+            invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -849,7 +962,28 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build cumulative leads vs cumulative spend chart by selected dimension."""
+        """Build cumulative user-acquisition leads-versus-spend trajectories.
+
+        Each series represents one high-performing dimension value and plots
+        cumulative spend on the x-axis against cumulative leads on the y-axis.
+        This helps compare whether spend growth translates into lead growth at
+        a similar pace across dimensions.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Dimension used to split the cumulative series.
+            top_n (int): Number of highest-lead dimensions to retain.
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, serialized rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the date range is invalid or ``top_n`` is not
+            positive.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -947,7 +1081,26 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build stacked daily mix chart for UA leads by selected dimension."""
+        """Build a stacked daily mix chart for user-acquisition leads share.
+
+        This chart highlights how the contribution of the top dimensions shifts
+        over time by stacking daily leads for each selected dimension value.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Dimension used to build the stacked categories.
+            top_n (int): Number of highest-lead dimensions to include.
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, serialized rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the date range is invalid or ``top_n`` is not
+            positive.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -1329,7 +1482,23 @@ class CampaignData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Build daily Brand Awareness dataframe by source."""
+        """Build daily brand-awareness metrics for one ads source.
+
+        The dataframe contains the daily sums needed to compute spend,
+        impressions, clicks, CTR, CPM, and CPC for brand-awareness reporting.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date): Inclusive start date.
+            to_date (date): Inclusive end date.
+
+        Returns:
+            pd.DataFrame: Daily dataframe with normalized numeric metrics and
+            derived ratio columns.
+
+        Raises:
+            ValueError: If the source key is unsupported.
+        """
         source = data.strip().lower()
         frames = self._ads_frame_map()
         if source not in frames:
@@ -1386,7 +1555,20 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, float]:
-        """Calculate Brand Awareness metrics by source and date range."""
+        """Calculate aggregated brand-awareness metrics for a date window.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, float]: Totals for spend, impressions, clicks, CTR, CPM,
+            and CPC across the selected period.
+
+        Raises:
+            ValueError: If the requested date window is invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -1430,7 +1612,23 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Calculate Brand Awareness metrics and growth vs previous period."""
+        """Calculate brand-awareness metrics and compare them to the prior window.
+
+        The previous period uses the same duration immediately preceding the
+        selected range so the frontend can render like-for-like growth cards.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Current-period metrics, previous-period metrics,
+            and growth percentages keyed by metric name.
+
+        Raises:
+            ValueError: If the requested date window is invalid.
+        """
         current_from = from_date or self.from_date
         current_to = to_date or self.to_date
         if current_from > current_to:
@@ -1475,7 +1673,20 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build Brand Awareness spend bar chart payload."""
+        """Build the daily brand-awareness spend chart payload.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, serialized daily rows, and the
+            Plotly spend bar chart definition.
+
+        Raises:
+            ValueError: If the requested date window is invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -1545,7 +1756,24 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build Brand Awareness performance combo chart payload."""
+        """Build the brand-awareness performance combo chart payload.
+
+        The chart combines clicks and impressions as grouped bars with CPC,
+        CPM, and CTR overlayed as line series so the frontend can render a
+        compact daily performance panel from one API response.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, serialized rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the requested date window is invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -1696,7 +1924,24 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build Brand Awareness detail rows payload for frontend grouping/filtering."""
+        """Build raw brand-awareness detail rows for frontend-side analysis.
+
+        Unlike chart endpoints, this payload intentionally skips figure
+        generation and returns row-level performance details that the frontend
+        can regroup, filter, or export without another round trip.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata and serialized detail rows with
+            derived CTR, CPM, and CPC values.
+
+        Raises:
+            ValueError: If the requested date window is invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -1741,7 +1986,25 @@ class CampaignData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Build daily Brand Awareness dataframe grouped by chosen dimension."""
+        """Build a daily brand-awareness dataframe grouped by one dimension.
+
+        This helper prepares the base dataset for trend charts that split CTR,
+        CPM, or CPC across campaign, ad group, or ad name. Only supported
+        brand-awareness rows are retained.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Grouping column to keep per day.
+            from_date (date): Inclusive start date.
+            to_date (date): Inclusive end date.
+
+        Returns:
+            pd.DataFrame: Daily grouped dataframe using ``dimension_name`` as a
+            normalized label column for charting.
+
+        Raises:
+            ValueError: If the dimension or source key is unsupported.
+        """
         source = data.strip().lower()
         valid_dimensions = {"campaign_id", "ad_group", "ad_name"}
         if dimension not in valid_dimensions:
@@ -1792,7 +2055,28 @@ class CampaignData:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> dict[str, object]:
-        """Build Brand Awareness trend chart for CTR/CPM/CPC by selected dimension."""
+        """Build a brand-awareness trend chart for CTR, CPM, or CPC.
+
+        The method keeps the top dimensions by clicks, computes the requested
+        ratio metric per day, and returns both the selected rows and the Plotly
+        line chart payload used by the frontend.
+
+        Args:
+            data (str): Source key (`google`, `facebook`, `tiktok`).
+            dimension (str): Dimension used to split the trend lines.
+            metric (str): Requested metric key (`ctr`, `cpm`, or `cpc`).
+            top_n (int): Number of dimensions to include in the chart.
+            from_date (date | None): Optional inclusive start date.
+            to_date (date | None): Optional inclusive end date.
+
+        Returns:
+            dict[str, object]: Request metadata, serialized rows, and Plotly
+            figure JSON.
+
+        Raises:
+            ValueError: If the date window, metric, or ``top_n`` value is
+            invalid.
+        """
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:

@@ -8,7 +8,9 @@ import datetime as dt
 import asyncio
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
+from decouple import config
 
 from streamlit_app.functions.utils import (
     campaign_figure_from_payload,
@@ -38,6 +40,8 @@ PAGE_STYLE = """
 </style>
 """
 
+USD_TO_IDR_RATE = config("USD_TO_IDR_RATE", default=16968, cast=float)
+
 
 def _set_transparent_chart_background(figure):
     """Apply the app's transparent chart canvas style to a Plotly figure.
@@ -51,6 +55,290 @@ def _set_transparent_chart_background(figure):
     figure.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
+def _render_currency_toggle(key: str) -> str:
+    """Render a compact inline currency selector for overview subsections.
+
+    Args:
+        key (str): Stable Streamlit session-state key for the radio widget.
+
+    Returns:
+        str: Selected currency unit, currently ``"IDR"`` or ``"USD"``.
+    """
+    left, mid, right = st.columns([2.2, 2.6, 2.2], gap="small")
+    with mid:
+        label_col, control_col = st.columns([1.1, 2.2], gap="small")
+        with label_col:
+            st.markdown(
+                '<div style="font-size:0.98rem;font-weight:600;padding-top:0.15rem;text-align:right;">Currency</div>',
+                unsafe_allow_html=True,
+            )
+        with control_col:
+            return st.radio(
+                "Currency",
+                options=["IDR", "USD"],
+                horizontal=True,
+                key=key,
+                label_visibility="collapsed",
+            )
+
+
+def _convert_idr_to_usd(value: float | int) -> float:
+    """Convert an IDR-denominated value into USD using the env FX rate.
+
+    Args:
+        value (float | int): Monetary value currently represented in IDR.
+
+    Returns:
+        float: Converted USD value. Returns the original numeric value when the
+        configured exchange rate is invalid or zero.
+    """
+    rate = float(USD_TO_IDR_RATE or 0)
+    if rate == 0:
+        return float(value)
+    return float(value) / rate
+
+
+def _format_currency_value(value: float | int, currency_unit: str) -> str:
+    """Format a table currency cell according to the selected display unit.
+
+    Args:
+        value (float | int): Numeric currency value already expressed in the
+            target unit.
+        currency_unit (str): Selected display currency, ``IDR`` or ``USD``.
+
+    Returns:
+        str: Human-readable formatted currency string for table rendering.
+    """
+    number = float(value)
+    if currency_unit == "USD":
+        return f"$ {number:,.2f}" if abs(number) < 1000 else f"$ {number:,.0f}"
+    return f"Rp {number:,.0f}"
+
+
+def _apply_currency_to_ua_table(leads_table_df: pd.DataFrame, currency_unit: str) -> pd.DataFrame:
+    """Convert and format UA overview table currency columns for one unit.
+
+    Args:
+        leads_table_df (pd.DataFrame): Source table dataframe for the leads-by-
+            source section.
+        currency_unit (str): Selected display currency, ``IDR`` or ``USD``.
+
+    Returns:
+        pd.DataFrame: Display-ready dataframe with money columns converted and
+        formatted while count columns keep their integer formatting.
+    """
+    if leads_table_df.empty:
+        return leads_table_df
+
+    formatted = leads_table_df.copy()
+    if currency_unit == "USD":
+        formatted["Cost"] = formatted["Cost"].apply(lambda value: _format_currency_value(_convert_idr_to_usd(value), "USD"))
+        formatted["Cost/Lead"] = formatted["Cost/Lead"].apply(
+            lambda value: _format_currency_value(_convert_idr_to_usd(value), "USD")
+        )
+    else:
+        formatted["Cost"] = formatted["Cost"].apply(lambda value: _format_currency_value(value, "IDR"))
+        formatted["Cost/Lead"] = formatted["Cost/Lead"].apply(lambda value: _format_currency_value(value, "IDR"))
+    formatted["Impressions"] = formatted["Impressions"].apply(lambda value: f"{int(value):,}")
+    formatted["Clicks"] = formatted["Clicks"].apply(lambda value: f"{int(value):,}")
+    formatted["Leads"] = formatted["Leads"].apply(lambda value: f"{int(value):,}")
+    return formatted
+
+
+def _apply_currency_to_ua_figure(figure: go.Figure, chart_type: str, currency_unit: str) -> go.Figure:
+    """Convert existing UA chart traces into the selected display currency.
+
+    Args:
+        figure (go.Figure): Plotly figure built from backend payload.
+        chart_type (str): Supported chart type discriminator used to decide
+            which traces and axis labels require currency conversion.
+        currency_unit (str): Selected display currency, ``IDR`` or ``USD``.
+
+    Returns:
+        go.Figure: Same figure instance with converted values, updated labels,
+        and currency-aware hover text when applicable.
+    """
+    if currency_unit == "IDR" or not figure.data:
+        return figure
+
+    if chart_type == "cost_vs_leads":
+        cost_trace = figure.data[0]
+        cost_trace.y = [_convert_idr_to_usd(value) for value in (cost_trace.y or [])]
+        cost_trace.name = "Cost (USD)"
+        cost_trace.hovertemplate = "<b>%{x}</b><br>Cost: $ %{y:,.2f}<extra></extra>"
+        figure.update_layout(yaxis=dict(title="Cost (USD)"))
+        return figure
+
+    if chart_type == "cost_to_revenue":
+        cost_trace = figure.data[0]
+        deposit_trace = figure.data[1]
+        cost_trace.y = [_convert_idr_to_usd(value) for value in (cost_trace.y or [])]
+        deposit_trace.y = [_convert_idr_to_usd(value) for value in (deposit_trace.y or [])]
+        cost_trace.name = "Cost (USD)"
+        deposit_trace.name = "First Deposit (USD)"
+        cost_trace.hovertemplate = "<b>%{x}</b><br>Cost: $ %{y:,.2f}<extra></extra>"
+        deposit_trace.hovertemplate = "<b>%{x}</b><br>First Deposit: $ %{y:,.2f}<extra></extra>"
+        figure.update_layout(
+            yaxis=dict(title="Cost (USD)"),
+            yaxis2=dict(title="First Deposit (USD)"),
+        )
+        return figure
+
+    return figure
+
+
+def _build_cost_vs_deposit_figure(
+    rows: list[dict],
+    currency_unit: str,
+) -> go.Figure:
+    """Build the nominal daily chart for cost versus first deposit.
+
+    Args:
+        rows (list[dict]): Serialized daily rows from the backend chart payload.
+        currency_unit (str): Selected display currency, ``IDR`` or ``USD``.
+
+    Returns:
+        go.Figure: Dual-axis grouped bar chart comparing cost and first-deposit
+        values day by day in the selected currency.
+    """
+    daily_df = pd.DataFrame(rows or [])
+    if daily_df.empty:
+        figure = go.Figure()
+        figure.update_layout(
+            title="Cost vs First Deposit Per Hari",
+            annotations=[
+                {
+                    "text": "No data available",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "showarrow": False,
+                }
+            ],
+        )
+        return figure
+
+    daily_df["date"] = pd.to_datetime(daily_df["date"], errors="coerce")
+    daily_df["cost"] = pd.to_numeric(daily_df.get("cost", 0), errors="coerce").fillna(0.0)
+    daily_df["first_deposit_idr"] = pd.to_numeric(
+        daily_df.get("first_deposit_idr", 0),
+        errors="coerce",
+    ).fillna(0.0)
+    date_labels = daily_df["date"].dt.strftime("%b %d\n%Y").tolist()
+    cost_values = daily_df["cost"].tolist()
+    deposit_values = daily_df["first_deposit_idr"].tolist()
+
+    if currency_unit == "USD":
+        cost_values = [_convert_idr_to_usd(value) for value in cost_values]
+        deposit_values = [_convert_idr_to_usd(value) for value in deposit_values]
+        cost_hover = "<b>%{x}</b><br>Cost: $ %{y:,.2f}<extra></extra>"
+        deposit_hover = "<b>%{x}</b><br>First Deposit: $ %{y:,.2f}<extra></extra>"
+        yaxis_title = "USD"
+        cost_name = "Cost (USD)"
+        deposit_name = "First Deposit (USD)"
+    else:
+        cost_hover = "<b>%{x}</b><br>Cost: Rp %{y:,.0f}<extra></extra>"
+        deposit_hover = "<b>%{x}</b><br>First Deposit: Rp %{y:,.0f}<extra></extra>"
+        yaxis_title = "IDR"
+        cost_name = "Cost (IDR)"
+        deposit_name = "First Deposit (IDR)"
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Bar(
+            x=date_labels,
+            y=cost_values,
+            name=cost_name,
+            marker_color="#6176ff",
+            yaxis="y",
+            offsetgroup="cost",
+            hovertemplate=cost_hover,
+        )
+    )
+    figure.add_trace(
+        go.Bar(
+            x=date_labels,
+            y=deposit_values,
+            name=deposit_name,
+            marker_color="#13c39c",
+            yaxis="y2",
+            offsetgroup="deposit",
+            hovertemplate=deposit_hover,
+        )
+    )
+    figure.update_layout(
+        title="Cost vs First Deposit Per Hari",
+        barmode="group",
+        xaxis=dict(type="category"),
+        yaxis=dict(title=f"Cost ({currency_unit})"),
+        yaxis2=dict(
+            title=f"First Deposit ({currency_unit})",
+            overlaying="y",
+            side="right",
+            showgrid=False,
+        ),
+        legend=dict(orientation="h", y=1.1, x=0),
+    )
+    return figure
+
+
+def _build_cost_to_deposit_ratio_figure(rows: list[dict]) -> go.Figure:
+    """Build the daily efficiency chart for cost-to-first-deposit percentage.
+
+    Args:
+        rows (list[dict]): Serialized daily rows containing
+            ``cost_to_revenue_pct`` values from the backend payload.
+
+    Returns:
+        go.Figure: Line chart showing the daily percentage trend.
+    """
+    daily_df = pd.DataFrame(rows or [])
+    if daily_df.empty:
+        figure = go.Figure()
+        figure.update_layout(
+            title="Cost To First Deposit (%) Per Hari",
+            annotations=[
+                {
+                    "text": "No data available",
+                    "xref": "paper",
+                    "yref": "paper",
+                    "x": 0.5,
+                    "y": 0.5,
+                    "showarrow": False,
+                }
+            ],
+        )
+        return figure
+
+    daily_df["date"] = pd.to_datetime(daily_df["date"], errors="coerce")
+    daily_df["cost_to_revenue_pct"] = pd.to_numeric(
+        daily_df.get("cost_to_revenue_pct", 0),
+        errors="coerce",
+    ).fillna(0.0)
+    date_labels = daily_df["date"].dt.strftime("%b %d\n%Y").tolist()
+    ratio_values = daily_df["cost_to_revenue_pct"].tolist()
+
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=date_labels,
+            y=ratio_values,
+            mode="lines+markers",
+            name="Cost To First Deposit",
+            line=dict(color="#ff6248", width=2),
+            hovertemplate="<b>%{x}</b><br>Cost To First Deposit: %{y:.2f}%<extra></extra>",
+        )
+    )
+    figure.update_layout(
+        title="Cost To First Deposit (%) Per Hari",
+        xaxis=dict(type="category"),
+        yaxis=dict(title="Percent", ticksuffix="%"),
+        legend=dict(orientation="h", y=1.1, x=0),
     )
     return figure
 
@@ -398,13 +686,14 @@ async def show_overview_page(host: str) -> None:
     leads_by_source = leads_data.get("leads_by_source", {})
     cost_vs_leads_payload = leads_data.get("cost_vs_leads_chart", {}).get("figure")
     leads_per_day_payload = leads_data.get("leads_per_day_chart", {}).get("figure")
-    cost_to_revenue_payload = leads_data.get("cost_to_revenue_chart", {}).get("figure")
+    cost_to_revenue_chart_payload = leads_data.get("cost_to_revenue_chart", {})
 
     st.markdown(
         '<div class="metric-section-title">Overall Performance Campaign User Acquisition</div>',
         unsafe_allow_html=True,
     )
-    render_overview_leads_metric_cards(st, leads_summary)
+    leads_currency_unit = _render_currency_toggle("overview_leads_currency_unit")
+    render_overview_leads_metric_cards(st, leads_summary, currency_unit=leads_currency_unit)
 
     leads_table_rows = leads_by_source.get("table_rows", [])
     leads_table_df = pd.DataFrame(leads_table_rows)
@@ -419,13 +708,11 @@ async def show_overview_page(host: str) -> None:
                 "cost_per_lead": "Cost/Lead",
             }
         )
-        leads_table_df["Cost"] = leads_table_df["Cost"].apply(lambda value: f"Rp {float(value):,.0f}")
-        leads_table_df["Impressions"] = leads_table_df["Impressions"].apply(lambda value: f"{int(value):,}")
-        leads_table_df["Clicks"] = leads_table_df["Clicks"].apply(lambda value: f"{int(value):,}")
-        leads_table_df["Leads"] = leads_table_df["Leads"].apply(lambda value: f"{int(value):,}")
-        leads_table_df["Cost/Lead"] = leads_table_df["Cost/Lead"].apply(lambda value: f"Rp {float(value):,.0f}")
         desired_columns = ["Source", "Cost", "Impressions", "Clicks", "Leads", "Cost/Lead"]
         leads_table_df = leads_table_df[[column for column in desired_columns if column in leads_table_df.columns]]
+        for column_name in ("Cost", "Impressions", "Clicks", "Leads", "Cost/Lead"):
+            leads_table_df[column_name] = pd.to_numeric(leads_table_df[column_name], errors="coerce").fillna(0)
+        leads_table_df = _apply_currency_to_ua_table(leads_table_df, leads_currency_unit)
 
     leads_pie_payload = leads_by_source.get("pie_chart", {}).get("figure")
     leads_pie_figure = campaign_figure_from_payload(leads_pie_payload, "Leads by Source")
@@ -454,6 +741,11 @@ async def show_overview_page(host: str) -> None:
         "Cost per Leads (Cost & Leads)",
     )
     cost_vs_leads_figure = _set_transparent_chart_background(cost_vs_leads_figure)
+    cost_vs_leads_figure = _apply_currency_to_ua_figure(
+        cost_vs_leads_figure,
+        chart_type="cost_vs_leads",
+        currency_unit=leads_currency_unit,
+    )
     cost_vs_leads_figure.update_layout(height=430)
 
     leads_per_day_figure = campaign_figure_from_payload(
@@ -471,11 +763,22 @@ async def show_overview_page(host: str) -> None:
         with st.container(border=True):
             st.plotly_chart(leads_per_day_figure, width="stretch")
 
-    cost_to_revenue_figure = campaign_figure_from_payload(
-        cost_to_revenue_payload,
-        "Cost To First Deposit Per Hari",
+    cost_to_revenue_rows = cost_to_revenue_chart_payload.get("rows", [])
+    cost_vs_deposit_figure = _build_cost_vs_deposit_figure(
+        rows=cost_to_revenue_rows,
+        currency_unit=leads_currency_unit,
     )
-    cost_to_revenue_figure = _set_transparent_chart_background(cost_to_revenue_figure)
-    cost_to_revenue_figure.update_layout(height=520)
-    with st.container(border=True):
-        st.plotly_chart(cost_to_revenue_figure, width="stretch")
+    cost_to_deposit_ratio_figure = _build_cost_to_deposit_ratio_figure(
+        rows=cost_to_revenue_rows,
+    )
+    cost_vs_deposit_figure = _set_transparent_chart_background(cost_vs_deposit_figure)
+    cost_to_deposit_ratio_figure = _set_transparent_chart_background(cost_to_deposit_ratio_figure)
+    cost_vs_deposit_figure.update_layout(height=460)
+    cost_to_deposit_ratio_figure.update_layout(height=460)
+    revenue_left, revenue_right = st.columns(2, gap="small")
+    with revenue_left:
+        with st.container(border=True):
+            st.plotly_chart(cost_vs_deposit_figure, width="stretch")
+    with revenue_right:
+        with st.container(border=True):
+            st.plotly_chart(cost_to_deposit_ratio_figure, width="stretch")

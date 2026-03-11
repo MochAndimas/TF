@@ -60,19 +60,19 @@ async def _execute_update_job(
             default=str,
         )
     )
+    async def _mark_success(message: str) -> None:
+        async with sqlite_async_session() as status_session:
+            await finish_run(session=status_session, run_id=run_id, message=message)
+
+    async def _mark_failed(error_detail: str) -> None:
+        async with sqlite_async_session() as status_session:
+            await fail_run(session=status_session, run_id=run_id, error_detail=error_detail)
+
     async with sqlite_async_session() as session:
         try:
             gsheet = GoogleSheetApi()
             if data == "unique_campaign":
                 message = await rebuild_unique_campaign(session=session)
-            elif data == "data_depo":
-                message = await gsheet.data_depo(
-                    types=types,
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    run_id=run_id,
-                )
             elif data == "google_ads":
                 message = await gsheet.campaign_ads(
                     types=types,
@@ -111,6 +111,14 @@ async def _execute_update_job(
                     session=session,
                     run_id=run_id,
                 )
+            elif data == "first_deposit":
+                message = await gsheet.first_deposit(
+                    types=types,
+                    start_date=start_date,
+                    end_date=end_date,
+                    session=session,
+                    run_id=run_id,
+                )
             else:
                 raise HTTPException(
                     status_code=404,
@@ -123,7 +131,7 @@ async def _execute_update_job(
                     detail="Something is error, data update is failed!",
                 )
 
-            await finish_run(session=session, run_id=run_id, message=message)
+            await _mark_success(message=message)
             logger.info(
                 json.dumps(
                     {
@@ -137,7 +145,7 @@ async def _execute_update_job(
                 )
             )
         except HTTPException as error:
-            await fail_run(session=session, run_id=run_id, error_detail=str(error.detail))
+            await _mark_failed(error_detail=str(error.detail))
             logger.error(
                 json.dumps(
                     {
@@ -151,7 +159,7 @@ async def _execute_update_job(
                 )
             )
         except Exception as error:
-            await fail_run(session=session, run_id=run_id, error_detail=str(error))
+            await _mark_failed(error_detail=str(error))
             logger.error(
                 json.dumps(
                     {

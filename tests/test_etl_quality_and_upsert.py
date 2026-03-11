@@ -12,34 +12,14 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db.base import SqliteBase
-from app.db.models.external_api import Campaign, GoogleAds
-from app.etl.load import upsert_ads_rows
-from app.etl.quality import validate_ads_dataframe, validate_depo_dataframe
-from app.etl.transform import dedupe_ads_dataframe, parse_depo_dataframe
+from app.db.models.external_api import Campaign, DataDepo, GoogleAds
+from app.etl.load import upsert_ads_rows, upsert_first_deposit_rows
+from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataframe
+from app.etl.transform import dedupe_ads_dataframe, parse_first_deposit_dataframe
 
 
 class TestEtlQuality(TestCase):
     """Unit tests for DQ validators."""
-
-    def test_validate_depo_dataframe_raises_on_duplicate_business_key(self):
-        df = pd.DataFrame(
-            [
-                {
-                    "id": 1,
-                    "tgl_regis": date(2026, 1, 1),
-                    "campaignid": "abc",
-                    "First Depo $": 100.0,
-                },
-                {
-                    "id": 1,
-                    "tgl_regis": date(2026, 1, 1),
-                    "campaignid": "abc",
-                    "First Depo $": 200.0,
-                },
-            ]
-        )
-        with self.assertRaisesRegex(ValueError, "duplicate key ratio"):
-            validate_depo_dataframe(df)
 
     def test_validate_ads_dataframe_raises_on_negative_metric(self):
         df = pd.DataFrame(
@@ -94,32 +74,47 @@ class TestEtlQuality(TestCase):
         self.assertEqual(int(deduped.iloc[0]["clicks"]), 20)
         self.assertEqual(int(deduped.iloc[0]["leads"]), 2)
 
-    def test_parse_depo_dataframe_preserves_large_campaign_id_and_keeps_null_tag_row(self):
-        raw = [
-            {
-                "id": "1",
-                "tgl_regis": "2026-03-01T00:00:00.000Z",
-                "fullname": "A",
-                "email": "a@test.com",
-                "phone": "123",
-                "Status\nNew / Existing": "New",
-                "campaignid": "1850184394007650",
-                "tag": None,
-                "protection": "0",
-                "Assign Date": "2026-03-01T00:00:00.000Z",
-                "Analyst": "0",
-                "First Depo Date": "2026-03-01T00:00:00.000Z",
-                "First Depo $": "10",
-                "Time To Closing": "1d",
-                "NMI": "0",
-                "Lot": "0",
-                "Cabang": "JKT",
-                "Pool": "false",
-            }
-        ]
-        df = parse_depo_dataframe(raw)
+    def test_parse_first_deposit_dataframe_filters_positive_rows(self):
+        df = parse_first_deposit_dataframe(
+            [
+                {
+                    "id": 101,
+                    "email": "foo@example.com",
+                    "tgl_regis": "2026-01-10T05:00:00.000Z",
+                    "campaignid": "",
+                    "Status\nNew / Existing": "New",
+                    "First Depo $": 50,
+                },
+                {
+                    "id": 102,
+                    "email": "bar@example.com",
+                    "tgl_regis": "2026-01-10T05:00:00.000Z",
+                    "campaignid": "cmp-1",
+                    "Status\nNew / Existing": "Existing",
+                    "First Depo $": 0,
+                },
+            ]
+        )
         self.assertEqual(len(df), 1)
-        self.assertEqual(df.iloc[0]["campaignid"], "1850184394007650")
+        self.assertEqual(int(df.iloc[0]["user_id"]), 101)
+        self.assertEqual(str(df.iloc[0]["campaign_id"]), "-")
+        self.assertEqual(float(df.iloc[0]["first_depo"]), 50.0)
+
+    def test_validate_first_deposit_dataframe_raises_on_non_positive_metric(self):
+        df = pd.DataFrame(
+            [
+                {
+                    "user_id": 1,
+                    "tanggal_regis": date(2026, 1, 1),
+                    "campaign_id": "-",
+                    "email": "foo@example.com",
+                    "user_status": "New",
+                    "first_depo": 0.0,
+                }
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "non-positive first deposit"):
+            validate_first_deposit_dataframe(df)
 
 
 class TestEtlUpsert(IsolatedAsyncioTestCase):
@@ -202,3 +197,50 @@ class TestEtlUpsert(IsolatedAsyncioTestCase):
             self.assertEqual(rows[0].cost, 25.5)
             self.assertEqual(rows[0].impressions, 150)
             self.assertEqual(rows[0].pull_date, date(2026, 1, 3))
+
+    async def test_upsert_first_deposit_rows_is_idempotent_and_creates_placeholder_campaign(self):
+        async with self.session_factory() as session:
+            rows_v1 = [
+                {
+                    "user_id": 10,
+                    "tanggal_regis": date(2026, 1, 5),
+                    "campaign_id": "-",
+                    "email": "foo@example.com",
+                    "user_status": "New",
+                    "first_depo": 50.0,
+                    "pull_date": date(2026, 1, 6),
+                }
+            ]
+            await upsert_first_deposit_rows(session=session, rows=rows_v1)
+            await session.commit()
+
+            rows_v2 = [
+                {
+                    "user_id": 10,
+                    "tanggal_regis": date(2026, 1, 5),
+                    "campaign_id": "-",
+                    "email": "foo@example.com",
+                    "user_status": "Existing",
+                    "first_depo": 75.0,
+                    "pull_date": date(2026, 1, 7),
+                }
+            ]
+            await upsert_first_deposit_rows(session=session, rows=rows_v2)
+            await session.commit()
+
+            campaign_result = await session.execute(select(Campaign).where(Campaign.campaign_id == "-"))
+            campaign = campaign_result.scalar_one_or_none()
+            self.assertIsNotNone(campaign)
+
+            result = await session.execute(
+                select(DataDepo).where(
+                    DataDepo.user_id == 10,
+                    DataDepo.tanggal_regis == date(2026, 1, 5),
+                    DataDepo.campaign_id == "-",
+                )
+            )
+            rows = result.scalars().all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].first_depo, 75.0)
+            self.assertEqual(rows[0].user_status, "Existing")
+            self.assertEqual(rows[0].pull_date, date(2026, 1, 7))

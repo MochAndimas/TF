@@ -140,7 +140,17 @@ async def fetch_data(
 
 
 def campaign_preset_ranges(today: date) -> dict[str, tuple[date, date] | None]:
-    """Build period presets used by campaign ads dashboard page."""
+    """Build reusable preset date windows for campaign-facing dashboard pages.
+
+    Args:
+        today (date): Reference date used to calculate rolling and month-based
+            preset windows.
+
+    Returns:
+        dict[str, tuple[date, date] | None]: Mapping of preset labels to
+        inclusive date ranges. ``Custom Range`` intentionally maps to ``None``
+        so the caller can render a date picker.
+    """
     yesterday = today - timedelta(days=1)
     this_month_start = today.replace(day=1)
     last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
@@ -155,7 +165,20 @@ def campaign_preset_ranges(today: date) -> dict[str, tuple[date, date] | None]:
 
 
 def campaign_figure_from_payload(payload: dict | None, title: str) -> go.Figure:
-    """Convert Plotly JSON payload into figure with empty fallback state."""
+    """Convert serialized Plotly payload into a display-ready figure object.
+
+    Besides rehydrating standard chart payloads, this helper also normalizes
+    table figures so numeric columns are formatted consistently in the FE and
+    empty states degrade into a readable placeholder figure.
+
+    Args:
+        payload (dict | None): Plotly JSON payload returned by backend APIs.
+        title (str): Fallback title used when the payload is empty or invalid.
+
+    Returns:
+        go.Figure: Ready-to-render Plotly figure instance with FE formatting
+        adjustments applied when relevant.
+    """
     if payload and isinstance(payload, dict):
         figure = go.Figure(payload)
         if figure.data and isinstance(figure.data[0], go.Table):
@@ -217,7 +240,16 @@ def campaign_figure_from_payload(payload: dict | None, title: str) -> go.Figure:
 
 
 def _campaign_format_number(value: float | int) -> str:
-    """Format numeric metric values for compact display."""
+    """Format numeric metric values for compact, human-readable card display.
+
+    Args:
+        value (float | int): Raw metric value that may already be numeric or a
+            numeric-like object.
+
+    Returns:
+        str: Formatted integer or decimal string with thousand separators.
+        Invalid inputs degrade to ``"0"`` instead of raising UI errors.
+    """
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -229,7 +261,16 @@ def _campaign_format_number(value: float | int) -> str:
 
 
 def _campaign_format_currency(value: float | int, compact: bool = False) -> str:
-    """Format currency metric with Rp prefix."""
+    """Format an IDR-denominated currency metric for cards and tables.
+
+    Args:
+        value (float | int): Currency value already expressed in IDR.
+        compact (bool): When ``True``, abbreviate large numbers into
+            ``K/M/B``-style notation for tight UI surfaces.
+
+    Returns:
+        str: Formatted IDR currency string prefixed with ``Rp.``.
+    """
     full_currency = f"Rp. {_campaign_format_number(value)}"
     if not compact and len(full_currency) <= 12:
         return full_currency
@@ -248,8 +289,63 @@ def _campaign_format_currency(value: float | int, compact: bool = False) -> str:
     return f"Rp. {compact_value}"
 
 
+def _campaign_format_usd(value: float | int, compact: bool = False) -> str:
+    """Format a USD-denominated currency metric for cards and tables.
+
+    Args:
+        value (float | int): Currency value already expressed in USD.
+        compact (bool): When ``True``, abbreviate large numbers into
+            ``K/M/B``-style notation for tight UI surfaces.
+
+    Returns:
+        str: Formatted USD currency string prefixed with ``$``.
+    """
+    full_currency = f"$ {_campaign_format_number(value)}"
+    if not compact and len(full_currency) <= 12:
+        return full_currency
+
+    number = float(value)
+    absolute = abs(number)
+    if absolute >= 1_000_000_000:
+        compact_value = f"{number / 1_000_000_000:.1f}B"
+    elif absolute >= 1_000_000:
+        compact_value = f"{number / 1_000_000:.1f}M"
+    elif absolute >= 1_000:
+        compact_value = f"{number / 1_000:.1f}K"
+    else:
+        compact_value = _campaign_format_number(number)
+
+    return f"$ {compact_value}"
+
+
+def _campaign_convert_idr_to_usd(value: float | int) -> float:
+    """Convert an IDR-denominated metric value into USD.
+
+    Args:
+        value (float | int): Source monetary value represented in IDR.
+
+    Returns:
+        float: Converted USD value based on ``USD_TO_IDR_RATE`` from env.
+        If the configured rate is invalid or zero, the original numeric value
+        is returned as a defensive fallback.
+    """
+    rate = float(config("USD_TO_IDR_RATE", default=16968, cast=float))
+    if rate == 0:
+        return float(value)
+    return float(value) / rate
+
+
 def _campaign_format_growth(growth: float | None) -> str:
-    """Format growth percentage text used by metric cards."""
+    """Format growth percentage text used by dashboard metric cards.
+
+    Args:
+        growth (float | None): Growth percentage value, typically already
+            calculated against the previous comparison window.
+
+    Returns:
+        str: Human-readable delta string such as ``+12.40% from last period``.
+        ``None`` values degrade to ``N/A``.
+    """
     if growth is None:
         return "N/A"
     sign = "+" if growth > 0 else ""
@@ -257,7 +353,16 @@ def _campaign_format_growth(growth: float | None) -> str:
 
 
 def _campaign_metric_value(metrics: dict[str, float], key: str) -> float:
-    """Safely extract metric value as float from source payload."""
+    """Safely extract one metric value as ``float`` from a payload mapping.
+
+    Args:
+        metrics (dict[str, float]): Metrics mapping returned by API payload.
+        key (str): Metric identifier to extract.
+
+    Returns:
+        float: Numeric metric value, defaulting to ``0.0`` when missing or not
+        parseable.
+    """
     value = metrics.get(key, 0)
     try:
         return float(value)
@@ -266,7 +371,19 @@ def _campaign_metric_value(metrics: dict[str, float], key: str) -> float:
 
 
 def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -> float:
-    """Calculate growth from current/previous metrics as fallback."""
+    """Calculate metric growth using current and previous period payloads.
+
+    This helper is used as a frontend fallback when the backend payload does
+    not explicitly include a growth value for a specific metric.
+
+    Args:
+        source_metrics (dict[str, object]): Summary payload containing
+            ``current_period`` and ``previous_period`` metric blocks.
+        key (str): Metric identifier to compare across periods.
+
+    Returns:
+        float: Growth percentage rounded to 2 decimals.
+    """
     current_metrics = source_metrics.get("current_period", {}).get("metrics", {})
     previous_metrics = source_metrics.get("previous_period", {}).get("metrics", {})
     current_value = _campaign_metric_value(current_metrics, key)
@@ -280,7 +397,18 @@ def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -
 
 
 def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_label: str) -> None:
-    """Render five KPI cards for selected campaign source."""
+    """Render the primary five-card KPI row for campaign performance pages.
+
+    Args:
+        st: Streamlit module/object used to write UI components.
+        source_metrics (dict[str, object]): API summary payload containing
+            current-period metrics and optional growth values.
+        source_label (str): Human-readable source name shown in the section
+            title, for example ``Google Ads``.
+
+    Returns:
+        None: Renders metric cards as Streamlit side effects.
+    """
     st.markdown(f'<div class="metric-section-title">{source_label} Performance</div>', unsafe_allow_html=True)
 
     current_metrics = source_metrics.get("current_period", {}).get("metrics", {})
@@ -456,7 +584,11 @@ def render_overview_cost_metric_cards(st, summary_payload: dict[str, object]) ->
                 )
 
 
-def render_overview_leads_metric_cards(st, summary_payload: dict[str, object]) -> None:
+def render_overview_leads_metric_cards(
+    st,
+    summary_payload: dict[str, object],
+    currency_unit: str = "IDR",
+) -> None:
     """Render user-acquisition metric cards for Overview.
 
     Args:
@@ -484,7 +616,13 @@ def render_overview_leads_metric_cards(st, summary_payload: dict[str, object]) -
             with st.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
                 if key in ("cost", "cost_leads"):
-                    metric_value = _campaign_format_currency(raw_value, compact=True)
+                    if currency_unit == "USD":
+                        metric_value = _campaign_format_usd(
+                            _campaign_convert_idr_to_usd(raw_value),
+                            compact=True,
+                        )
+                    else:
+                        metric_value = _campaign_format_currency(raw_value, compact=True)
                 else:
                     metric_value = _campaign_format_number(raw_value)
 
@@ -505,7 +643,13 @@ def render_overview_leads_metric_cards(st, summary_payload: dict[str, object]) -
             with st.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
                 if key == "first_deposit":
-                    metric_value = _campaign_format_currency(raw_value, compact=True)
+                    if currency_unit == "USD":
+                        metric_value = _campaign_format_usd(
+                            _campaign_convert_idr_to_usd(raw_value),
+                            compact=True,
+                        )
+                    else:
+                        metric_value = _campaign_format_currency(raw_value, compact=True)
                 else:
                     metric_value = f"{raw_value:.2f}%"
 

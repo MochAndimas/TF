@@ -7,8 +7,11 @@ Traders Family application.
 import datetime as dt
 
 import streamlit as st
+from decouple import config
 
 from streamlit_app.functions.utils import campaign_preset_ranges, fetch_data, get_user
+
+USD_TO_IDR_RATE = config("USD_TO_IDR_RATE", default=16968, cast=float)
 
 PAGE_STYLE = """
 <style>
@@ -66,6 +69,16 @@ PAGE_STYLE = """
     font-weight: 700;
     margin: 1.0rem 0 0.5rem 0;
 }
+.currency-inline-label {
+    font-size: 0.98rem;
+    font-weight: 600;
+    padding-top: 0.2rem;
+    text-align: right;
+}
+.currency-inline-row {
+    max-width: 320px;
+    margin: 0 auto 1rem auto;
+}
 div[data-testid="stMetricLabel"] > div {
     font-size: 1.05rem !important;
 }
@@ -80,16 +93,52 @@ div[data-testid="stMetricDelta"] > div {
 """
 
 
-def _format_amount(value: float | int) -> str:
-    """Format numeric value into USD amount text.
+def _currency_multiplier(currency_unit: str) -> float:
+    """Return multiplier used to display money in the selected currency."""
+    if currency_unit == "IDR":
+        return float(USD_TO_IDR_RATE)
+    return 1.0
+
+
+def _currency_label(currency_unit: str) -> str:
+    """Return short label used in UI for the selected currency."""
+    if currency_unit == "IDR":
+        return "Rp"
+    return "$"
+
+
+def _compact_currency_value(value: float, currency_unit: str) -> str:
+    """Format currency value compactly for cards to avoid truncation."""
+    if currency_unit == "USD":
+        return f"${value:,.0f}"
+
+    absolute = abs(value)
+    if absolute >= 1_000_000_000_000:
+        compact = f"{value / 1_000_000_000_000:.1f}T"
+    elif absolute >= 1_000_000_000:
+        compact = f"{value / 1_000_000_000:.1f}B"
+    elif absolute >= 1_000_000:
+        compact = f"{value / 1_000_000:.1f}M"
+    elif absolute >= 1_000:
+        compact = f"{value / 1_000:.1f}K"
+    else:
+        compact = f"{value:,.0f}"
+    compact = compact.rstrip("0").rstrip(".")
+    return f"Rp{compact}"
+
+
+def _format_amount(value: float | int, currency_unit: str = "USD") -> str:
+    """Format numeric value into currency text.
 
     Args:
         value (float | int): Raw numeric amount.
+        currency_unit (str): Display currency (`USD` or `IDR`).
 
     Returns:
-        str: Currency text with dollar sign and thousands separators.
+        str: Currency text with thousands separators.
     """
-    return f"${float(value):,.0f}"
+    converted_value = float(value) * _currency_multiplier(currency_unit)
+    return _compact_currency_value(converted_value, currency_unit)
 
 
 def _format_qty(value: float | int) -> str:
@@ -104,39 +153,42 @@ def _format_qty(value: float | int) -> str:
     return f"{int(float(value)):,}"
 
 
-def _format_aov(value: float | int) -> str:
-    """Format AOV metric as USD currency text.
+def _format_aov(value: float | int, currency_unit: str = "USD") -> str:
+    """Format AOV metric as currency text.
 
     Args:
         value (float | int): Raw AOV numeric value.
+        currency_unit (str): Display currency (`USD` or `IDR`).
 
     Returns:
-        str: Currency text with dollar sign and two decimals.
+        str: Currency text with group separators.
     """
-    return f"${float(value):,.0f}"
+    return _format_amount(value, currency_unit=currency_unit)
 
 
-def _metric_formatter(metric_key: str, value: float | int) -> str:
+def _metric_formatter(metric_key: str, value: float | int, currency_unit: str = "USD") -> str:
     """Dispatch cell formatter based on report metric key.
 
     Args:
         metric_key (str): Metric identifier (`depo_amount`, `qty`, `aov`).
         value (float | int): Raw cell numeric value.
+        currency_unit (str): Display currency (`USD` or `IDR`).
 
     Returns:
         str: Formatted text suitable for table rendering.
     """
     if metric_key == "depo_amount":
-        return _format_amount(value)
+        return _format_amount(value, currency_unit=currency_unit)
     if metric_key == "qty":
         return _format_qty(value)
-    return _format_aov(value)
+    return _format_aov(value, currency_unit=currency_unit)
 
 
 def _render_status_cards(
     title: str,
     totals: dict[str, float],
     growth: dict[str, float],
+    currency_unit: str,
 ) -> None:
     """Render three KPI cards for one user status bucket.
 
@@ -151,21 +203,23 @@ def _render_status_cards(
     st.markdown(f'<div class="deposit-group-title">{title}</div>', unsafe_allow_html=True)
     columns = st.columns(3, gap="small")
     card_specs = [
-        ("Depo Amount ($)", "depo_amount", _format_amount),
+        (f"Depo Amount ({_currency_label(currency_unit)})", "depo_amount", _format_amount),
         ("Total Deposit (Qty)", "qty", _format_qty),
-        ("AOV ($)", "aov", _format_aov),
+        (f"AOV ({_currency_label(currency_unit)})", "aov", _format_aov),
     ]
     for column, (label, key, formatter) in zip(columns, card_specs):
         with column:
             with st.container(border=True):
                 st.metric(
                     label=label,
-                    value=formatter(totals.get(key, 0.0)),
+                    value=formatter(totals.get(key, 0.0), currency_unit=currency_unit)
+                    if key in {"depo_amount", "aov"}
+                    else formatter(totals.get(key, 0.0)),
                     delta=f"{growth.get(key, 0.0):+.2f}% vs prev period",
                 )
 
 
-def _render_metric_cards(report: dict[str, object]) -> None:
+def _render_metric_cards(report: dict[str, object], currency_unit: str) -> None:
     """Render top summary card section from report payload.
 
     Args:
@@ -185,15 +239,14 @@ def _render_metric_cards(report: dict[str, object]) -> None:
     new_growth = growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0})
     existing_growth = growth.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0})
 
-    st.markdown('<div class="metric-section-title">First Deposit Summary</div>', unsafe_allow_html=True)
     left_col, right_col = st.columns(2, gap="small")
     with left_col:
-        _render_status_cards("New User", new_totals, new_growth)
+        _render_status_cards("New User", new_totals, new_growth, currency_unit=currency_unit)
     with right_col:
-        _render_status_cards("Existing User", existing_totals, existing_growth)
+        _render_status_cards("Existing User", existing_totals, existing_growth, currency_unit=currency_unit)
 
 
-def _render_report_table(report: dict[str, object]) -> None:
+def _render_report_table(report: dict[str, object], currency_unit: str) -> None:
     """Render horizontally-scrollable deposit cross-tab table.
 
     Args:
@@ -233,11 +286,19 @@ def _render_report_table(report: dict[str, object]) -> None:
             metric_name = str(row.get("metric", "-"))
             metric_key = str(row.get("key", ""))
             values = row.get("values", {})
+            if metric_key == "depo_amount":
+                metric_name = f"Depo Amount ({_currency_label(currency_unit)})"
+            elif metric_key == "aov":
+                metric_name = f"AOV ({_currency_label(currency_unit)})"
             metric_cells = [f'<td class="sticky-col metric-name">{metric_name}</td>']
             for day in timeline:
                 day_data = values.get(day, {"new": 0, "existing": 0})
-                metric_cells.append(f"<td>{_metric_formatter(metric_key, day_data.get('new', 0))}</td>")
-                metric_cells.append(f"<td>{_metric_formatter(metric_key, day_data.get('existing', 0))}</td>")
+                metric_cells.append(
+                    f"<td>{_metric_formatter(metric_key, day_data.get('new', 0), currency_unit=currency_unit)}</td>"
+                )
+                metric_cells.append(
+                    f"<td>{_metric_formatter(metric_key, day_data.get('existing', 0), currency_unit=currency_unit)}</td>"
+                )
             body_rows.append(f"<tr>{''.join(metric_cells)}</tr>")
 
     table_html = f"""
@@ -351,5 +412,19 @@ async def show_deposit_page(host: str) -> None:
     payload = st.session_state.get("deposit_daily_payload", {})
     data = payload.get("data", {})
     report = data.get("report", {})
-    _render_metric_cards(report)
-    _render_report_table(report)
+    st.markdown('<div class="metric-section-title">First Deposit Summary</div>', unsafe_allow_html=True)
+    currency_wrap_left, currency_wrap_mid, currency_wrap_right = st.columns([2.2, 2.6, 2.2], gap="small")
+    with currency_wrap_mid:
+        label_col, control_col = st.columns([1.1, 2.2], gap="small")
+        with label_col:
+            st.markdown('<div class="currency-inline-label">Currency</div>', unsafe_allow_html=True)
+        with control_col:
+            currency_unit = st.radio(
+                "Currency",
+                options=["USD", "IDR"],
+                horizontal=True,
+                key="deposit_currency_unit",
+                label_visibility="collapsed",
+            )
+    _render_metric_cards(report, currency_unit=currency_unit)
+    _render_report_table(report, currency_unit=currency_unit)

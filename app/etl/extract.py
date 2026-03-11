@@ -1,22 +1,21 @@
-"""Extraction utilities for external API pipelines."""
+"""Extraction utilities for active external API pipelines."""
 
 from __future__ import annotations
 
 import asyncio
 from datetime import date
 
-import requests
 from decouple import config
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+import httpx
 
 
 class ExternalApiExtractor:
-    """Extract raw payloads from external ETL sources.
+    """Extract raw payloads from active ETL sources.
 
     This extractor centralizes source-specific API clients used by the ETL
     pipelines, including:
-        - generic JSON endpoint for deposit source,
         - Google Sheets values API for ads source,
         - GA4 Analytics Data API for app/web user metrics.
     """
@@ -31,6 +30,15 @@ class ExternalApiExtractor:
         )
         self.service = build("sheets", version="v4", credentials=creds, cache_discovery=False)
         self.sheet_id = config("GSHEET_SHEET_ID", cast=str)
+        self.first_deposit_url = config(
+            "FIRST_DEPOSIT_API_URL",
+            default=(
+                "https://script.googleusercontent.com/macros/echo?"
+                "user_content_key=AY5xjrTjdihXxTA5m1lfYwe5_8C9SGIK6Z95X4LtG9s5KT5tF_5-6iY1zwHLI16hdXFCudT2CueRQ2OccG7qM_a5wHVEAGAMXpIClsE1jpruGO8l0GwHFHdDcAFUyRws2G4E_ChFM62UL_bGfkUsWK0wyIBVZMb7eIu5oNR20HhxEYLLwlPp8WD4gpXF3mYnC9LchGTvoeKfR_KiBhq78s8_dgKUvw4S_Rr0h0bqgXz7EsbwZ-JYsmPGNPt_HxLTKGLRIAEf9lzrlEcThO6L8b2HSBzhB7yG7g"
+                "&lib=M2A7k1cML9_qiTb3aF9ZIZKiUcBrFPiXa"
+            ),
+            cast=str,
+        )
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
         ga4_refresh_token = config("GA4_REFRESH_TOKEN", default=None, cast=str)
         ga4_token_uri = config("GA4_TOKEN_URI", default=None, cast=str)
@@ -58,36 +66,6 @@ class ExternalApiExtractor:
                 credentials=ga4_creds,
                 cache_discovery=False,
             )
-        self.depo_source_url = config(
-            "DEPO_SOURCE_URL",
-            default=(
-                "https://script.googleusercontent.com/macros/echo?"
-                "user_content_key=AY5xjrTjdihXxTA5m1lfYwe5_8C9SGIK6Z95X4LtG9s5KT5tF_5-6iY1zwHLI16hdXFCudT2CueRQ2OccG7qM_a5wHVEAGAMXpIClsE1jpruGO8l0GwHFHdDcAFUyRws2G4E_ChFM62UL_bGfkUsWK0wyIBVZMb7eIu5oNR20HhxEYLLwlPp8WD4gpXF3mYnC9LchGTvoeKfR_KiBhq78s8_dgKUvw4S_Rr0h0bqgXz7EsbwZ-JYsmPGNPt_HxLTKGLRIAEf9lzrlEcThO6L8b2HSBzhB7yG7g"
-                "&lib=M2A7k1cML9_qiTb3aF9ZIZKiUcBrFPiXa"
-            ),
-            cast=str,
-        )
-
-    async def fetch_json_url(self, url: str) -> list:
-        """Fetch JSON payload from a URL without blocking the event loop.
-
-        Args:
-            url (str): HTTP/HTTPS endpoint that returns JSON array payload.
-
-        Returns:
-            list: Parsed JSON payload from the response body.
-
-        Raises:
-            requests.HTTPError: Raised when remote endpoint returns non-2xx.
-            requests.RequestException: Raised for transport-level failures.
-        """
-
-        def _request():
-            response = requests.get(url, timeout=60)
-            response.raise_for_status()
-            return response.json()
-
-        return await asyncio.to_thread(_request)
 
     async def fetch_sheet_values(self, range_name: str) -> list:
         """Fetch raw row values from one Google Sheets range.
@@ -175,4 +153,15 @@ class ExternalApiExtractor:
             return parsed_rows
 
         return await asyncio.to_thread(_request)
+
+    async def fetch_first_deposit_records(self) -> list[dict]:
+        """Fetch raw first-deposit rows from the configured JSON endpoint."""
+        async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
+            response = await client.get(self.first_deposit_url)
+            response.raise_for_status()
+            payload = response.json()
+
+        if not isinstance(payload, list):
+            raise ValueError("First deposit API returned unexpected payload shape.")
+        return payload
 

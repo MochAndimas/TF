@@ -37,13 +37,14 @@ PAGE_STYLE = """
 
 
 def _set_transparent_chart_background(figure):
-    """Apply transparent background style to Plotly chart.
+    """Apply transparent background styling to a Plotly chart.
 
     Args:
-        figure: Plotly figure object.
+        figure: Plotly figure object produced from an API payload.
 
     Returns:
-        object: Styled figure with transparent paper and plot backgrounds.
+        object: Same figure instance with transparent paper and plot
+        backgrounds.
     """
     figure.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
@@ -60,7 +61,8 @@ def _build_brand_awareness_performance_dataframe(detail_rows: list[dict], level_
         level_column (str): Grouping key (`campaign_id`, `ad_group`, `ad_name`).
 
     Returns:
-        pd.DataFrame: Aggregated dataframe with derived CTR/CPM/CPC metrics.
+        pd.DataFrame: Aggregated dataframe with one row per source and selected
+        level value, plus derived CTR/CPM/CPC metrics.
     """
     if not detail_rows:
         return pd.DataFrame()
@@ -106,8 +108,8 @@ def _format_brand_awareness_display(df: pd.DataFrame, level_label: str) -> pd.Da
         level_label (str): Selected grouping label column name.
 
     Returns:
-        pd.DataFrame: Display-ready dataframe with formatted currency,
-        percentages, and thousand separators.
+        pd.DataFrame: Display-ready dataframe with wrapped labels, formatted
+        currency, percentages, and thousand separators for table rendering.
     """
     if df.empty:
         return df

@@ -8,27 +8,27 @@ from datetime import datetime
 from time import perf_counter
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import DataDepo, Ga4DailyMetrics
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
     build_ads_rows,
-    build_depo_rows,
+    build_first_deposit_rows,
     build_ga4_rows,
     upsert_ads_rows,
-    upsert_depo_rows,
+    upsert_first_deposit_rows,
     upsert_ga4_rows,
 )
-from app.etl.quality import validate_ads_dataframe, validate_depo_dataframe, validate_ga4_dataframe
-from app.etl.staging import stage_ads_raw, stage_depo_raw, stage_ga4_raw
+from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataframe, validate_ga4_dataframe
+from app.etl.staging import stage_ads_raw, stage_first_deposit_raw, stage_ga4_raw
 from app.etl.transform import (
     dedupe_ads_dataframe,
     normalize_columns,
     normalize_date,
     parse_ads_dataframe,
-    parse_depo_dataframe,
+    parse_first_deposit_dataframe,
     parse_ga4_dataframe,
     resolve_date_window,
 )
@@ -51,7 +51,6 @@ class GoogleSheetApi:
         self.extractor = ExternalApiExtractor()
         self.service = self.extractor.service
         self.sheet_id = self.extractor.sheet_id
-        self.depo_source_url = self.extractor.depo_source_url
 
     def _log_event(self, event: str, **fields) -> None:
         """Emit one structured ETL log event.
@@ -75,17 +74,36 @@ class GoogleSheetApi:
         """Resolve ETL date window from update mode and payload values."""
         return resolve_date_window(types, start_date, end_date)
 
-    async def _fetch_json_url(self, url: str) -> list:
-        """Fetch raw JSON array payload from a URL source."""
-        return await self.extractor.fetch_json_url(url)
-
     async def _fetch_sheet_values(self, range_name: str) -> list:
-        """Fetch raw tabular rows from a Google Sheets range."""
+        """Fetch raw tabular rows from a Google Sheets range.
+
+        Args:
+            range_name (str): Source range in A1 notation.
+
+        Returns:
+            list: Raw values payload returned by the Sheets extractor.
+        """
         return await self.extractor.fetch_sheet_values(range_name)
 
     async def _fetch_ga4_daily_metrics(self, start_date, end_date) -> list[dict]:
-        """Fetch raw GA4 daily metrics for target date window."""
+        """Fetch raw GA4 daily metrics for the requested ETL window.
+
+        Args:
+            start_date: Inclusive start date for the GA4 query.
+            end_date: Inclusive end date for the GA4 query.
+
+        Returns:
+            list[dict]: Raw GA4 report rows normalized by the extractor.
+        """
         return await self.extractor.fetch_ga4_daily_metrics(start_date=start_date, end_date=end_date)
+
+    async def _fetch_first_deposit_records(self) -> list[dict]:
+        """Fetch raw first-deposit rows from the configured external endpoint.
+
+        Returns:
+            list[dict]: JSON records returned by the first-deposit extractor.
+        """
+        return await self.extractor.fetch_first_deposit_records()
 
     @staticmethod
     def _normalize_columns(columns: list[str]) -> list[str]:
@@ -93,187 +111,83 @@ class GoogleSheetApi:
         return normalize_columns(columns)
 
     @staticmethod
-    def _parse_depo_dataframe(raw_data: list):
-        """Parse raw deposit payload into normalized dataframe."""
-        return parse_depo_dataframe(raw_data)
-
-    @staticmethod
     def _parse_ads_dataframe(raw_rows: list):
-        """Parse raw ads rows into normalized dataframe."""
+        """Parse raw ads payload rows into a normalized dataframe.
+
+        Args:
+            raw_rows (list): Raw rows extracted from Google Sheets.
+
+        Returns:
+            pd.DataFrame: Standardized dataframe used by downstream DQ/load steps.
+        """
         return parse_ads_dataframe(raw_rows)
 
     @staticmethod
     def _parse_ga4_dataframe(raw_rows: list[dict]):
-        """Parse raw GA4 rows into normalized dataframe."""
+        """Parse raw GA4 API rows into a normalized dataframe.
+
+        Args:
+            raw_rows (list[dict]): Extractor-normalized GA4 report rows.
+
+        Returns:
+            pd.DataFrame: Daily ``date + source`` dataframe for validation/load.
+        """
         return parse_ga4_dataframe(raw_rows)
 
     @staticmethod
-    def _build_depo_models(df, pull_date):
-        """Convert deposit dataframe into ``DataDepo`` payload rows."""
-        return build_depo_rows(df=df, pull_date=pull_date)
+    def _parse_first_deposit_dataframe(raw_rows: list[dict]):
+        """Parse raw first-deposit API rows into a normalized dataframe.
+
+        Args:
+            raw_rows (list[dict]): Raw JSON records fetched from the deposit API.
+
+        Returns:
+            pd.DataFrame: Normalized dataframe suitable for first-deposit DQ and
+            upsert into ``data_depo``.
+        """
+        return parse_first_deposit_dataframe(raw_rows)
 
     @staticmethod
     def _build_ads_models(df, model_cls, pull_date):
-        """Convert ads dataframe into ads payload rows."""
+        """Convert normalized ads dataframe into insert payload rows.
+
+        Args:
+            df: Validated ads dataframe.
+            model_cls: Unused placeholder to keep helper signature aligned with
+                other ETL builder helpers.
+            pull_date: ETL pull date recorded on loaded rows.
+
+        Returns:
+            list[dict]: Ads load payload rows.
+        """
         del model_cls
         return build_ads_rows(df=df, pull_date=pull_date)
 
     @staticmethod
     def _build_ga4_models(df, pull_date):
-        """Convert GA4 dataframe into ``ga4_daily_metrics`` payload rows."""
-        return build_ga4_rows(df=df, pull_date=pull_date)
-
-    async def data_depo(
-        self,
-        session: AsyncSession,
-        start_date=None,
-        end_date=None,
-        types: str = "auto",
-        run_id: str | None = None,
-    ) -> str:
-        """Run deposit ETL flow and persist into ``DataDepo``.
+        """Convert validated GA4 dataframe into load payload rows.
 
         Args:
-            session (AsyncSession): Active database session.
-            start_date: Requested start date (used in manual mode).
-            end_date: Requested end date (used in manual mode).
-            types (str): Update mode (`auto` or `manual`).
-            run_id (str | None): ETL run identifier for traceability.
+            df: Validated GA4 dataframe.
+            pull_date: ETL pull date recorded on loaded rows.
 
         Returns:
-            str: User-facing status message describing ETL outcome.
-
-        Raises:
-            fastapi.HTTPException: Raised when extraction, validation, or load fails.
+            list[dict]: ``ga4_daily_metrics`` payload rows.
         """
-        started_at = perf_counter()
-        try:
-            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
-            self._log_event(
-                "etl_data_depo_started",
-                run_id=run_id,
-                types=types,
-                target_start=target_start,
-                target_end=target_end,
-            )
+        return build_ga4_rows(df=df, pull_date=pull_date)
 
-            if types == "auto":
-                existing_rows = await session.execute(
-                    select(DataDepo.id).where(DataDepo.tanggal_regis.between(target_start, target_end))
-                )
-                if existing_rows.first():
-                    self._log_event(
-                        "etl_data_depo_skipped",
-                        run_id=run_id,
-                        reason="already_updated",
-                        duration_sec=round(perf_counter() - started_at, 3),
-                    )
-                    return "Data is already updated!"
+    @staticmethod
+    def _build_first_deposit_models(df, pull_date):
+        """Convert validated first-deposit dataframe into load payload rows.
 
-            raw_data = await self._fetch_json_url(self.depo_source_url)
-            raw_count = len(raw_data)
-            staged_count = await stage_depo_raw(
-                session=session,
-                raw_data=raw_data,
-                run_id=run_id,
-                source="depo_source_url",
-            )
-            await session.commit()
-            df = self._parse_depo_dataframe(raw_data)
-            parsed_count = len(df)
-            if df.empty:
-                self._log_event(
-                    "etl_data_depo_no_rows_after_parse",
-                    run_id=run_id,
-                    raw_count=raw_count,
-                    staged_count=staged_count,
-                    parsed_count=parsed_count,
-                    dropped_count=max(staged_count - parsed_count, 0),
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found from source."
+        Args:
+            df: Validated first-deposit dataframe.
+            pull_date: ETL pull date recorded on loaded rows.
 
-            df = df[(df["tgl_regis"] >= target_start) & (df["tgl_regis"] <= target_end)]
-            in_window_count = len(df)
-
-            if df.empty:
-                self._log_event(
-                    "etl_data_depo_no_rows_in_window",
-                    run_id=run_id,
-                    raw_count=raw_count,
-                    staged_count=staged_count,
-                    parsed_count=parsed_count,
-                    in_window_count=in_window_count,
-                    dropped_count=max(staged_count - in_window_count, 0),
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found for selected date range."
-
-            validate_depo_dataframe(df)
-            rows = self._build_depo_models(df=df, pull_date=datetime.now().date())
-            # Keep target window fully synchronized with latest source snapshot:
-            # remove old rows in-window, then load transformed rows for this run.
-            await session.execute(
-                delete(DataDepo).where(DataDepo.tanggal_regis.between(target_start, target_end))
-            )
-            await upsert_depo_rows(session=session, rows=rows)
-            await session.commit()
-            loaded_in_window = await session.scalar(
-                select(func.count(DataDepo.id)).where(
-                    DataDepo.tanggal_regis.between(target_start, target_end)
-                )
-            )
-            if int(loaded_in_window or 0) != len(rows):
-                mismatch = (
-                    "Load mismatch for data_depo: "
-                    f"expected {len(rows)} rows in window {target_start}..{target_end}, "
-                    f"but found {int(loaded_in_window or 0)}."
-                )
-                self._log_event(
-                    "etl_data_depo_load_mismatch",
-                    run_id=run_id,
-                    expected_count=len(rows),
-                    actual_count=int(loaded_in_window or 0),
-                    target_start=target_start,
-                    target_end=target_end,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                raise HTTPException(500, mismatch)
-            self._log_event(
-                "etl_data_depo_completed",
-                run_id=run_id,
-                raw_count=raw_count,
-                staged_count=staged_count,
-                parsed_count=parsed_count,
-                in_window_count=in_window_count,
-                dropped_count=max(staged_count - in_window_count, 0),
-                loaded_count=int(loaded_in_window or 0),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            return "Data is being updated!"
-        except HTTPException:
-            self._log_event(
-                "etl_data_depo_failed_http",
-                run_id=run_id,
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise
-        except ValueError as error:
-            self._log_event(
-                "etl_data_depo_failed_dq",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(422, str(error))
-        except Exception as error:
-            self._log_event(
-                "etl_data_depo_failed",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(500, f"Google Sheets error: {str(error)}")
+        Returns:
+            list[dict]: ``data_depo`` payload rows for idempotent upsert.
+        """
+        return build_first_deposit_rows(df=df, pull_date=pull_date)
 
     async def campaign_ads(
         self,
@@ -509,3 +423,116 @@ class GoogleSheetApi:
                 duration_sec=round(perf_counter() - started_at, 3),
             )
             raise HTTPException(500, f"GA4 error: {str(error)}")
+
+    async def first_deposit(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run the end-to-end first-deposit ETL flow into ``data_depo``.
+
+        This pipeline follows the same orchestration pattern as ads and GA4:
+        resolve window, extract JSON payload, stage raw records, transform,
+        validate, and finally upsert the normalized rows into the target table.
+
+        Args:
+            session (AsyncSession): Active database session.
+            start_date: Requested manual start date.
+            end_date: Requested manual end date.
+            types (str): Update mode, either ``auto`` or ``manual``.
+            run_id (str | None): ETL run identifier used for traceability.
+
+        Returns:
+            str: User-facing ETL status message.
+
+        Raises:
+            fastapi.HTTPException: Raised when extraction, DQ, or load fails.
+        """
+        started_at = perf_counter()
+        try:
+            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
+            self._log_event(
+                "etl_first_deposit_started",
+                run_id=run_id,
+                types=types,
+                target_start=target_start,
+                target_end=target_end,
+            )
+
+            if types == "auto":
+                existing_rows = await session.execute(
+                    select(DataDepo.id).where(DataDepo.tanggal_regis.between(target_start, target_end))
+                )
+                if existing_rows.first():
+                    self._log_event(
+                        "etl_first_deposit_skipped",
+                        run_id=run_id,
+                        reason="already_updated",
+                        duration_sec=round(perf_counter() - started_at, 3),
+                    )
+                    return "Data is already updated!"
+
+            raw_rows = await self._fetch_first_deposit_records()
+            staged_count = await stage_first_deposit_raw(
+                session=session,
+                raw_rows=raw_rows,
+                run_id=run_id,
+                source="first_deposit",
+            )
+            await session.commit()
+            df = self._parse_first_deposit_dataframe(raw_rows)
+            if df.empty:
+                return "No data found from source."
+
+            df = df[(df["tanggal_regis"] >= target_start) & (df["tanggal_regis"] <= target_end)]
+            filtered_count = len(df)
+            if df.empty:
+                self._log_event(
+                    "etl_first_deposit_no_rows_in_window",
+                    run_id=run_id,
+                    raw_count=len(raw_rows),
+                    staged_count=staged_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
+                return "No data found for selected date range."
+
+            validate_first_deposit_dataframe(df)
+            rows = self._build_first_deposit_models(df=df, pull_date=datetime.now().date())
+            await upsert_first_deposit_rows(session=session, rows=rows)
+            await session.commit()
+            self._log_event(
+                "etl_first_deposit_completed",
+                run_id=run_id,
+                raw_count=len(raw_rows),
+                staged_count=staged_count,
+                filtered_count=filtered_count,
+                loaded_count=len(rows),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            return "Data is being updated!"
+        except HTTPException:
+            self._log_event(
+                "etl_first_deposit_failed_http",
+                run_id=run_id,
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise
+        except ValueError as error:
+            self._log_event(
+                "etl_first_deposit_failed_dq",
+                run_id=run_id,
+                error=str(error),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise HTTPException(422, str(error))
+        except Exception as error:
+            self._log_event(
+                "etl_first_deposit_failed",
+                run_id=run_id,
+                error=str(error),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise HTTPException(500, f"First deposit error: {str(error)}")

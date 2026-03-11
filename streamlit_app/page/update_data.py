@@ -16,13 +16,22 @@ DATA_SOURCE_OPTIONS = {
     "Google Ads (GSheet)": "google_ads",
     "Facebook Ads (GSheet)": "facebook_ads",
     "TikTok Ads (GSheet)": "tiktok_ads",
-    "Data Depo": "data_depo",
     "GA4 Daily Users (App/Web)": "ga4_daily_metrics",
+    "First Deposit (API)": "first_deposit",
 }
 
 
 def _date_presets(today: dt.date) -> dict[str, tuple[dt.date, dt.date]]:
-    """Build preset date ranges for update form."""
+    """Build the preset date windows shown in the update form.
+
+    Args:
+        today (dt.date): Anchor date used to derive relative presets.
+
+    Returns:
+        dict[str, tuple[dt.date, dt.date]]: Mapping of preset labels to
+        inclusive ``(start_date, end_date)`` tuples. ``Custom Range`` maps to
+        ``None`` because it is resolved from a date input widget later.
+    """
     yesterday = today - dt.timedelta(days=1)
     this_month_start = today.replace(day=1)
     last_month_start = (this_month_start - dt.timedelta(days=1)).replace(day=1)
@@ -42,7 +51,25 @@ def _resolve_date_input(
     preset_key: str,
     presets: dict[str, tuple[dt.date, dt.date]],
 ) -> tuple[dt.date, dt.date]:
-    """Resolve date range from selected mode and preset option."""
+    """Resolve the effective date range for an ETL update request.
+
+    In ``auto`` mode the range is always forced to yesterday. In ``manual``
+    mode the helper either uses the selected preset directly or reads the
+    custom range from Streamlit date input state.
+
+    Args:
+        mode (str): Selected update mode (`auto` or `manual`).
+        preset_key (str): Selected preset label from the UI.
+        presets (dict[str, tuple[dt.date, dt.date]]): Preset lookup generated
+            by ``_date_presets``.
+
+    Returns:
+        tuple[dt.date, dt.date]: Inclusive ``(from_date, to_date)`` range.
+
+    Raises:
+        ValueError: If the custom range is incomplete or chronologically
+        invalid.
+    """
     if mode == "auto":
         yesterday = dt.date.today() - dt.timedelta(days=1)
         return yesterday, yesterday
@@ -77,7 +104,7 @@ async def show_update_page(host):
         None: UI side effects only.
     """
     st.markdown("""<h1 align="center">Update Data</h1>""", unsafe_allow_html=True)
-    st.caption("Trigger manual or automatic synchronization for campaign and deposit datasets.")
+    st.caption("Trigger manual or automatic synchronization for campaign and GA4 datasets.")
 
     presets = _date_presets(dt.date.today())
     from_date = None
@@ -146,7 +173,7 @@ async def show_update_page(host):
 
     with st.spinner("Updating data..."):
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=600) as client:
                 response = await client.post(
                     f"{host}/api/feature-data/update-external-api",
                     headers={"Authorization": f"Bearer {user.access_token}"},
@@ -169,14 +196,14 @@ async def show_update_page(host):
             status_placeholder = st.empty()
             progress_placeholder = st.empty()
 
-            max_wait_seconds = 300
-            poll_interval_seconds = 2
+            max_wait_seconds = 600
+            poll_interval_seconds = 5
             elapsed = 0
             final_status = None
             final_message = None
             final_error = None
 
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=600) as client:
                 while elapsed < max_wait_seconds:
                     status_response = await client.get(
                         status_url,

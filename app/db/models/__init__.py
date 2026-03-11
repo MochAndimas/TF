@@ -10,7 +10,6 @@ from app.db.models.external_api import (  # noqa: F401
     Ga4DailyMetrics,
     GoogleAds,
     StgAdsRaw,
-    StgDepoRaw,
     TikTokAds,
 )
 from app.db.models.user import LogData, TfUser, UserToken  # noqa: F401
