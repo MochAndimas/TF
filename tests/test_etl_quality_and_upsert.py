@@ -15,7 +15,7 @@ from app.db.base import SqliteBase
 from app.db.models.external_api import Campaign, DataDepo, GoogleAds
 from app.etl.load import build_first_deposit_rows, upsert_ads_rows, upsert_first_deposit_rows
 from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataframe
-from app.etl.transform import dedupe_ads_dataframe, parse_first_deposit_dataframe
+from app.etl.transform import dedupe_ads_dataframe, parse_ads_dataframe, parse_first_deposit_dataframe
 
 
 class TestEtlQuality(TestCase):
@@ -99,6 +99,31 @@ class TestEtlQuality(TestCase):
         self.assertEqual(int(df.iloc[0]["user_id"]), 101)
         self.assertEqual(str(df.iloc[0]["campaign_id"]), "-")
         self.assertEqual(float(df.iloc[0]["first_depo"]), 50.0)
+
+    def test_parse_ads_dataframe_accepts_google_ads_api_payload(self):
+        df = parse_ads_dataframe(
+            [
+                {
+                    "date": "2026-01-10",
+                    "campaign_id": "123456",
+                    "campaign_name": "GG - UA - Test",
+                    "ad_group": "Ad Group 1",
+                    "ad_name": "Ad 1",
+                    "cost": 12.5,
+                    "impressions": 100,
+                    "clicks": 5,
+                    "leads": 2,
+                }
+            ]
+        )
+        self.assertEqual(len(df), 1)
+        row = df.iloc[0]
+        self.assertEqual(row["date"], date(2026, 1, 10))
+        self.assertEqual(row["campaign_id"], "123456")
+        self.assertEqual(row["campaign_name"], "GG - UA - Test")
+        self.assertEqual(int(row["impressions"]), 100)
+        self.assertEqual(int(row["clicks"]), 5)
+        self.assertEqual(int(row["leads"]), 2)
 
     def test_parse_first_deposit_dataframe_maps_optional_fields(self):
         df = parse_first_deposit_dataframe(

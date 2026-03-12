@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 
 from decouple import config
+from google.ads.googleads.client import GoogleAdsClient
 from google.oauth2.credentials import Credentials
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
@@ -24,13 +25,16 @@ class ExternalApiExtractor:
     """
 
     def __init__(self) -> None:
-        gsheet_sa_creds = self._load_gsheet_service_account_info()
-        creds = ServiceAccountCredentials.from_service_account_info(
-            gsheet_sa_creds,
-            scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
-        )
-        self.service = build("sheets", version="v4", credentials=creds, cache_discovery=False)
-        self.sheet_id = config("GSHEET_SHEET_ID", cast=str)
+        self.service = None
+        self.sheet_id = config("GSHEET_SHEET_ID", default="", cast=str).strip() or None
+        raw_gsheet_creds = config("GSHEET_SA_CREDS", default="", cast=str).strip()
+        if raw_gsheet_creds:
+            gsheet_sa_creds = self._load_gsheet_service_account_info()
+            creds = ServiceAccountCredentials.from_service_account_info(
+                gsheet_sa_creds,
+                scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
+            )
+            self.service = build("sheets", version="v4", credentials=creds, cache_discovery=False)
         self.first_deposit_url = config(
             "FIRST_DEPOSIT_API_URL",
             default=(
@@ -67,6 +71,13 @@ class ExternalApiExtractor:
                 credentials=ga4_creds,
                 cache_discovery=False,
             )
+        self.google_ads_customer_id = self._normalize_customer_id(
+            config("GOOGLE_ADS_CUSTOMER_ID", default="", cast=str)
+        )
+        self.google_ads_login_customer_id = self._normalize_customer_id(
+            config("GOOGLE_ADS_LOGIN_CUSTOMER_ID", default="", cast=str)
+        )
+        self.google_ads_client = None
 
     @staticmethod
     def _load_gsheet_service_account_info() -> dict:
@@ -110,6 +121,32 @@ class ExternalApiExtractor:
                 "GSHEET_SA_CREDS must be either a single-line JSON string or a path to a service-account JSON file."
             ) from exc
 
+    @staticmethod
+    def _normalize_customer_id(value: str | None) -> str | None:
+        """Normalize a Google Ads customer identifier by removing separators."""
+        normalized = str(value or "").strip().replace("-", "")
+        return normalized or None
+
+    def _build_google_ads_client(self) -> GoogleAdsClient | None:
+        """Create Google Ads API client from environment variables when configured."""
+        developer_token = config("GOOGLE_ADS_DEVELOPER_TOKEN", default="", cast=str).strip()
+        refresh_token = config("GOOGLE_ADS_REFRESH_TOKEN", default="", cast=str).strip()
+        client_id = config("GOOGLE_ADS_CLIENT_ID", default="", cast=str).strip()
+        client_secret = config("GOOGLE_ADS_CLIENT_SECRET", default="", cast=str).strip()
+        if not all([developer_token, refresh_token, client_id, client_secret]):
+            return None
+
+        client_config: dict[str, str | bool] = {
+            "developer_token": developer_token,
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "use_proto_plus": True,
+        }
+        if self.google_ads_login_customer_id:
+            client_config["login_customer_id"] = self.google_ads_login_customer_id
+        return GoogleAdsClient.load_from_dict(client_config)
+
     async def fetch_sheet_values(self, range_name: str) -> list:
         """Fetch raw row values from one Google Sheets range.
 
@@ -124,6 +161,12 @@ class ExternalApiExtractor:
         Raises:
             googleapiclient.errors.HttpError: Raised when Sheets API request fails.
         """
+
+        if self.service is None or not self.sheet_id:
+            raise ValueError(
+                "Google Sheets credentials are not fully configured. "
+                "Required env vars: GSHEET_SA_CREDS and GSHEET_SHEET_ID."
+            )
 
         def _request():
             result = self.service.spreadsheets().values().get(
@@ -193,6 +236,62 @@ class ExternalApiExtractor:
                         "active_users": metrics[2].get("value") if len(metrics) > 2 else None,
                     }
                 )
+            return parsed_rows
+
+        return await asyncio.to_thread(_request)
+
+    async def fetch_google_ads_metrics(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Google Ads metrics by ad for the requested date range."""
+        if self.google_ads_client is None:
+            self.google_ads_client = self._build_google_ads_client()
+
+        if self.google_ads_client is None or not self.google_ads_customer_id:
+            raise ValueError(
+                "Google Ads credentials are not fully configured. "
+                "Required env vars: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, "
+                "GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_CUSTOMER_ID."
+            )
+
+        query = f"""
+            SELECT
+              segments.date,
+              campaign.id,
+              campaign.name,
+              ad_group.name,
+              ad_group_ad.ad.id,
+              metrics.cost_micros,
+              metrics.impressions,
+              metrics.clicks,
+              metrics.conversions
+            FROM ad_group_ad
+            WHERE segments.date BETWEEN '{start_date.isoformat()}' AND '{end_date.isoformat()}'
+              AND campaign.status != 'REMOVED'
+              AND ad_group.status != 'REMOVED'
+              AND ad_group_ad.status != 'REMOVED'
+        """
+
+        def _request() -> list[dict]:
+            service = self.google_ads_client.get_service("GoogleAdsService")
+            stream = service.search_stream(
+                customer_id=self.google_ads_customer_id,
+                query=query,
+            )
+            parsed_rows: list[dict] = []
+            for batch in stream:
+                for row in batch.results:
+                    parsed_rows.append(
+                        {
+                            "date": str(row.segments.date),
+                            "campaign_id": str(row.campaign.id),
+                            "campaign_name": row.campaign.name or "-",
+                            "ad_group": row.ad_group.name or "-",
+                            "ad_name": str(row.ad_group_ad.ad.id or "-"),
+                            "cost": float(row.metrics.cost_micros or 0) / 1_000_000,
+                            "impressions": int(row.metrics.impressions or 0),
+                            "clicks": int(row.metrics.clicks or 0),
+                            "leads": int(round(float(row.metrics.conversions or 0))),
+                        }
+                    )
             return parsed_rows
 
         return await asyncio.to_thread(_request)

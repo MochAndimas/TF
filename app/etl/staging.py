@@ -50,12 +50,15 @@ async def stage_ads_raw(
         return 0
 
     ingested_at = datetime.now()
-    headers = normalize_columns(raw_rows[0]) if raw_rows else []
     payloads = []
-    if len(raw_rows) < 2:
-        payloads = [{"_raw": row} for row in raw_rows]
+    if isinstance(raw_rows[0], dict):
+        payloads = raw_rows
     else:
-        payloads = [dict(zip(headers, row)) for row in raw_rows[1:]]
+        headers = normalize_columns(raw_rows[0]) if raw_rows else []
+        if len(raw_rows) < 2:
+            payloads = [{"_raw": row} for row in raw_rows]
+        else:
+            payloads = [dict(zip(headers, row)) for row in raw_rows[1:]]
 
     rows = [
         {

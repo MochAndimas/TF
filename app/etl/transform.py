@@ -77,7 +77,7 @@ def normalize_columns(columns: list[str]) -> list[str]:
 
 
 def parse_ads_dataframe(raw_rows: list) -> pd.DataFrame:
-    """Parse Google Sheets rows into normalized ads dataframe.
+    """Parse ads payload into normalized ads dataframe.
 
     Args:
         raw_rows (list): Raw values rows where first row is header and the rest
@@ -90,11 +90,17 @@ def parse_ads_dataframe(raw_rows: list) -> pd.DataFrame:
     Raises:
         ValueError: Raised when required headers are missing.
     """
-    if not raw_rows or len(raw_rows) < 2:
+    if not raw_rows:
         return pd.DataFrame()
 
-    headers = normalize_columns(raw_rows[0])
-    df = pd.DataFrame(raw_rows[1:], columns=headers)
+    if isinstance(raw_rows[0], dict):
+        df = pd.DataFrame(raw_rows)
+        df.columns = normalize_columns(list(df.columns))
+    else:
+        if len(raw_rows) < 2:
+            return pd.DataFrame()
+        headers = normalize_columns(raw_rows[0])
+        df = pd.DataFrame(raw_rows[1:], columns=headers)
     required_columns = [
         "date",
         "campaign_id",

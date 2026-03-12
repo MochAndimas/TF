@@ -16,7 +16,17 @@ from streamlit.components.v1 import html
 from decouple import config
 
 from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
-from streamlit_app.page import brand_awareness, deposit, home, login, overview, register, update_data, user_acquisition
+from streamlit_app.page import (
+    brand_awareness,
+    deposit,
+    google_ads_token,
+    home,
+    login,
+    overview,
+    register,
+    update_data,
+    user_acquisition,
+)
 
 st.set_page_config(
     page_title="Traders Family Dashboard",
@@ -35,6 +45,7 @@ PAGE_LABELS: dict[str, str] = {
     "deposit_report": "First Deposit",
     "register": "Create Account",
     "update_data": "Update Data",
+    "google_ads_token": "Google Ads Token",
 }
 
 PAGE_BUTTON_TYPES: dict[str, str] = {
@@ -45,6 +56,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "deposit_report": "tertiary",
     "register": "tertiary",
     "update_data": "tertiary",
+    "google_ads_token": "tertiary",
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
@@ -52,13 +64,13 @@ NAV_GROUPS: dict[str, list[str]] = {
     "Overall": ["overview"],
     "Revenue": ["deposit_report"],
     "Campaign": ["user_acquisition", "brand_awareness"],
-    "Settings": ["register", "update_data"],
+    "Settings": ["register", "update_data", "google_ads_token"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
-    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
+    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "google_ads_token"],
+    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "google_ads_token"],
     "sales": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
 }
 
@@ -183,6 +195,29 @@ def _initialize_session_state() -> None:
             st.session_state[key] = default_value
 
 
+def _query_param(name: str) -> str | None:
+    """Read a query parameter as a single string value."""
+    value = st.query_params.get(name)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _resolve_public_page_from_query_params() -> str | None:
+    """Resolve non-authenticated pages that can be reached via query params."""
+    oauth_callback_params = ("code", "error", "state", "scope", "authuser", "prompt")
+    if _query_param("google_ads_oauth") == "1":
+        return "google_ads_token"
+
+    if any(_query_param(param) for param in oauth_callback_params):
+        return "google_ads_token"
+
+    if st.session_state.get("google_ads_oauth_state") and st.query_params:
+        return "google_ads_token"
+
+    return None
+
+
 def _restore_login_state_from_cookie() -> None:
     """Restore login/session state from persisted cookie value.
 
@@ -218,6 +253,10 @@ def _render_sidebar_navigation(host: str) -> str | None:
     Returns:
         str | None: Selected page key for dispatcher, or ``None`` when not logged in.
     """
+    public_page = _resolve_public_page_from_query_params()
+    if public_page:
+        return public_page
+
     available_pages = _allowed_pages_for_role(st.session_state.role)
     st.session_state["allowed_pages"] = available_pages
     if not available_pages:
@@ -295,6 +334,10 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
     Returns:
         None: Renders page UI as side effect.
     """
+    if selected_page == "google_ads_token":
+        await google_ads_token.show_google_ads_token_page(host)
+        return
+
     if not st.session_state.logged_in:
         await login.show_login_page(host)
         return
@@ -311,6 +354,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         "deposit_report": deposit.show_deposit_page,
         "register": register.create_account,
         "update_data": update_data.show_update_page,
+        "google_ads_token": google_ads_token.show_google_ads_token_page,
     }
 
     handler = page_handlers.get(selected_page)
@@ -334,8 +378,9 @@ def main() -> None:
     host = _resolve_host()
     footer(st)
 
-    selected_page = None
-    if st.session_state.logged_in:
+    public_page = _resolve_public_page_from_query_params()
+    selected_page = public_page
+    if st.session_state.logged_in and public_page is None:
         selected_page = _render_sidebar_navigation(host=host)
         _collapse_sidebar_if_requested()
     else:

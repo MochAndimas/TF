@@ -85,6 +85,10 @@ class GoogleSheetApi:
         """
         return await self.extractor.fetch_sheet_values(range_name)
 
+    async def _fetch_google_ads_metrics(self, start_date, end_date) -> list[dict]:
+        """Fetch raw Google Ads API metrics for the requested ETL window."""
+        return await self.extractor.fetch_google_ads_metrics(start_date=start_date, end_date=end_date)
+
     async def _fetch_ga4_daily_metrics(self, start_date, end_date) -> list[dict]:
         """Fetch raw GA4 daily metrics for the requested ETL window.
 
@@ -242,13 +246,19 @@ class GoogleSheetApi:
                     )
                     return "Data is already updated!"
 
-            raw_rows = await self._fetch_sheet_values(range_name)
+            source_name = classes.__tablename__
+            is_google_ads_api = source_name == "google_ads"
+            raw_rows = (
+                await self._fetch_google_ads_metrics(start_date=target_start, end_date=target_end)
+                if is_google_ads_api
+                else await self._fetch_sheet_values(range_name)
+            )
             staged_count = await stage_ads_raw(
                 session=session,
                 raw_rows=raw_rows,
                 run_id=run_id,
-                source=classes.__tablename__,
-                range_name=range_name,
+                source=source_name,
+                range_name="google_ads_api" if is_google_ads_api else range_name,
             )
             await session.commit()
             df = self._parse_ads_dataframe(raw_rows)
@@ -263,7 +273,7 @@ class GoogleSheetApi:
                     "etl_campaign_ads_no_rows_in_window",
                     run_id=run_id,
                     source=classes.__tablename__,
-                    raw_count=max(len(raw_rows) - 1, 0),
+                    raw_count=len(raw_rows) if is_google_ads_api else max(len(raw_rows) - 1, 0),
                     staged_count=staged_count,
                     dedupe_applied=False,
                     dedupe_dropped_count=0,
@@ -281,7 +291,7 @@ class GoogleSheetApi:
                 "etl_campaign_ads_completed",
                 run_id=run_id,
                 source=classes.__tablename__,
-                raw_count=max(len(raw_rows) - 1, 0),
+                raw_count=len(raw_rows) if is_google_ads_api else max(len(raw_rows) - 1, 0),
                 filtered_count=filtered_count,
                 dedupe_applied=dedupe_applied,
                 dedupe_dropped_count=dedupe_dropped_count,
@@ -315,7 +325,7 @@ class GoogleSheetApi:
                 error=str(error),
                 duration_sec=round(perf_counter() - started_at, 3),
             )
-            raise HTTPException(500, f"Google Sheets error: {str(error)}")
+            raise HTTPException(500, f"Ads source error: {str(error)}")
 
     async def ga4_daily_metrics(
         self,
