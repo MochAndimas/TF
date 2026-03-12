@@ -252,7 +252,7 @@ class ExternalApiExtractor:
                 "GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_CUSTOMER_ID."
             )
 
-        query = f"""
+        standard_query = f"""
             SELECT
               segments.date,
               campaign.id,
@@ -265,19 +265,36 @@ class ExternalApiExtractor:
               metrics.conversions
             FROM ad_group_ad
             WHERE segments.date BETWEEN '{start_date.isoformat()}' AND '{end_date.isoformat()}'
+              AND campaign.advertising_channel_type != 'PERFORMANCE_MAX'
               AND campaign.status != 'REMOVED'
               AND ad_group.status != 'REMOVED'
               AND ad_group_ad.status != 'REMOVED'
         """
 
+        pmax_query = f"""
+            SELECT
+              segments.date,
+              campaign.id,
+              campaign.name,
+              metrics.cost_micros,
+              metrics.impressions,
+              metrics.clicks,
+              metrics.conversions
+            FROM campaign
+            WHERE segments.date BETWEEN '{start_date.isoformat()}' AND '{end_date.isoformat()}'
+              AND campaign.advertising_channel_type = 'PERFORMANCE_MAX'
+              AND campaign.status != 'REMOVED'
+        """
+
         def _request() -> list[dict]:
             service = self.google_ads_client.get_service("GoogleAdsService")
-            stream = service.search_stream(
-                customer_id=self.google_ads_customer_id,
-                query=query,
-            )
             parsed_rows: list[dict] = []
-            for batch in stream:
+
+            standard_stream = service.search_stream(
+                customer_id=self.google_ads_customer_id,
+                query=standard_query,
+            )
+            for batch in standard_stream:
                 for row in batch.results:
                     parsed_rows.append(
                         {
@@ -286,6 +303,26 @@ class ExternalApiExtractor:
                             "campaign_name": row.campaign.name or "-",
                             "ad_group": row.ad_group.name or "-",
                             "ad_name": str(row.ad_group_ad.ad.id or "-"),
+                            "cost": float(row.metrics.cost_micros or 0) / 1_000_000,
+                            "impressions": int(row.metrics.impressions or 0),
+                            "clicks": int(row.metrics.clicks or 0),
+                            "leads": int(round(float(row.metrics.conversions or 0))),
+                        }
+                    )
+
+            pmax_stream = service.search_stream(
+                customer_id=self.google_ads_customer_id,
+                query=pmax_query,
+            )
+            for batch in pmax_stream:
+                for row in batch.results:
+                    parsed_rows.append(
+                        {
+                            "date": str(row.segments.date),
+                            "campaign_id": str(row.campaign.id),
+                            "campaign_name": row.campaign.name or "-",
+                            "ad_group": "pmax",
+                            "ad_name": "pmax",
                             "cost": float(row.metrics.cost_micros or 0) / 1_000_000,
                             "impressions": int(row.metrics.impressions or 0),
                             "clicks": int(row.metrics.clicks or 0),
