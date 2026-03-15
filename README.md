@@ -91,10 +91,7 @@ Minimal key yang digunakan:
 - `GSHEET_SA_CREDS` (JSON string service account Google Sheets)
 - `GSHEET_SHEET_ID`
 - `GA4_PROPERTY_ID`
-- `GA4_REFRESH_TOKEN`
-- `GA4_TOKEN_URI`
-- `GA4_CLIENT_ID`
-- `GA4_CLIENT_SECRET`
+- `GA4_SA_CREDS` (JSON string atau path file service account GA4)
 - `USD_TO_IDR_RATE` (opsional, default `16000`, dipakai untuk konversi First Deposit USD -> IDR di overview UA)
 - `BOOTSTRAP_SUPERADMIN`
 - `INITIAL_SUPERADMIN_NAME`

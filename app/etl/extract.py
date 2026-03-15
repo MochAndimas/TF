@@ -29,7 +29,7 @@ class ExternalApiExtractor:
         self.sheet_id = config("GSHEET_SHEET_ID", default="", cast=str).strip() or None
         raw_gsheet_creds = config("GSHEET_SA_CREDS", default="", cast=str).strip()
         if raw_gsheet_creds:
-            gsheet_sa_creds = self._load_gsheet_service_account_info()
+            gsheet_sa_creds = self._load_service_account_info("GSHEET_SA_CREDS")
             creds = ServiceAccountCredentials.from_service_account_info(
                 gsheet_sa_creds,
                 scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
@@ -45,24 +45,12 @@ class ExternalApiExtractor:
             cast=str,
         )
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
-        ga4_refresh_token = config("GA4_REFRESH_TOKEN", default=None, cast=str)
-        ga4_token_uri = config("GA4_TOKEN_URI", default=None, cast=str)
-        ga4_client_id = config("GA4_CLIENT_ID", default=None, cast=str)
-        ga4_client_secret = config("GA4_CLIENT_SECRET", default=None, cast=str)
+        raw_ga4_sa_creds = config("GA4_SA_CREDS", default="", cast=str).strip()
         self.ga4_service = None
-        if (
-            self.ga4_property_id
-            and ga4_refresh_token
-            and ga4_token_uri
-            and ga4_client_id
-            and ga4_client_secret
-        ):
-            ga4_creds = Credentials(
-                None,
-                refresh_token=ga4_refresh_token,
-                token_uri=ga4_token_uri,
-                client_id=ga4_client_id,
-                client_secret=ga4_client_secret,
+        if self.ga4_property_id and raw_ga4_sa_creds:
+            ga4_sa_creds = self._load_service_account_info("GA4_SA_CREDS")
+            ga4_creds = ServiceAccountCredentials.from_service_account_info(
+                ga4_sa_creds,
                 scopes=["https://www.googleapis.com/auth/analytics.readonly"],
             )
             self.ga4_service = build(
@@ -80,12 +68,16 @@ class ExternalApiExtractor:
         self.google_ads_client = None
 
     @staticmethod
-    def _load_gsheet_service_account_info() -> dict:
-        """Load Google Sheets service-account credentials from env.
+    def _load_service_account_info(env_key: str) -> dict:
+        """Load service-account credentials from env.
 
-        Supported formats for ``GSHEET_SA_CREDS``:
+        Supported formats:
         - full JSON string on a single line
         - filesystem path to a service-account JSON file
+
+        Args:
+            env_key (str): Environment variable name containing the JSON string
+                or path to the service-account credentials file.
 
         Returns:
             dict: Parsed service-account credentials payload.
@@ -93,9 +85,9 @@ class ExternalApiExtractor:
         Raises:
             ValueError: If the env value is missing or not a valid JSON/path.
         """
-        raw_value = config("GSHEET_SA_CREDS", default="", cast=str).strip()
+        raw_value = config(env_key, default="", cast=str).strip()
         if not raw_value:
-            raise ValueError("GSHEET_SA_CREDS is required for Google Sheets service-account auth.")
+            raise ValueError(f"{env_key} is required for service-account auth.")
 
         normalized = raw_value.strip().strip("'").strip('"')
         if normalized.startswith("{"):
@@ -103,7 +95,7 @@ class ExternalApiExtractor:
                 return json.loads(normalized)
             except json.JSONDecodeError as exc:
                 raise ValueError(
-                    "GSHEET_SA_CREDS JSON string is invalid. Make sure it is valid single-line JSON."
+                    f"{env_key} JSON string is invalid. Make sure it is valid single-line JSON."
                 ) from exc
 
         path_candidate = Path(normalized)
@@ -118,7 +110,7 @@ class ExternalApiExtractor:
             return json.loads(normalized)
         except json.JSONDecodeError as exc:
             raise ValueError(
-                "GSHEET_SA_CREDS must be either a single-line JSON string or a path to a service-account JSON file."
+                f"{env_key} must be either a single-line JSON string or a path to a service-account JSON file."
             ) from exc
 
     @staticmethod
@@ -195,8 +187,7 @@ class ExternalApiExtractor:
         if self.ga4_service is None or not self.ga4_property_id:
             raise ValueError(
                 "GA4 credentials are not fully configured. "
-                "Required env vars: GA4_PROPERTY_ID, GA4_REFRESH_TOKEN, "
-                "GA4_TOKEN_URI, GA4_CLIENT_ID, GA4_CLIENT_SECRET."
+                "Required env vars: GA4_PROPERTY_ID and GA4_SA_CREDS."
             )
 
         def _request():
@@ -343,4 +334,3 @@ class ExternalApiExtractor:
         if not isinstance(payload, list):
             raise ValueError("First deposit API returned unexpected payload shape.")
         return payload
-
