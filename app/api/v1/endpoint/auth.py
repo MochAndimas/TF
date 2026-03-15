@@ -5,8 +5,11 @@ Traders Family application.
 """
 
 import secrets
+from datetime import datetime
+from collections import defaultdict, deque
+from threading import Lock
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from app.core.config import settings
@@ -18,24 +21,87 @@ from app.utils.user_utils import (
     delete_account,
     get_current_user,
     logout,
+    require_roles,
     user_token,
+    validate_role_assignment,
 )
-from app.core.security import create_access_token, create_refresh_token, verify_csrf_token
-from app.schemas.user import LoginResponse, MessageResponse, RegisterBase, RegisterResponse
+from app.core.security import (
+    create_session_access_token,
+    create_session_refresh_token,
+    rotate_refresh_token,
+)
+from app.schemas.user import (
+    LoginResponse,
+    MessageResponse,
+    RegisterBase,
+    RegisterResponse,
+    TokenRefreshRequest,
+    TokenRefreshResponse,
+)
 
 
 router = APIRouter()
+_RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
+_RATE_LIMIT_LOCK = Lock()
 
 
-def _set_csrf_cookie(response: Response, csrf_token: str) -> None:
-    """Attach CSRF token cookie with environment-aware security flags."""
-    response.set_cookie(
-        key="csrf_token",
-        value=csrf_token,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-    )
+def _client_identifier(request: Request, scope: str, extra: str | None = None) -> str:
+    """Build a stable in-memory rate-limit key for one client/scope pair.
+
+    Args:
+        request (Request): Incoming HTTP request used to extract client network
+            metadata.
+        scope (str): Logical limiter namespace such as ``login`` or
+            ``token_refresh``.
+        extra (str | None): Optional discriminator, typically a username/email,
+            that narrows the bucket when multiple identities may share one IP.
+
+    Returns:
+        str: Deterministic bucket identifier used by the in-process limiter to
+        track request timestamps for a specific client and auth scope.
+    """
+    client_host = request.client.host if request.client else "unknown"
+    suffix = f":{extra.strip().lower()}" if extra else ""
+    return f"{scope}:{client_host}{suffix}"
+
+
+def _enforce_rate_limit(
+    request: Request,
+    scope: str,
+    max_requests: int,
+    window_seconds: int,
+    extra: str | None = None,
+) -> None:
+    """Enforce a simple sliding-window rate limit for sensitive auth actions.
+
+    Args:
+        request (Request): Incoming request used to derive the limiter bucket.
+        scope (str): Logical limiter namespace for this endpoint family.
+        max_requests (int): Maximum allowed requests in the active window.
+        window_seconds (int): Sliding-window size in seconds.
+        extra (str | None): Optional identity discriminator appended to the
+            client bucket key.
+
+    Returns:
+        None: Records the current request timestamp when the budget has not been
+        exceeded.
+
+    Raises:
+        HTTPException: ``429`` when the client exceeds the configured request
+        budget for the window.
+    """
+    now = datetime.now().timestamp()
+    bucket_key = _client_identifier(request, scope, extra)
+    with _RATE_LIMIT_LOCK:
+        bucket = _RATE_LIMIT_BUCKETS[bucket_key]
+        while bucket and now - bucket[0] > window_seconds:
+            bucket.popleft()
+        if len(bucket) >= max_requests:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Please try again later.",
+            )
+        bucket.append(now)
 
 
 @router.post("/api/register", response_model=RegisterResponse)
@@ -43,7 +109,6 @@ async def register(
     data: RegisterBase,
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),
-    csrf_token: str = Depends(verify_csrf_token),
 ):
     """Register a new user account.
 
@@ -59,11 +124,32 @@ async def register(
     Raises:
         HTTPException: Raised when password confirmation fails or email already exists.
     """
+    try:
+        require_roles(current_user, "admin", "superadmin")
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
+
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
             detail="Password confirmation does not match",
         )
+
+    try:
+        validate_role_assignment(current_user.role, data.role)
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
 
     user = await create_account(
         session=session,
@@ -90,9 +176,9 @@ async def register(
 
 @router.post("/api/login", response_model=LoginResponse)
 async def login_user(
+    request: Request,
     creds: OAuth2PasswordRequestForm = Depends(),
     session: AsyncSession = Depends(get_db),
-    csrf_token: str = Depends(verify_csrf_token)
 ):
     """Authenticate user credentials and issue access/refresh tokens.
 
@@ -107,19 +193,32 @@ async def login_user(
     Raises:
         HTTPException: Raised when account is deleted or credentials are invalid.
     """
+    _enforce_rate_limit(
+        request=request,
+        scope="login",
+        max_requests=8,
+        window_seconds=60,
+        extra=creds.username,
+    )
     user, user_role = await authenticate_user(
         email=creds.username,
         password=creds.password,
         session=session,
+        client_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
     )
     
     # Create JWT token and store it to database
+    provisional_session_id = secrets.token_urlsafe(32)
+    access_token = create_session_access_token(subject=user.user_id, session_id=provisional_session_id)
+    refresh_token = create_session_refresh_token(subject=user.user_id, session_id=provisional_session_id)
     personal_token = await user_token(
         session=session,
         user_id=user.user_id,
         role=user_role,
-        access_token=create_access_token(subject=user.user_id),
-        refresh_token=create_refresh_token(subject=user.user_id)
+        access_token=access_token,
+        refresh_token=refresh_token,
+        session_id=provisional_session_id,
     )
 
     # Return access token in JSON response and refresh token in headers
@@ -128,51 +227,57 @@ async def login_user(
             "access_token": personal_token.get("access_token"),
             "token_type": "Bearer",
             "role": user_role,
+            "user_id": user.user_id,
+            "refresh_token": personal_token.get("refresh_token"),
+            "session_id": personal_token.get("session_id"),
             "success": True
         }
     )
 
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     response.headers["Authentication"] = str(user.user_id)  # consumed by Streamlit client
 
     return response
 
 
-@router.post("/api/login/csrf-token", response_model=MessageResponse)
-async def get_csrf_token(
-    response: Response,
+@router.post("/api/token/refresh", response_model=TokenRefreshResponse)
+async def refresh_user_token(
     request: Request,
+    payload: TokenRefreshRequest,
     session: AsyncSession = Depends(get_db),
-    creds: OAuth2PasswordRequestForm = Depends()
 ):
-    """Initialize CSRF token for a valid login attempt.
-
-    Args:
-        response (Response): Mutable FastAPI response used to set cookies.
-        request (Request): Incoming request containing the session store.
-        session (AsyncSession): Database session injected by FastAPI.
-        creds (OAuth2PasswordRequestForm): Login form with username/email and password.
-
-    Returns:
-        dict[str, str]: Confirmation message after CSRF cookie is set.
-
-    Raises:
-        HTTPException: Raised when user credentials are invalid.
-    """
-    await authenticate_user(
-        email=creds.username,
-        password=creds.password,
-        session=session,
+    """Rotate bearer tokens using an active refresh token."""
+    _enforce_rate_limit(
+        request=request,
+        scope="token_refresh",
+        max_requests=15,
+        window_seconds=60,
     )
+    try:
+        access_token, refresh_token, role, user_id = await rotate_refresh_token(
+            sqlite_session=session,
+            refresh_token=payload.refresh_token,
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is invalid or expired.",
+        ) from error
 
-    if "csrf_token" not in request.session:
-        csrf_token = secrets.token_hex(16)
-        request.session["csrf_token"] = csrf_token
-    else:
-        csrf_token = request.session["csrf_token"]
-
-    _set_csrf_cookie(response, csrf_token)
-
-    return {"message": "CSRF token initialized.", "success": True}
+    response = JSONResponse(
+        content={
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "Bearer",
+            "role": role,
+            "user_id": user_id,
+            "success": True,
+        }
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @router.post("/api/logout", response_model=MessageResponse)
@@ -203,8 +308,8 @@ async def logout_user(
     response.delete_cookie(
         key="refresh_token",
         httponly=True,
-        secure=True,
-        samesite="strict",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
     )
     return response
 
@@ -229,6 +334,7 @@ async def delete_user(
         HTTPException: Raised for authorization errors, invalid operations, or missing user.
     """
     try:
+        require_roles(current_user, "admin", "superadmin")
         result = await delete_account(
             session=session,
             user_id=user_id,

@@ -9,7 +9,7 @@ import datetime as dt
 import streamlit as st
 from decouple import config
 
-from streamlit_app.functions.utils import campaign_preset_ranges, fetch_data, get_user
+from streamlit_app.functions.utils import campaign_preset_ranges, fetch_data
 
 USD_TO_IDR_RATE = config("USD_TO_IDR_RATE", default=16968, cast=float)
 
@@ -381,8 +381,7 @@ async def show_deposit_page(host: str) -> None:
     )
 
     if should_fetch:
-        token_data = get_user(st.session_state._user_id)
-        if token_data is None or not getattr(token_data, "access_token", None):
+        if not st.session_state.get("access_token"):
             st.error("Session invalid. Please log in again.")
             return
 

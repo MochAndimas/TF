@@ -66,6 +66,19 @@ class LoginResponse(TokenBase):
     """Schema for login response payload including user role."""
 
     role: str
+    user_id: str
+    refresh_token: str
+    session_id: str | None = None
+
+
+class TokenRefreshRequest(BaseModel):
+    """Schema for bearer-token refresh requests."""
+
+    refresh_token: str
+
+
+class TokenRefreshResponse(LoginResponse):
+    """Schema returned after successful refresh-token rotation."""
 
 
 class RegisterResponse(BaseModel):
@@ -90,3 +103,5 @@ class TokenData(BaseModel):
         id (Optional[str]): User identifier extracted from token claims.
     """
     id: Optional[str] = None
+    session_id: Optional[str] = None
+    jti: Optional[str] = None

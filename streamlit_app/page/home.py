@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.db.models.etl_run import EtlRun
 from app.db.models.user import TfUser
-from streamlit_app.functions.utils import get_streamlit, get_user
+from streamlit_app.functions.utils import get_streamlit
 
 PAGE_STYLE = """
 <style>
@@ -144,12 +144,33 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
 
 
 def _format_datetime(value: datetime | None) -> str:
+    """Format nullable datetimes for the home-page status cards.
+
+    Args:
+        value (datetime | None): Timestamp value from persisted ETL metadata or
+            ``None`` when no run has been recorded yet.
+
+    Returns:
+        str: Human-readable timestamp in ``DD Mon YYYY, HH:MM`` format, or ``-``
+        when the input is missing.
+    """
     if value is None:
         return "-"
     return value.strftime("%d %b %Y, %H:%M")
 
 
 def _role_label(role: str | None) -> str:
+    """Map stored role codes into friendlier labels for the portal UI.
+
+    Args:
+        role (str | None): Role code stored in Streamlit session state or user
+            record, for example ``superadmin`` or ``digital_marketing``.
+
+    Returns:
+        str: Display-ready role label shown in the session status card. Unknown
+        values fall back to the raw role string, while missing values render as
+        ``-``.
+    """
     labels = {
         "superadmin": "Super Admin",
         "admin": "Admin",
@@ -160,6 +181,17 @@ def _role_label(role: str | None) -> str:
 
 
 def _load_home_context(user_id: str) -> dict[str, object]:
+    """Load the minimal account and ETL context needed by the home page.
+
+    Args:
+        user_id (str): Authenticated user identifier from Streamlit session
+            state.
+
+    Returns:
+        dict[str, object]: Mapping that contains the active account record and
+        the most recent ETL run, allowing the page to render role, session, and
+        workspace-status cards without duplicating query logic in the renderer.
+    """
     session_gen = get_streamlit()
     session = next(session_gen)
     try:
@@ -176,15 +208,23 @@ def _load_home_context(user_id: str) -> dict[str, object]:
     finally:
         session.close()
 
-    token = get_user(user_id)
     return {
         "account": account,
-        "token": token,
         "latest_run": latest_run,
     }
 
 
 def _go_to(page_key: str) -> None:
+    """Navigate to another Streamlit page by updating shared session state.
+
+    Args:
+        page_key (str): Internal page key used by the main dispatcher in
+            ``streamlit_run.py``.
+
+    Returns:
+        None: Updates session state in place and triggers a rerun so the
+        dispatcher renders the selected page immediately.
+    """
     st.session_state.page = page_key
     st.rerun()
 
@@ -196,7 +236,6 @@ async def show_home_page(host: str) -> None:
 
     context = _load_home_context(st.session_state._user_id)
     account = context["account"]
-    token = context["token"]
     latest_run = context["latest_run"]
     fullname = getattr(account, "fullname", None) or getattr(account, "email", None) or "Team"
     role_label = _role_label(st.session_state.get("role"))
@@ -253,15 +292,16 @@ async def show_home_page(host: str) -> None:
     status_columns = st.columns(3 if is_superadmin else 2, gap="small")
 
     with status_columns[0]:
+        session_status_copy = (
+            f"Signed in as {getattr(account, 'email', '-')}<br/>"
+            f"Session ID: {st.session_state.get('session_id', '-')}"
+        )
         st.markdown(
             f"""
             <div class="tf-home-status-card">
                 <div class="tf-home-status-label">Session</div>
                 <div class="tf-home-status-value">{role_label}</div>
-                <div class="tf-home-status-copy">
-                    Signed in as {getattr(account, "email", "-")}<br/>
-                    Session updated: {_format_datetime(getattr(token, "updated_at", None))}
-                </div>
+                <div class="tf-home-status-copy">{session_status_copy}</div>
             </div>
             """,
             unsafe_allow_html=True,

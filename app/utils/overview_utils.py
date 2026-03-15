@@ -1280,10 +1280,21 @@ class OverviewLeadsAcquisitionData:
 
 
 class OverviewBrandAwarenessData:
-    """Service object for BA metrics with growth and BA spend/performance charts."""
+    """Service object for overview-level brand-awareness analytics.
+
+    This class owns the data-loading and aggregation flow for the Overview
+    dashboard's brand-awareness section, including KPI summaries, previous-
+    period growth comparisons, and serialized spend/performance chart payloads.
+    """
 
     def __init__(self, session: AsyncSession, from_date: date, to_date: date) -> None:
-        """Initialize BA overview service state and in-memory cache."""
+        """Initialize the BA analytics service and preload window metadata.
+
+        Args:
+            session (AsyncSession): Database session used for ads reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+        """
         self.session = session
         self.from_date = from_date
         self.to_date = to_date
@@ -1296,18 +1307,40 @@ class OverviewBrandAwarenessData:
         from_date: date,
         to_date: date,
     ) -> "OverviewBrandAwarenessData":
-        """Instantiate service and preload BA ads aggregates for initial range."""
+        """Instantiate the service and preload BA ads data for the base range.
+
+        Args:
+            session (AsyncSession): Database session used for ads reads.
+            from_date (date): Inclusive preload start date.
+            to_date (date): Inclusive preload end date.
+
+        Returns:
+            OverviewBrandAwarenessData: Ready-to-use service with cached ads
+            rows for the initialized period.
+        """
         instance = cls(session=session, from_date=from_date, to_date=to_date)
         await instance._fetch_data()
         return instance
 
     async def _fetch_data(self) -> None:
-        """Populate in-memory BA ads dataframe for initialized date window."""
+        """Populate the in-memory BA ads cache for the initialized window.
+
+        Returns:
+            None: Writes the preloaded dataframe into ``self.df_ads``.
+        """
         self.df_ads = await self._read_ads_ba_with_range(self.from_date, self.to_date)
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Return previous date window with matching duration."""
+        """Return the immediately preceding date window with matching duration.
+
+        Args:
+            from_date (date): Inclusive current-period start date.
+            to_date (date): Inclusive current-period end date.
+
+        Returns:
+            tuple[date, date]: Previous-period ``(from_date, to_date)`` pair.
+        """
         period_days = (to_date - from_date).days + 1
         previous_to = from_date - timedelta(days=1)
         previous_from = previous_to - timedelta(days=period_days - 1)
@@ -1315,7 +1348,16 @@ class OverviewBrandAwarenessData:
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float:
-        """Compute percentage growth with zero-baseline safeguard."""
+        """Compute KPI growth percentage with a zero-baseline safeguard.
+
+        Args:
+            current_value (float): Current-period metric value.
+            previous_value (float): Previous-period metric value.
+
+        Returns:
+            float: Rounded percentage growth, or ``100.0`` when the current
+            period is positive and the previous period is zero.
+        """
         if previous_value == 0:
             return 100.0 if current_value else 0.0
         return round(((current_value - previous_value) / previous_value) * 100, 2)
@@ -1327,7 +1369,18 @@ class OverviewBrandAwarenessData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Load one platform's BA daily aggregates from ads tables."""
+        """Load one platform's BA daily aggregates from the ads tables.
+
+        Args:
+            model: Ads ORM model for the selected platform.
+            source_key (str): Normalized source label written into the output.
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+
+        Returns:
+            pd.DataFrame: Daily BA aggregates for one source with ``cost``,
+            ``impressions``, ``clicks``, and ``source`` columns.
+        """
         query = (
             select(
                 model.date.label("date"),
@@ -1356,7 +1409,16 @@ class OverviewBrandAwarenessData:
         return dataframe
 
     async def _read_ads_ba_with_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Load and merge BA ads data across Google/Facebook/TikTok."""
+        """Load and merge BA ads rows across all supported ad platforms.
+
+        Args:
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+
+        Returns:
+            pd.DataFrame: Combined BA ads dataframe covering Google, Facebook,
+            and TikTok rows for the requested window.
+        """
         google = await self._read_one_source_ads_ba(GoogleAds, "google", from_date, to_date)
         facebook = await self._read_one_source_ads_ba(FacebookAds, "facebook", from_date, to_date)
         tiktok = await self._read_one_source_ads_ba(TikTokAds, "tiktok", from_date, to_date)
@@ -1369,14 +1431,31 @@ class OverviewBrandAwarenessData:
         return dataframe
 
     async def _ads_for_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Return BA ads data from cache or DB for requested range."""
+        """Return BA ads data from cache when possible, otherwise re-query.
+
+        Args:
+            from_date (date): Inclusive requested start date.
+            to_date (date): Inclusive requested end date.
+
+        Returns:
+            pd.DataFrame: BA ads dataframe for the requested window.
+        """
         if from_date >= self.from_date and to_date <= self.to_date and not self.df_ads.empty:
             return self.df_ads.loc[(self.df_ads["date"] >= from_date) & (self.df_ads["date"] <= to_date)].copy()
         return await self._read_ads_ba_with_range(from_date, to_date)
 
     @staticmethod
     def _daily_totals_frame(dataframe: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
-        """Build full-day timeline with zero-filled BA numeric columns."""
+        """Normalize BA rows into a complete daily timeline with zero-filled gaps.
+
+        Args:
+            dataframe (pd.DataFrame): Raw BA dataframe for the requested range.
+            from_date (date): Inclusive timeline start date.
+            to_date (date): Inclusive timeline end date.
+
+        Returns:
+            pd.DataFrame: One row per day with normalized numeric BA columns.
+        """
         timeline = pd.DataFrame({"date": pd.date_range(start=from_date, end=to_date, freq="D").date})
         if dataframe.empty:
             merged = timeline.copy()
@@ -1396,7 +1475,16 @@ class OverviewBrandAwarenessData:
         return merged
 
     async def metrics_with_growth(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build BA KPI summary for current/previous period and growth deltas."""
+        """Build the BA KPI summary payload with previous-period comparisons.
+
+        Args:
+            from_date (date): Inclusive current-period start date.
+            to_date (date): Inclusive current-period end date.
+
+        Returns:
+            dict[str, object]: FE-ready summary payload containing current and
+            previous metrics plus growth percentages for spend and efficiency.
+        """
         current_ads = await self._ads_for_range(from_date, to_date)
         current_daily = self._daily_totals_frame(current_ads, from_date, to_date)
 
@@ -1453,7 +1541,16 @@ class OverviewBrandAwarenessData:
         }
 
     async def spend_chart(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build BA daily spend bar-chart payload."""
+        """Build the BA daily spend chart payload for frontend rendering.
+
+        Args:
+            from_date (date): Inclusive chart start date.
+            to_date (date): Inclusive chart end date.
+
+        Returns:
+            dict[str, object]: Serialized rows and Plotly figure for daily BA
+            spend visualization.
+        """
         ads_df = await self._ads_for_range(from_date, to_date)
         daily = self._daily_totals_frame(ads_df, from_date, to_date)
         date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()

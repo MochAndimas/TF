@@ -9,7 +9,6 @@ from streamlit_app.functions.utils import (
     add_account_modal,
     edit_account_modal,
     get_accounts,
-    get_user,
 )
 
 
@@ -176,16 +175,16 @@ async def create_account(host):
     Returns:
         None: UI side effects only.
     """
-    token = get_user(st.session_state._user_id)
-    if token is None:
+    access_token = st.session_state.get("access_token")
+    if not access_token:
         st.error("Unable to load session token. Please log in again.")
         return
 
     users = get_accounts()
     st.markdown(TABLE_STYLE, unsafe_allow_html=True)
-    _render_page_header(host=host, token=token)
+    _render_page_header(host=host, token=access_token)
 
     _render_stats(users)
     filtered_users = _filter_users(users)
     _render_table_header()
-    _render_account_rows(host=host, token=token, users=filtered_users)
+    _render_account_rows(host=host, token=access_token, users=filtered_users)

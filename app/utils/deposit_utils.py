@@ -1,7 +1,8 @@
-"""Deposit Utils module.
+"""Deposit analytics helpers for the dashboard reporting layer.
 
-This module is part of `app.utils` and contains runtime logic used by the
-Traders Family application.
+This module contains the service object that reads deposit rows, normalizes
+status buckets, compares current and previous periods, and produces the
+frontend-friendly payloads used by deposit report screens.
 """
 
 from __future__ import annotations

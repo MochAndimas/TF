@@ -16,7 +16,6 @@ from streamlit_app.functions.utils import (
     campaign_figure_from_payload,
     campaign_preset_ranges,
     fetch_data,
-    get_user,
     render_brand_awareness_metric_cards,
     render_overview_cost_metric_cards,
     render_overview_leads_metric_cards,
@@ -435,8 +434,7 @@ async def show_overview_page(host: str) -> None:
     )
 
     if should_fetch_cost or should_fetch_active or should_fetch_leads or should_fetch_brand:
-        token_data = get_user(st.session_state._user_id)
-        if token_data is None or not getattr(token_data, "access_token", None):
+        if not st.session_state.get("access_token"):
             st.error("Session invalid. Please log in again.")
             return
 

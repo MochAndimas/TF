@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import secrets
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -23,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
 
@@ -58,7 +58,22 @@ class FastApiApp:
         app (FastAPI): Configured FastAPI application instance.
     """
 
-    CSRF_TOKEN_NAME = "csrf_token"
+    SENSITIVE_LOG_PATHS = {
+        "/api/login",
+        "/api/register",
+        "/api/token/refresh",
+        "/api/google-ads/oauth/callback",
+        "/api/google-ads/oauth/start",
+    }
+    SENSITIVE_RESPONSE_FIELDS = {
+        "access_token",
+        "refresh_token",
+        "password",
+        "confirm_password",
+        "csrf_token",
+        "client_secret",
+        "authorization",
+    }
 
     def __init__(self, version: str = "1.0.0") -> None:
         """Initialize app, middleware, routes, and runtime configuration.
@@ -78,7 +93,7 @@ class FastApiApp:
             description="API for handling Traders Family campaign data.",
             version=self.app_version,
             docs_url=None if not settings.DEBUG else "/docs",
-            redoc_url="/redoc",
+            redoc_url=None if not settings.DEBUG else "/redoc",
             lifespan=self._lifespan,
         )
 
@@ -199,6 +214,7 @@ class FastApiApp:
             None: Middleware handlers are attached to ``self.app``.
         """
         self._add_cors_middleware()
+        self._add_trusted_host_middleware()
 
         @self.app.middleware("http")
         async def request_logger(request: Request, call_next: NextHandler) -> Response:
@@ -207,10 +223,6 @@ class FastApiApp:
         @self.app.middleware("http")
         async def security_headers(request: Request, call_next: NextHandler) -> Response:
             return await self._security_headers_middleware(request, call_next)
-
-        @self.app.middleware("http")
-        async def csrf_cookie(request: Request, call_next: NextHandler) -> Response:
-            return await self._csrf_cookie_middleware(request, call_next)
 
         # Add SessionMiddleware after decorator-based middleware registration
         # so it wraps outermost and initializes request.session first.
@@ -226,8 +238,15 @@ class FastApiApp:
             CORSMiddleware,
             allow_origins=settings.cors_origins,
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+        )
+
+    def _add_trusted_host_middleware(self) -> None:
+        """Restrict accepted Host headers to known backend/frontend hosts."""
+        self.app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=settings.trusted_hosts,
         )
 
     def _add_session_middleware(self) -> None:
@@ -239,7 +258,7 @@ class FastApiApp:
         self.app.add_middleware(
             SessionMiddleware,
             secret_key=settings.CSRF_SECRET,
-            same_site="lax",
+            same_site=settings.cookie_samesite,
             https_only=settings.cookie_secure,
         )
 
@@ -324,6 +343,9 @@ class FastApiApp:
         Returns:
             None: Logging failures are swallowed and only written to application logger.
         """
+        if request.url.path in self.SENSITIVE_LOG_PATHS:
+            return
+
         try:
             async with sqlite_async_session() as session:
                 session.add(
@@ -332,13 +354,28 @@ class FastApiApp:
                         method=request.method,
                         time=process_time,
                         status=status_code,
-                        response=response_body,
+                        response=self._sanitize_log_payload(response_body),
                         created_at=datetime.now(),
                     )
                 )
                 await session.commit()
         except Exception:
             self.logger.exception("Failed to persist request log")
+
+    @classmethod
+    def _sanitize_log_payload(cls, value: Any) -> Any:
+        """Redact secrets from structured log payloads before persisting them."""
+        if isinstance(value, dict):
+            sanitized: dict[str, Any] = {}
+            for key, item in value.items():
+                if key.lower() in cls.SENSITIVE_RESPONSE_FIELDS:
+                    sanitized[key] = "[REDACTED]"
+                else:
+                    sanitized[key] = cls._sanitize_log_payload(item)
+            return sanitized
+        if isinstance(value, list):
+            return [cls._sanitize_log_payload(item) for item in value]
+        return value
 
     @staticmethod
     async def _security_headers_middleware(request: Request, call_next: NextHandler) -> Response:
@@ -354,36 +391,11 @@ class FastApiApp:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        return response
-
-    async def _csrf_cookie_middleware(self, request: Request, call_next: NextHandler) -> Response:
-        """Ensure CSRF token exists in session and mirrored cookie.
-
-        Args:
-            request (Request): Incoming HTTP request that carries session context.
-            call_next (NextHandler): Next middleware/route callable in chain.
-
-        Returns:
-            Response: Downstream response augmented with CSRF cookie.
-        """
-        if "session" not in request.scope:
-            self.logger.error("Session scope missing in request; CSRF cookie middleware skipped.")
-            return await call_next(request)
-
-        if self.CSRF_TOKEN_NAME not in request.session:
-            request.session[self.CSRF_TOKEN_NAME] = secrets.token_hex(16)
-
-        response = await call_next(request)
-        response.set_cookie(
-            key=self.CSRF_TOKEN_NAME,
-            value=request.session[self.CSRF_TOKEN_NAME],
-            httponly=True,
-            secure=settings.cookie_secure,
-            samesite="lax",
-        )
+        response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
         return response
 
     def _include_routers_v1(self) -> None:

@@ -14,9 +14,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
-from jose import jwt
-from app.db.models.user import UserToken, TfUser
-from jose.exceptions import ExpiredSignatureError, JWTError
+from app.db.models.user import TfUser
 from sqlalchemy.orm import Session, sessionmaker
 from streamlit_cookies_controller import CookieController
 from requests.exceptions import HTTPError, ConnectionError, Timeout, RequestException
@@ -39,22 +37,39 @@ streamlit_session = sessionmaker(
 )
 
 
-def get_user(user_id):
-    """Fetch persisted token/session row by user ID.
+def get_access_token() -> str | None:
+    """Return the active access token from Streamlit session state."""
+    return st.session_state.get("access_token")
+
+
+async def restore_backend_session(host: str, refresh_token: str) -> dict | None:
+    """Restore backend session by rotating a persisted refresh token."""
+    if not refresh_token:
+        return None
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.post(
+            f"{host}/api/token/refresh",
+            json={"refresh_token": refresh_token},
+        )
+    if response.status_code >= 400:
+        return None
+    return response.json() if response.content else None
+
+
+async def refresh_backend_tokens(host: str, refresh_token: str) -> dict | None:
+    """Request a rotated bearer-token pair from the backend auth service.
 
     Args:
-        user_id: User identifier used to query token table.
+        host (str): Backend API base URL used to call the refresh endpoint.
+        refresh_token (str): Persisted refresh token currently stored in
+            Streamlit session state or browser cookie.
 
     Returns:
-        UserToken | None: Matching token/session row if available.
+        dict | None: Parsed refresh payload when rotation succeeds, otherwise
+        ``None`` if the backend rejects or cannot return a valid response.
     """
-    session_gen = get_streamlit()
-    session = next(session_gen)
-    with session.begin():
-        query = select(UserToken).filter_by(user_id=user_id)
-        data = session.execute(query).scalars().first()
-    session.close()
-    return data
+    return await restore_backend_session(host=host, refresh_token=refresh_token)
 
 
 def get_date_range(days, period='days', months=3):
@@ -109,10 +124,12 @@ async def fetch_data(
         dict: JSON payload from API, or error payload on failure.
     """
     try:
-        user = get_user(st.session_state._user_id)
+        access_token = get_access_token()
+        if not access_token:
+            return {"message": "Session invalid. Please log in again."}
         url = f"{host}/api/{uri}"
         headers = {
-            "Authorization": f"Bearer {user.access_token}",
+            "Authorization": f"Bearer {access_token}",
         }
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.request(
@@ -122,6 +139,22 @@ async def fetch_data(
                 params=params,
                 json=json_payload,
             )
+            if response.status_code == 401 and st.session_state.get("refresh_token"):
+                refreshed_payload = await refresh_backend_tokens(
+                    host=host,
+                    refresh_token=st.session_state["refresh_token"],
+                )
+                if refreshed_payload and refreshed_payload.get("success"):
+                    st.session_state.access_token = refreshed_payload.get("access_token")
+                    st.session_state.refresh_token = refreshed_payload.get("refresh_token")
+                    headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+                    response = await client.request(
+                        method=method.upper(),
+                        url=url,
+                        headers=headers,
+                        params=params,
+                        json=json_payload,
+                    )
             response.raise_for_status()  # Raise exception for HTTP errors (4xx, 5xx)
             return response.json()
         
@@ -717,44 +750,6 @@ def get_accounts(
     return df
 
 
-def get_session(session_id):
-    """Restore Streamlit state from persisted backend session.
-
-    Args:
-        session_id: Session identifier stored in browser cookie.
-
-    Returns:
-        UserToken | None: Matching session row if present.
-    """
-    session_generator = get_streamlit()
-    session = next(session_generator)
-    with session.begin():
-        query = select(UserToken).filter_by(session_id=session_id)
-        existing_data = session.execute(query)
-        user = existing_data.scalars().first()
-        if user != None:
-            if datetime.now() <= user.expiry and not user.is_revoked:
-                st.session_state.role = user.role
-                st.session_state.logged_in = user.logged_in
-                st.session_state._user_id = user.user_id
-                st.session_state.page = user.page
-            else:
-                user.is_revoked = True
-                user.logged_in = False
-                session.commit()
-                
-                cookie_controller.set("session_id", "", max_age=0)
-                del st.session_state.logged_in
-                del st.session_state.page
-                del st.session_state._user_id
-                del st.session_state.role
-                if "server_session" in st.session_state:
-                    del st.session_state.server_session
-                st.toast("Session is expired! Please Re Log In.")
-            session.close()
-        return user
-    
-
 def footer(st):
     """Render fixed footer element at the bottom of Streamlit page.
 
@@ -784,23 +779,24 @@ def footer(st):
     st.markdown(footer_html, unsafe_allow_html=True)
 
 
-async def logout(st, host, session_id):
+async def logout(st, host):
     """
     Handle logout button action and clear client/session state.
 
     Args:
         st: Streamlit module instance.
         host (str): Base URL of the API.
-        session_id: Persisted session identifier (currently unused in request payload).
     """
-    
     if st.button("Log Out", type="secondary", width="stretch"):
         with st.spinner("Logging out..."):
             try:
-                user = get_user(st.session_state._user_id)
+                access_token = get_access_token()
+                if not access_token:
+                    st.error("Session invalid. Please log in again.")
+                    return
                 headers = {
                     'Content-Type': 'application/json',
-                    'Authorization': f"Bearer {user.access_token}"
+                    'Authorization': f"Bearer {access_token}"
                 }
                 async with httpx.AsyncClient(timeout=120) as client:
                     response = await client.post(f"{host}/api/logout", headers=headers)
@@ -809,13 +805,17 @@ async def logout(st, host, session_id):
                 
                 if data.get('success'):
                     # Clear session state
-                    cookie_controller.set("session_id", "", max_age=0)
+                    cookie_controller.set("refresh_token", "", max_age=0)
                     del st.session_state.logged_in
                     del st.session_state.page
                     del st.session_state._user_id
                     del st.session_state.role
-                    if "server_session" in st.session_state:
-                        del st.session_state.server_session
+                    if "access_token" in st.session_state:
+                        del st.session_state.access_token
+                    if "refresh_token" in st.session_state:
+                        del st.session_state.refresh_token
+                    if "session_id" in st.session_state:
+                        del st.session_state.session_id
                         
                     st.success("Logged out successfully!")
                     st.rerun()  # Redirect to login page (or home page)
@@ -887,13 +887,8 @@ def add_account_modal(host, token):
                                     "password": password,
                                     "confirm_password": confirm_password,
                                 },
-                                cookies={
-                                    "csrf_token": st.session_state.get("csrf_token", ""),
-                                    "session": st.session_state.get("server_session", ""),
-                                },
                                 headers={
-                                    "Authorization": f"Bearer {token.access_token}",
-                                    "X-CSRF-Token": st.session_state.csrf_token,
+                                    "Authorization": f"Bearer {token}",
                                 },
                             )
                             response_data = response.json()
@@ -951,7 +946,7 @@ def edit_account_modal(
             client.delete(
                 f"{host}/api/delete_account/{user.user_id}",
                 headers = {
-                    "Authorization": f"Bearer {token.access_token}"
+                    "Authorization": f"Bearer {token}"
                 }
             )
             st.rerun()

@@ -41,12 +41,13 @@ class CampaignData:
     """
 
     def __init__(self, session: AsyncSession, from_date: date, to_date: date) -> None:
-        """Initialize campaign data container.
+        """Initialize the campaign analytics service and its cache placeholders.
 
         Args:
-            session (AsyncSession): Database session used for all queries.
-            from_date (date): Start date for the default in-memory data window.
-            to_date (date): End date for the default in-memory data window.
+            session (AsyncSession): Database session used for all ads and
+                deposit reads.
+            from_date (date): Inclusive start date for the preload window.
+            to_date (date): Inclusive end date for the preload window.
         """
         self.session = session
         self.from_date = from_date
@@ -73,11 +74,11 @@ class CampaignData:
         return instance
 
     async def _fetch_data(self) -> None:
-        """Load all default source tables into instance caches.
+        """Preload all source dataframes for the initialized date window.
 
         Returns:
-            None: Populates ``df_google``, ``df_facebook``, ``df_tiktok``,
-            and ``df_depo`` as side effects.
+            None: Populates the in-memory Google, Facebook, TikTok, and
+            deposit caches used by later chart and summary builders.
         """
         self.df_google = await self._read_ads_db(GoogleAds)
         self.df_facebook = await self._read_ads_db(FacebookAds)
@@ -85,13 +86,15 @@ class CampaignData:
         self.df_depo = await self._read_depo_db()
 
     async def _read_ads_db(self, model: type[AdsModel]) -> pd.DataFrame:
-        """Read aggregated ads data for one model using base date window.
+        """Read one ads source using the service's initialized date window.
 
         Args:
-            model (type[AdsModel]): Ads ORM model to query.
+            model (type[AdsModel]): SQLAlchemy ads model for the platform being
+                loaded.
 
         Returns:
-            pd.DataFrame: Aggregated rows in ``self.from_date`` to ``self.to_date``.
+            pd.DataFrame: Aggregated ads rows for ``self.from_date`` through
+            ``self.to_date`` with campaign metadata attached.
         """
         return await self._read_ads_db_with_range(
             model=model,
@@ -105,15 +108,17 @@ class CampaignData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Read aggregated ads data for one model in an arbitrary date range.
+        """Read grouped ads rows for one platform over any requested window.
 
         Args:
-            model (type[AdsModel]): Ads ORM model to query.
-            from_date (date): Inclusive start date.
-            to_date (date): Inclusive end date.
+            model (type[AdsModel]): SQLAlchemy ads model to query.
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
 
         Returns:
-            pd.DataFrame: Aggregated ads rows with campaign metadata.
+            pd.DataFrame: Daily ads aggregates keyed by campaign/ad hierarchy
+            plus campaign source/type metadata. Returns a placeholder dataframe
+            when no records exist so downstream code can keep a stable schema.
         """
         query = (
             select(
@@ -152,10 +157,11 @@ class CampaignData:
         return df
 
     async def _read_depo_db(self) -> pd.DataFrame:
-        """Read deposit records joined with campaign metadata.
+        """Read deposit rows for the base window together with campaign metadata.
 
         Returns:
-            pd.DataFrame: Deposit records for the base window.
+            pd.DataFrame: Deposit dataframe covering the initialized date range,
+            including campaign source/type fields used for UA and BA reporting.
         """
         query = (
             select(
@@ -182,10 +188,11 @@ class CampaignData:
         return df
 
     def _empty_ads_frame(self) -> pd.DataFrame:
-        """Build fallback ads DataFrame when no rows are available.
+        """Build a placeholder ads dataframe with the expected output schema.
 
         Returns:
-            pd.DataFrame: Single-row placeholder dataset with zero metrics.
+            pd.DataFrame: Single-row zero-value dataset used to preserve schema
+            compatibility when a query returns no ads rows.
         """
         return pd.DataFrame(
             {
@@ -204,10 +211,11 @@ class CampaignData:
         )
 
     def _empty_depo_frame(self) -> pd.DataFrame:
-        """Build fallback deposit DataFrame when no rows are available.
+        """Build a placeholder deposit dataframe with stable column names.
 
         Returns:
-            pd.DataFrame: Single-row placeholder dataset with default values.
+            pd.DataFrame: Single-row default dataset used when no deposit rows
+            exist for the requested base window.
         """
         return pd.DataFrame(
             {
@@ -223,10 +231,11 @@ class CampaignData:
         )
     
     def _ads_frame_map(self) -> dict[str, pd.DataFrame]:
-        """Map logical source keys to in-memory ads DataFrames.
+        """Expose the cached ads dataframes behind normalized source keys.
 
         Returns:
-            dict[str, pd.DataFrame]: Source-to-dataframe mapping.
+            dict[str, pd.DataFrame]: Mapping used by higher-level helpers to
+            resolve ``google``, ``facebook``, or ``tiktok`` into cached frames.
         """
         return {
             "google": self.df_google,
@@ -236,10 +245,11 @@ class CampaignData:
 
     @staticmethod
     def _ads_model_map() -> dict[str, type[AdsModel]]:
-        """Map logical source keys to SQLAlchemy ads models.
+        """Map normalized source keys to their underlying ORM models.
 
         Returns:
-            dict[str, type[AdsModel]]: Source-to-model mapping.
+            dict[str, type[AdsModel]]: Lookup table used when a helper needs to
+            bypass cache and re-query one ads platform for a custom window.
         """
         return {
             "google": GoogleAds,
@@ -249,14 +259,15 @@ class CampaignData:
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Compute previous date window with identical duration.
+        """Compute the immediately preceding comparison window of equal length.
 
         Args:
-            from_date (date): Inclusive start of current period.
-            to_date (date): Inclusive end of current period.
+            from_date (date): Inclusive current-period start date.
+            to_date (date): Inclusive current-period end date.
 
         Returns:
-            tuple[date, date]: ``(previous_from, previous_to)``.
+            tuple[date, date]: Previous-period ``(from_date, to_date)`` pair
+            with the same number of days as the current window.
         """
         period_days = (to_date - from_date).days + 1
         previous_to = from_date - timedelta(days=1)
@@ -265,14 +276,16 @@ class CampaignData:
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float | None:
-        """Compute percentage growth against previous value.
+        """Compute period-over-period growth with a zero-baseline safeguard.
 
         Args:
-            current_value (float): Current period value.
-            previous_value (float): Previous period value.
+            current_value (float): Current-period metric value.
+            previous_value (float): Previous-period metric value.
 
         Returns:
-            float | None: Percentage growth rounded to 2 decimals.
+            float | None: Growth percentage rounded to 2 decimals. Returns
+            ``100.0`` when the current period is positive and the previous
+            period is zero, or ``0.0`` when both periods are zero.
         """
         if previous_value == 0:
             if current_value == 0:
@@ -282,13 +295,15 @@ class CampaignData:
 
     @staticmethod
     def _serialize_daily_rows(daily: pd.DataFrame) -> list[dict[str, object]]:
-        """Convert daily dataframe rows to JSON-serializable dictionaries.
+        """Convert a pandas daily dataframe into API-safe row dictionaries.
 
         Args:
-            daily (pd.DataFrame): Daily aggregated dataframe.
+            daily (pd.DataFrame): Daily aggregated dataframe with a ``date``
+                column that may still contain pandas date-like values.
 
         Returns:
-            list[dict[str, object]]: Record list with stringified ``date``.
+            list[dict[str, object]]: Row dictionaries with ISO-style string
+            dates so the payload can be serialized directly to JSON.
         """
         if daily.empty:
             return []
@@ -302,18 +317,21 @@ class CampaignData:
         from_date: date,
         to_date: date,
     ) -> pd.DataFrame:
-        """Build daily source-level aggregates for cost/clicks/leads.
+        """Build one source's daily totals with spend-to-lead efficiency fields.
 
         Args:
-            data (str): Source key (`google`, `facebook`, `tiktok`).
-            from_date (date): Inclusive start date.
-            to_date (date): Inclusive end date.
+            data (str): Source key (``google``, ``facebook``, or ``tiktok``).
+            from_date (date): Inclusive start date for the requested view.
+            to_date (date): Inclusive end date for the requested view.
 
         Returns:
-            pd.DataFrame: Daily aggregated metrics including ratio columns.
+            pd.DataFrame: Daily aggregated metrics containing spend, clicks,
+            leads, and derived ratio columns such as ``cost_leads`` and
+            ``clicks_leads``.
 
         Raises:
-            ValueError: If the source key is unsupported.
+            ValueError: Raised when the source key does not match a supported
+            ads platform.
         """
         source = data.strip().lower()
         frames = self._ads_frame_map()

@@ -14,6 +14,10 @@ from google.oauth2.service_account import Credentials as ServiceAccountCredentia
 from googleapiclient.discovery import build
 import httpx
 
+from app.core.security import decrypt_secret
+from app.db.models.external_api import ManagedSecret
+from app.db.session import sqlite_async_session
+
 
 class ExternalApiExtractor:
     """Extract raw payloads from active ETL sources.
@@ -119,10 +123,20 @@ class ExternalApiExtractor:
         normalized = str(value or "").strip().replace("-", "")
         return normalized or None
 
-    def _build_google_ads_client(self) -> GoogleAdsClient | None:
+    async def _load_managed_secret(self, secret_key: str) -> str:
+        """Load and decrypt a managed secret from backend storage when present."""
+        async with sqlite_async_session() as session:
+            stored_secret = await session.get(ManagedSecret, secret_key)
+            if stored_secret is None:
+                return ""
+            return decrypt_secret(stored_secret.secret_value).strip()
+
+    async def _build_google_ads_client(self) -> GoogleAdsClient | None:
         """Create Google Ads API client from environment variables when configured."""
         developer_token = config("GOOGLE_ADS_DEVELOPER_TOKEN", default="", cast=str).strip()
-        refresh_token = config("GOOGLE_ADS_REFRESH_TOKEN", default="", cast=str).strip()
+        refresh_token = await self._load_managed_secret("google_ads_refresh_token")
+        if not refresh_token:
+            refresh_token = config("GOOGLE_ADS_REFRESH_TOKEN", default="", cast=str).strip()
         client_id = config("GOOGLE_ADS_CLIENT_ID", default="", cast=str).strip()
         client_secret = config("GOOGLE_ADS_CLIENT_SECRET", default="", cast=str).strip()
         if not all([developer_token, refresh_token, client_id, client_secret]):
@@ -234,7 +248,7 @@ class ExternalApiExtractor:
     async def fetch_google_ads_metrics(self, start_date: date, end_date: date) -> list[dict]:
         """Fetch Google Ads metrics by ad for the requested date range."""
         if self.google_ads_client is None:
-            self.google_ads_client = self._build_google_ads_client()
+            self.google_ads_client = await self._build_google_ads_client()
 
         if self.google_ads_client is None or not self.google_ads_customer_id:
             raise ValueError(

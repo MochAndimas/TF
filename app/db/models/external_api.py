@@ -316,3 +316,15 @@ class StgAdsRaw(SqliteBase):
     payload = Column("payload", JSON, nullable=False)
     payload_hash = Column("payload_hash", String, nullable=False)
     ingested_at = Column("ingested_at", DateTime, nullable=False)
+
+
+class ManagedSecret(SqliteBase):
+    """Encrypted application secret persisted in backend storage."""
+
+    __tablename__ = "managed_secret"
+
+    secret_key = Column("secret_key", String, primary_key=True)
+    secret_value = Column("secret_value", String, nullable=False)
+    description = Column("description", String, nullable=True)
+    created_at = Column("created_at", DateTime, nullable=False)
+    updated_at = Column("updated_at", DateTime, nullable=False)

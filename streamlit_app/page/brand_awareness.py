@@ -14,7 +14,6 @@ from streamlit_app.functions.utils import (
     campaign_figure_from_payload,
     campaign_preset_ranges,
     fetch_data,
-    get_user,
     render_brand_awareness_metric_cards,
 )
 
@@ -201,8 +200,7 @@ async def show_brand_awareness_page(host: str) -> None:
         or st.session_state.get("brand_awareness_range") != selected_range
     )
     if should_fetch:
-        token_data = get_user(st.session_state._user_id)
-        if token_data is None or not getattr(token_data, "access_token", None):
+        if not st.session_state.get("access_token"):
             st.error("Session invalid. Please log in again.")
             return
 

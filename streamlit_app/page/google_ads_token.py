@@ -5,26 +5,17 @@ from __future__ import annotations
 import streamlit as st
 from decouple import config as env
 
-def _load_client_config() -> dict | None:
-    """Load OAuth client configuration from environment variables only."""
-    client_id = env("GOOGLE_ADS_CLIENT_ID", default="", cast=str).strip()
-    client_secret = env("GOOGLE_ADS_CLIENT_SECRET", default="", cast=str).strip()
-    if client_id and client_secret:
-        return {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [],
-            }
-        }
-
-    return None
-
-
 def _default_redirect_uri() -> str:
-    """Resolve default redirect URI for the current Streamlit app."""
+    """Resolve the callback URI users should register in Google Cloud.
+
+    The helper mirrors backend callback resolution so the Streamlit helper page
+    can display the same expected redirect target the FastAPI OAuth endpoint
+    uses during the Google consent flow.
+
+    Returns:
+        str: Fully qualified callback URL pointing to
+        ``/api/google-ads/oauth/callback`` on the configured backend host.
+    """
     configured_redirect = env("GOOGLE_ADS_REDIRECT_URI", default="", cast=str).strip()
     if configured_redirect:
         return configured_redirect
@@ -39,7 +30,13 @@ def _default_redirect_uri() -> str:
 
 
 def _oauth_start_url() -> str:
-    """Resolve backend URL that initiates the OAuth flow."""
+    """Resolve the backend endpoint that starts the Google OAuth redirect.
+
+    Returns:
+        str: Fully qualified URL for ``/api/google-ads/oauth/start`` on the
+        current backend host, used by the Streamlit page's primary action
+        button.
+    """
     backend_public_url = env("BACKEND_PUBLIC_URL", default="", cast=str).strip()
     if backend_public_url:
         return f"{backend_public_url.rstrip('/')}/api/google-ads/oauth/start"
@@ -51,14 +48,30 @@ def _oauth_start_url() -> str:
 
 
 async def show_google_ads_token_page(host: str) -> None:
-    """Render Google Ads OAuth helper page."""
+    """Render the operational helper page for Google Ads OAuth setup.
+
+    This page does not handle the token exchange itself. Instead, it educates
+    the operator about the expected redirect URI and launches the backend-owned
+    OAuth start endpoint so the refresh token can be stored server-side without
+    ever being rendered back into the Streamlit UI.
+
+    Args:
+        host (str): Backend host passed by the main Streamlit dispatcher. The
+            current implementation derives display/start URLs from environment
+            settings instead, so the value is intentionally unused here.
+
+    Returns:
+        None: Writes Streamlit content and navigation controls as UI side
+        effects.
+    """
     del host
 
     st.title("Google Ads Refresh Token")
     st.caption("Page ini memulai Google OAuth via backend callback supaya query callback tidak hilang di Streamlit.")
 
-    client_config = _load_client_config()
-    if client_config is None:
+    client_id = env("GOOGLE_ADS_CLIENT_ID", default="", cast=str).strip()
+    client_secret = env("GOOGLE_ADS_CLIENT_SECRET", default="", cast=str).strip()
+    if not client_id or not client_secret:
         st.error(
             "OAuth client config tidak ditemukan. Set "
             "`GOOGLE_ADS_CLIENT_ID` dan `GOOGLE_ADS_CLIENT_SECRET`."
@@ -92,5 +105,5 @@ async def show_google_ads_token_page(host: str) -> None:
         st.code(start_url, language="text")
 
     st.caption(
-        "Sesudah approve access, Google akan redirect ke endpoint backend callback dan refresh token akan tampil di sana."
+        "Sesudah approve access, Google akan redirect ke endpoint backend callback dan token akan disimpan di backend tanpa ditampilkan ke UI."
     )

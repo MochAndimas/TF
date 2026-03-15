@@ -7,7 +7,8 @@ Traders Family application.
 import httpx
 import streamlit as st
 from datetime import datetime, timedelta
-from streamlit_app.functions.utils import cookie_controller, get_user
+from urllib.parse import urlparse
+from streamlit_app.functions.utils import cookie_controller
 
 LOGIN_STYLE = """
 <style>
@@ -63,39 +64,19 @@ def _extract_error_message(payload: dict, default: str) -> str:
     return payload.get("detail") or payload.get("message") or default
 
 
-async def _request_csrf_token(
-    client: httpx.AsyncClient,
-    host: str,
-    email: str,
-    password: str,
-) -> tuple[str | None, str | None, str | None]:
-    """Initialize CSRF/login cookies before the actual login request.
-
-    Args:
-        client (httpx.AsyncClient): Shared HTTP client used for auth requests.
-        host (str): Backend API base URL.
-        email (str): Submitted login email.
-        password (str): Submitted login password.
-
-    Returns:
-        tuple[str | None, str | None, str | None]: Tuple containing
-        ``(csrf_token, server_session, error_message)``.
-    """
-    response = await client.post(
-        f"{host}/api/login/csrf-token",
-        data={"username": email, "password": password},
-    )
-    payload = response.json() if response.content else {}
-
-    if response.status_code >= 400:
-        return None, None, _extract_error_message(payload, "Failed to initialize CSRF token.")
-
-    csrf_token = response.cookies.get("csrf_token") or client.cookies.get("csrf_token")
-    server_session = response.cookies.get("session") or client.cookies.get("session")
-    if not csrf_token:
-        return None, None, "CSRF token initialization failed. Please try again."
-
-    return csrf_token, server_session, None
+def _cookie_options_from_host(host_url: str) -> dict[str, object]:
+    """Build cookie options that behave correctly for localhost and HTTPS hosts."""
+    parsed = urlparse(host_url)
+    hostname = parsed.hostname
+    secure = parsed.scheme == "https"
+    options: dict[str, object] = {
+        "path": "/",
+        "same_site": "strict",
+        "secure": secure,
+    }
+    if hostname and hostname not in {"localhost", "127.0.0.1"}:
+        options["domain"] = hostname
+    return options
 
 
 async def _request_login(
@@ -103,32 +84,21 @@ async def _request_login(
     host: str,
     email: str,
     password: str,
-    csrf_token: str,
-    server_session: str | None = None,
 ) -> tuple[dict, httpx.Response]:
-    """Send the authenticated login request after CSRF initialization.
+    """Send the authenticated login request.
 
     Args:
         client (httpx.AsyncClient): Shared HTTP client used for auth requests.
         host (str): Backend API base URL.
         email (str): Submitted login email.
         password (str): Submitted login password.
-        csrf_token (str): CSRF token returned by the initialization request.
-        server_session (str | None): Optional server-side session cookie value.
-
     Returns:
         tuple[dict, httpx.Response]: Parsed JSON payload plus the raw HTTP
         response object so the caller can inspect headers and cookies.
     """
-    request_cookies = {"csrf_token": csrf_token}
-    if server_session:
-        request_cookies["session"] = server_session
-
     response = await client.post(
         f"{host}/api/login",
         data={"username": email, "password": password},
-        cookies=request_cookies,
-        headers={"X-CSRF-Token": csrf_token},
     )
     payload = response.json() if response.content else {}
     return payload, response
@@ -172,23 +142,11 @@ async def show_login_page(host):
     with st.spinner("Signing in..."):
         try:
             async with httpx.AsyncClient(timeout=120) as client:
-                csrf_token, server_session, csrf_error = await _request_csrf_token(
-                    client=client,
-                    host=host,
-                    email=email,
-                    password=password,
-                )
-                if csrf_error:
-                    st.error(csrf_error)
-                    return
-
                 login_payload, response = await _request_login(
                     client=client,
                     host=host,
                     email=email,
                     password=password,
-                    csrf_token=csrf_token,
-                    server_session=server_session,
                 )
         except httpx.RequestError as error:
             st.error(f"Unable to reach authentication service: {error}")
@@ -198,32 +156,28 @@ async def show_login_page(host):
         st.error(_extract_error_message(login_payload, "Invalid email or password."))
         return
 
-    user_id = response.headers.get("Authentication")
-    if not user_id:
+    user_id = login_payload.get("user_id") or response.headers.get("Authentication")
+    access_token = login_payload.get("access_token")
+    refresh_token = login_payload.get("refresh_token")
+    if not user_id or not access_token or not refresh_token:
         st.error("Login response is incomplete. Please try again.")
-        return
-
-    user = get_user(user_id)
-    if user is None:
-        st.error("Session record not found. Please try again.")
         return
 
     st.session_state.role = login_payload.get("role")
     st.session_state.logged_in = True
     st.session_state.page = "home"
     st.session_state._user_id = user_id
-    st.session_state.csrf_token = csrf_token
-    st.session_state.server_session = server_session
+    st.session_state.access_token = access_token
+    st.session_state.refresh_token = refresh_token
+    st.session_state.session_id = login_payload.get("session_id")
 
     if remember:
+        cookie_options = _cookie_options_from_host(st.secrets["api"]["HOST"])
         cookie_controller.set(
-            name="session_id",
-            value=user.session_id,
-            path="/",
+            name="refresh_token",
+            value=refresh_token,
             expires=datetime.now() + timedelta(days=7),
-            domain=st.secrets["api"]["HOST"],
-            same_site="strict",
-            secure=True,
+            **cookie_options,
         )
 
     st.rerun()

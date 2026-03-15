@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
-from app.utils.user_utils import get_current_user
+from app.utils.user_utils import get_current_user, require_roles
 from app.db.models.user import TfUser
 from app.schemas.feature import UpdateData, UpdateDataResponse, UpdateDataStatusResponse
 from app.etl.job_runner import execute_update_job, resolve_run_window
@@ -41,6 +41,11 @@ async def update_data(
     Raises:
         HTTPException: Raised when source type is invalid or update process fails.
     """
+    try:
+        require_roles(current_user, "admin", "superadmin")
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
     try:
         start_date = response.start_date
         end_date = response.end_date
@@ -111,6 +116,11 @@ async def update_data_status(
     Raises:
         HTTPException: ``404`` when run identifier is not found.
     """
+    try:
+        require_roles(current_user, "admin", "superadmin")
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+
     result = await session.execute(select(EtlRun).where(EtlRun.run_id == run_id))
     run = result.scalar_one_or_none()
     if run is None:

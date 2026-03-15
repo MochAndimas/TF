@@ -8,7 +8,7 @@ import asyncio
 import datetime as dt
 import httpx
 import streamlit as st
-from streamlit_app.functions.utils import get_date_range, get_user
+from streamlit_app.functions.utils import get_date_range
 
 
 DATA_SOURCE_OPTIONS = {
@@ -159,8 +159,8 @@ async def show_update_page(host):
         st.warning("Please provide a valid date range.")
         return
 
-    user = get_user(st.session_state._user_id)
-    if not user or not getattr(user, "access_token", None):
+    access_token = st.session_state.get("access_token")
+    if not access_token:
         st.error("Session is invalid. Please log in again.")
         return
 
@@ -176,7 +176,7 @@ async def show_update_page(host):
             async with httpx.AsyncClient(timeout=600) as client:
                 response = await client.post(
                     f"{host}/api/feature-data/update-external-api",
-                    headers={"Authorization": f"Bearer {user.access_token}"},
+                    headers={"Authorization": f"Bearer {access_token}"},
                     json=payload,
                 )
 
@@ -207,7 +207,7 @@ async def show_update_page(host):
                 while elapsed < max_wait_seconds:
                     status_response = await client.get(
                         status_url,
-                        headers={"Authorization": f"Bearer {user.access_token}"},
+                        headers={"Authorization": f"Bearer {access_token}"},
                     )
                     status_data = status_response.json() if status_response.content else {}
                     if status_response.status_code >= 400:

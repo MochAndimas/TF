@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import html
+from datetime import datetime
 
 from decouple import config as env
-from fastapi import APIRouter, HTTPException, Query
+import secrets
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
+
+from app.core.security import encrypt_secret
+from app.db.models.external_api import ManagedSecret
+from app.db.session import sqlite_async_session
 
 router = APIRouter()
 
@@ -57,7 +64,7 @@ def _build_flow(state: str | None = None) -> Flow:
 
 def _html_page(title: str, body: str) -> HTMLResponse:
     """Render a minimal HTML result page."""
-    return HTMLResponse(
+    response = HTMLResponse(
         f"""
         <!doctype html>
         <html lang="en">
@@ -108,10 +115,14 @@ def _html_page(title: str, body: str) -> HTMLResponse:
         </html>
         """
     )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @router.get("/api/google-ads/oauth/callback", response_class=HTMLResponse)
 async def google_ads_oauth_callback(
+    request: Request,
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
@@ -123,12 +134,18 @@ async def google_ads_oauth_callback(
     if not code:
         return _html_page("Google Ads OAuth", "<p>Authorization code was not provided.</p>")
 
+    expected_state = request.session.get("google_ads_oauth_state")
+    if not state or not expected_state or not secrets.compare_digest(state, expected_state):
+        return _html_page("Google Ads OAuth Error", "<p>OAuth state validation failed.</p>")
+
     try:
         flow = _build_flow(state=state)
         flow.fetch_token(code=code)
         credentials = flow.credentials
     except Exception as exc:
         return _html_page("Google Ads OAuth Error", f"<p>{html.escape(str(exc))}</p>")
+    finally:
+        request.session.pop("google_ads_oauth_state", None)
 
     refresh_token = credentials.refresh_token
     if not refresh_token:
@@ -140,24 +157,42 @@ async def google_ads_oauth_callback(
             ),
         )
 
-    escaped_token = html.escape(refresh_token)
-    escaped_env = html.escape(f"GOOGLE_ADS_REFRESH_TOKEN={refresh_token}")
+    async with sqlite_async_session() as session:
+        existing_secret = await session.get(ManagedSecret, "google_ads_refresh_token")
+        now = datetime.now()
+        if existing_secret is None:
+            session.add(
+                ManagedSecret(
+                    secret_key="google_ads_refresh_token",
+                    secret_value=encrypt_secret(refresh_token),
+                    description="Google Ads OAuth refresh token",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        else:
+            existing_secret.secret_value = encrypt_secret(refresh_token)
+            existing_secret.updated_at = now
+        await session.commit()
+
     return _html_page(
-        "Google Ads Refresh Token",
+        "Google Ads OAuth",
         (
-            "<p>Refresh token berhasil dibuat. Simpan nilai ini ke file <code>.env</code>.</p>"
-            f"<pre>{escaped_token}</pre>"
-            f"<pre>{escaped_env}</pre>"
+            "<p>OAuth berhasil. Refresh token sudah disimpan aman di backend storage.</p>"
+            "<p>UI ini sengaja tidak menampilkan token mentah.</p>"
             '<p><a href="http://localhost:5504">Back to dashboard</a></p>'
         ),
     )
 
 
 @router.get("/api/google-ads/oauth/start")
-async def google_ads_oauth_start():
+async def google_ads_oauth_start(request: Request):
     """Start Google Ads OAuth flow and redirect browser to Google consent."""
     try:
-        flow = _build_flow()
+        oauth_state = secrets.token_urlsafe(32)
+        request.session["google_ads_oauth_state"] = oauth_state
+
+        flow = _build_flow(state=oauth_state)
         authorization_url, _state = flow.authorization_url(
             access_type="offline",
             prompt="consent",

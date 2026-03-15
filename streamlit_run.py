@@ -15,7 +15,12 @@ import streamlit as st
 from streamlit.components.v1 import html
 from decouple import config
 
-from streamlit_app.functions.utils import cookie_controller, footer, get_session, logout
+from streamlit_app.functions.utils import (
+    cookie_controller,
+    footer,
+    logout,
+    restore_backend_session,
+)
 from streamlit_app.page import (
     brand_awareness,
     deposit,
@@ -69,8 +74,8 @@ NAV_GROUPS: dict[str, list[str]] = {
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "google_ads_token"],
-    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "google_ads_token"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token"],
+    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
     "sales": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
 }
 
@@ -189,6 +194,9 @@ def _initialize_session_state() -> None:
         "page": "home",
         "logged_in": False,
         "role": None,
+        "access_token": None,
+        "refresh_token": None,
+        "session_id": None,
     }
     for key, default_value in defaults.items():
         if key not in st.session_state:
@@ -227,9 +235,26 @@ def _restore_login_state_from_cookie() -> None:
     if st.session_state.get("logged_in") and st.session_state.get("_user_id"):
         return
 
-    session_cookie = cookie_controller.get("session_id")
-    get_session(session_cookie)
-    _initialize_session_state()
+    refresh_cookie = cookie_controller.get("refresh_token")
+    remembered_refresh_token = refresh_cookie or None
+    if not remembered_refresh_token:
+        _initialize_session_state()
+        return
+
+    host = _resolve_host()
+    restored_payload = asyncio.run(restore_backend_session(host, remembered_refresh_token))
+    if not restored_payload or not restored_payload.get("success"):
+        cookie_controller.set("refresh_token", "", max_age=0)
+        _initialize_session_state()
+        return
+
+    st.session_state.logged_in = True
+    st.session_state.role = restored_payload.get("role")
+    st.session_state._user_id = restored_payload.get("user_id")
+    st.session_state.access_token = restored_payload.get("access_token")
+    st.session_state.refresh_token = restored_payload.get("refresh_token")
+    st.session_state.session_id = restored_payload.get("session_id")
+    st.session_state.page = st.session_state.get("page", "home")
 
 
 def _allowed_pages_for_role(role: str | None) -> list[str]:
@@ -261,7 +286,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
     st.session_state["allowed_pages"] = available_pages
     if not available_pages:
         st.warning("No page access configured for your account role.")
-        asyncio.run(logout(st, host, None))
+        asyncio.run(logout(st, host))
         return None
 
     with st.sidebar:
@@ -320,7 +345,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
 
         st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="tf-nav-title">Session</div>', unsafe_allow_html=True)
-        asyncio.run(logout(st, host, None))
+        asyncio.run(logout(st, host))
         return selected_page
 
 

@@ -90,3 +90,32 @@ class LogData(SqliteBase):
     status = Column("status", Integer, nullable=False)
     response = Column("response", JSON, nullable=False)
     created_at = Column(DateTime, nullable=False)
+
+
+class LoginThrottle(SqliteBase):
+    """Track failed login attempts and temporary account lockout state."""
+
+    __tablename__ = "login_throttle"
+
+    email = Column("email", String, primary_key=True)
+    failed_attempts = Column("failed_attempts", Integer, nullable=False, default=0)
+    locked_until = Column("locked_until", DateTime, nullable=True)
+    last_failed_at = Column("last_failed_at", DateTime, nullable=True)
+    created_at = Column("created_at", DateTime, nullable=False)
+    updated_at = Column("updated_at", DateTime, nullable=False)
+
+
+class AuthAuditEvent(SqliteBase):
+    """Persist security-relevant authentication audit events."""
+
+    __tablename__ = "auth_audit_event"
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    email = Column("email", String, nullable=False)
+    user_id = Column("user_id", String, nullable=True)
+    event_type = Column("event_type", String, nullable=False)
+    success = Column("success", Boolean, nullable=False)
+    ip_address = Column("ip_address", String, nullable=True)
+    user_agent = Column("user_agent", String, nullable=True)
+    detail = Column("detail", String, nullable=True)
+    created_at = Column("created_at", DateTime, nullable=False)
