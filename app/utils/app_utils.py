@@ -31,6 +31,7 @@ from app.api.v1.endpoint.campaign import router as campaign_router
 from app.api.v1.endpoint.deposit import router as deposit_router
 from app.api.v1.endpoint.feature import router as feature_router
 from app.api.v1.endpoint.google_ads_oauth import router as google_ads_oauth_router
+from app.api.v1.endpoint.meta_ads_token import router as meta_ads_token_router
 from app.api.v1.endpoint.overview import router as overview_router
 from app.core.config import settings
 from app.core.security import pwd_context
@@ -64,6 +65,7 @@ class FastApiApp:
         "/api/token/refresh",
         "/api/google-ads/oauth/callback",
         "/api/google-ads/oauth/start",
+        "/api/meta-ads/token/exchange",
     }
     SENSITIVE_RESPONSE_FIELDS = {
         "access_token",
@@ -406,6 +408,7 @@ class FastApiApp:
         """
         self.app.include_router(auth_router, tags=["Authentication"])
         self.app.include_router(google_ads_oauth_router, tags=["Google Ads OAuth"])
+        self.app.include_router(meta_ads_token_router, tags=["Meta Ads Token"])
         self.app.include_router(feature_router, tags=["Update Data"])
         self.app.include_router(overview_router, tags=["Overview Analytics"])
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])

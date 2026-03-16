@@ -13,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import SqliteBase
 from app.db.models.external_api import Campaign, DataDepo, GoogleAds
+from app.etl.extract import ExternalApiExtractor
 from app.etl.load import build_first_deposit_rows, upsert_ads_rows, upsert_first_deposit_rows
 from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataframe
 from app.etl.transform import dedupe_ads_dataframe, parse_ads_dataframe, parse_first_deposit_dataframe
@@ -124,6 +125,45 @@ class TestEtlQuality(TestCase):
         self.assertEqual(int(row["impressions"]), 100)
         self.assertEqual(int(row["clicks"]), 5)
         self.assertEqual(int(row["leads"]), 2)
+
+    def test_meta_action_lead_extraction_sums_matching_action_types(self):
+        leads = ExternalApiExtractor._extract_meta_leads(
+            [
+                {"action_type": "lead", "value": "2"},
+                {"action_type": "onsite_conversion.lead_grouped", "value": "3"},
+                {"action_type": "link_click", "value": "10"},
+                {"action_type": "offsite_conversion.fb_pixel_lead", "value": "1"},
+            ]
+        )
+        self.assertEqual(leads, 6)
+
+    def test_parse_ads_dataframe_accepts_meta_ads_api_payload(self):
+        df = parse_ads_dataframe(
+            [
+                {
+                    "date": "2026-01-11",
+                    "campaign_id": "2387000001",
+                    "campaign_name": "FB - UA - Test",
+                    "ad_group": "Adset Prospecting",
+                    "ad_name": "Creative 1",
+                    "cost": 27.4,
+                    "impressions": 1200,
+                    "clicks": 30,
+                    "leads": 4,
+                }
+            ]
+        )
+        self.assertEqual(len(df), 1)
+        row = df.iloc[0]
+        self.assertEqual(row["date"], date(2026, 1, 11))
+        self.assertEqual(row["campaign_id"], "2387000001")
+        self.assertEqual(row["campaign_name"], "FB - UA - Test")
+        self.assertEqual(row["ad_group"], "Adset Prospecting")
+        self.assertEqual(row["ad_name"], "Creative 1")
+        self.assertEqual(float(row["cost"]), 27.4)
+        self.assertEqual(int(row["impressions"]), 1200)
+        self.assertEqual(int(row["clicks"]), 30)
+        self.assertEqual(int(row["leads"]), 4)
 
     def test_parse_first_deposit_dataframe_maps_optional_fields(self):
         df = parse_first_deposit_dataframe(

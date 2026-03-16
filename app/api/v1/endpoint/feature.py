@@ -42,7 +42,7 @@ async def update_data(
         HTTPException: Raised when source type is invalid or update process fails.
     """
     try:
-        require_roles(current_user, "admin", "superadmin")
+        require_roles(current_user, "superadmin")
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
 
@@ -117,7 +117,7 @@ async def update_data_status(
         HTTPException: ``404`` when run identifier is not found.
     """
     try:
-        require_roles(current_user, "admin", "superadmin")
+        require_roles(current_user, "superadmin")
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
 

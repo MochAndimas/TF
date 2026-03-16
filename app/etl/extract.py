@@ -69,6 +69,10 @@ class ExternalApiExtractor:
         self.google_ads_login_customer_id = self._normalize_customer_id(
             config("GOOGLE_ADS_LOGIN_CUSTOMER_ID", default="", cast=str)
         )
+        self.meta_app_id = config("META_APP_ID", default="", cast=str).strip() or None
+        self.meta_app_secret = config("META_APP_SECRET", default="", cast=str).strip() or None
+        self.meta_api_version = config("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
+        self.meta_ad_id = config("META_AD_ID", default="", cast=str).strip() or None
         self.google_ads_client = None
 
     @staticmethod
@@ -122,6 +126,16 @@ class ExternalApiExtractor:
         """Normalize a Google Ads customer identifier by removing separators."""
         normalized = str(value or "").strip().replace("-", "")
         return normalized or None
+
+    @staticmethod
+    def _normalize_meta_ad_account_id(value: str | None) -> str | None:
+        """Normalize Meta ad account ID into ``act_<id>`` form."""
+        normalized = str(value or "").strip()
+        if not normalized:
+            return None
+        if normalized.startswith("act_"):
+            return normalized
+        return f"act_{normalized}"
 
     async def _load_managed_secret(self, secret_key: str) -> str:
         """Load and decrypt a managed secret from backend storage when present."""
@@ -337,6 +351,95 @@ class ExternalApiExtractor:
             return parsed_rows
 
         return await asyncio.to_thread(_request)
+
+    @staticmethod
+    def _extract_meta_leads(actions: list[dict] | None) -> int:
+        """Extract a best-effort lead total from Meta Insights actions payload."""
+        if not actions:
+            return 0
+
+        lead_total = 0.0
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            action_type = str(action.get("action_type") or "").strip().lower()
+            if not action_type or "lead" not in action_type:
+                continue
+            try:
+                lead_total += float(action.get("value") or 0)
+            except (TypeError, ValueError):
+                continue
+        return int(round(lead_total))
+
+    async def fetch_facebook_ads_metrics(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Meta Ads Insights metrics by ad for the requested date range."""
+        meta_ad_account_id = self._normalize_meta_ad_account_id(self.meta_ad_id)
+        access_token = await self._load_managed_secret("meta_ads_access_token")
+        if not access_token:
+            access_token = config("META_ACCESS_TOKEN", default="", cast=str).strip()
+
+        if not meta_ad_account_id or not access_token:
+            raise ValueError(
+                "Meta Ads credentials are not fully configured. "
+                "Required env vars: META_AD_ID and stored `meta_ads_access_token` "
+                "or fallback `META_ACCESS_TOKEN`."
+            )
+
+        fields = ",".join(
+            [
+                "date_start",
+                "date_stop",
+                "campaign_id",
+                "campaign_name",
+                "adset_name",
+                "ad_name",
+                "spend",
+                "impressions",
+                "clicks",
+                "actions",
+            ]
+        )
+        params = {
+            "access_token": access_token,
+            "level": "ad",
+            "time_increment": 1,
+            "action_attribution_windows": json.dumps(
+                ["7d_click", "1d_view", "1d_ev"],
+                separators=(",", ":"),
+            ),
+            "time_range": json.dumps(
+                {"since": start_date.isoformat(), "until": end_date.isoformat()},
+                separators=(",", ":"),
+            ),
+            "fields": fields,
+            "limit": 500,
+        }
+        request_url = f"https://graph.facebook.com/{self.meta_api_version}/{meta_ad_account_id}/insights"
+        parsed_rows: list[dict] = []
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            while request_url:
+                response = await client.get(request_url, params=params if request_url.endswith("/insights") else None)
+                response.raise_for_status()
+                payload = response.json()
+                for row in payload.get("data", []):
+                    parsed_rows.append(
+                        {
+                            "date": row.get("date_start"),
+                            "campaign_id": str(row.get("campaign_id") or "-"),
+                            "campaign_name": str(row.get("campaign_name") or "-"),
+                            "ad_group": str(row.get("adset_name") or "-"),
+                            "ad_name": str(row.get("ad_name") or "-"),
+                            "cost": float(row.get("spend") or 0),
+                            "impressions": int(float(row.get("impressions") or 0)),
+                            "clicks": int(float(row.get("clicks") or 0)),
+                            "leads": self._extract_meta_leads(row.get("actions")),
+                        }
+                    )
+                request_url = payload.get("paging", {}).get("next")
+                params = None
+
+        return parsed_rows
 
     async def fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured JSON endpoint."""

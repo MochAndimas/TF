@@ -27,6 +27,7 @@ from streamlit_app.page import (
     google_ads_token,
     home,
     login,
+    meta_ads_token,
     overview,
     register,
     update_data,
@@ -51,6 +52,7 @@ PAGE_LABELS: dict[str, str] = {
     "register": "Create Account",
     "update_data": "Update Data",
     "google_ads_token": "Google Ads Token",
+    "meta_ads_token": "Meta Ads Token",
 }
 
 PAGE_BUTTON_TYPES: dict[str, str] = {
@@ -62,6 +64,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "register": "tertiary",
     "update_data": "tertiary",
     "google_ads_token": "tertiary",
+    "meta_ads_token": "tertiary",
 }
 
 NAV_GROUPS: dict[str, list[str]] = {
@@ -69,12 +72,12 @@ NAV_GROUPS: dict[str, list[str]] = {
     "Overall": ["overview"],
     "Revenue": ["deposit_report"],
     "Campaign": ["user_acquisition", "brand_awareness"],
-    "Settings": ["register", "update_data", "google_ads_token"],
+    "Settings": ["register", "update_data", "google_ads_token", "meta_ads_token"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token"],
+    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token", "meta_ads_token"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
     "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
     "sales": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
 }
@@ -360,7 +363,12 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         None: Renders page UI as side effect.
     """
     if selected_page == "google_ads_token":
+        st.session_state.page = selected_page
         await google_ads_token.show_google_ads_token_page(host)
+        return
+    elif selected_page == "meta_ads_token":
+        st.session_state.page = selected_page
+        await meta_ads_token.show_meta_ads_token_page(host)
         return
 
     if not st.session_state.logged_in:
@@ -380,6 +388,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         "register": register.create_account,
         "update_data": update_data.show_update_page,
         "google_ads_token": google_ads_token.show_google_ads_token_page,
+        "meta_ads_token": meta_ads_token.show_meta_ads_token_page,
     }
 
     handler = page_handlers.get(selected_page)

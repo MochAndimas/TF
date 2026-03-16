@@ -125,7 +125,7 @@ async def register(
         HTTPException: Raised when password confirmation fails or email already exists.
     """
     try:
-        require_roles(current_user, "admin", "superadmin")
+        require_roles(current_user, "superadmin")
     except PermissionError as error:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -334,7 +334,7 @@ async def delete_user(
         HTTPException: Raised for authorization errors, invalid operations, or missing user.
     """
     try:
-        require_roles(current_user, "admin", "superadmin")
+        require_roles(current_user, "superadmin")
         result = await delete_account(
             session=session,
             user_id=user_id,

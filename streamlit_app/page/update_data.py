@@ -14,7 +14,7 @@ from streamlit_app.functions.utils import get_date_range
 DATA_SOURCE_OPTIONS = {
     "Unique Campaign": "unique_campaign",
     "Google Ads (API)": "google_ads",
-    "Facebook Ads (GSheet)": "facebook_ads",
+    "Facebook Ads (API)": "facebook_ads",
     "TikTok Ads (GSheet)": "tiktok_ads",
     "GA4 Daily Users (App/Web)": "ga4_daily_metrics",
     "First Deposit (API)": "first_deposit",
