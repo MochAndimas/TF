@@ -100,7 +100,13 @@ async def _request_login(
         f"{host}/api/login",
         data={"username": email, "password": password},
     )
-    payload = response.json() if response.content else {}
+    if not response.content:
+        payload = {}
+    else:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"detail": response.text or "Unexpected non-JSON response from backend."}
     return payload, response
 
 

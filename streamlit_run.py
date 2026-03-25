@@ -181,6 +181,10 @@ def _resolve_host() -> str:
     Returns:
         str: API base URL used by all Streamlit page handlers.
     """
+    internal_api_host = config("STREAMLIT_API_HOST", default="", cast=str).strip()
+    if internal_api_host:
+        return internal_api_host.rstrip("/")
+
     env_name = config("ENV", default="development", cast=str).lower()
     if env_name == "production":
         return st.secrets["api"]["HOST"]

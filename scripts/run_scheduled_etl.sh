@@ -15,14 +15,30 @@ mkdir -p "${LOCK_DIR}"
 
 cd "${PROJECT_ROOT}"
 
-if [[ -x "${PROJECT_ROOT}/venv/bin/python" ]]; then
+if [[ -f "/.dockerenv" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="${PYTHON_BIN:-python3}"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="${PYTHON_BIN:-python}"
+  else
+    printf '[%s] Scheduled ETL failed: Python interpreter not found in container.\n' "${TIMESTAMP}" >> "${LOG_FILE}"
+    exit 127
+  fi
+elif [[ -x "${PROJECT_ROOT}/venv/bin/python" ]]; then
   PYTHON_BIN="${PROJECT_ROOT}/venv/bin/python"
 elif [[ -x "${PROJECT_ROOT}/bin/python" ]]; then
   PYTHON_BIN="${PROJECT_ROOT}/bin/python"
 elif [[ -x "${PROJECT_ROOT}/venv/Scripts/python" ]]; then
   PYTHON_BIN="${PROJECT_ROOT}/venv/Scripts/python"
 else
-  PYTHON_BIN="${PYTHON_BIN:-python3}"
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="${PYTHON_BIN:-python3}"
+  elif command -v python >/dev/null 2>&1; then
+    PYTHON_BIN="${PYTHON_BIN:-python}"
+  else
+    printf '[%s] Scheduled ETL failed: Python interpreter not found.\n' "${TIMESTAMP}" >> "${LOG_FILE}"
+    exit 127
+  fi
 fi
 
 cleanup_lock() {

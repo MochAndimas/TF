@@ -107,7 +107,13 @@ Data utama yang dikelola:
 |  |- functions/              # helper HTTP, cookie, chart rendering, account modal
 |  |- page/                   # halaman Streamlit aktif
 |- scripts/
+|  |- cron/                   # source-of-truth jadwal ETL cron
 |  |- run_scheduled_etl.sh    # wrapper scheduler / cron
+|- docker/
+|  |- scheduler-entrypoint.sh # bootstrap cron daemon di container scheduler
+|- .dockerignore
+|- Dockerfile
+|- docker-compose.yml
 |- tests/
 |  |- test_etl_quality_and_upsert.py
 |  |- test_security_hardening.py
@@ -191,6 +197,12 @@ File `.streamlit/secrets.toml` dipakai untuk:
 - `[key]`
   - `JWT_SECRET_KEY`
 
+### Variable tambahan untuk Docker
+
+- `STREAMLIT_API_HOST`
+  - optional override untuk server-side call dari container Streamlit ke backend internal Docker
+  - contoh: `http://backend:8000`
+
 ## Menjalankan Project
 
 ### 1. Install dependency
@@ -222,6 +234,58 @@ atau:
 ```bash
 python run_app.py
 ```
+
+## Menjalankan Dengan Docker
+
+Setup Docker saat ini ditujukan untuk local/dev dan memakai tiga service terpisah dengan satu image dasar yang sama:
+
+- `backend`: FastAPI / Uvicorn
+- `frontend`: Streamlit
+- `scheduler`: cron daemon yang memanggil `scripts/run_scheduled_etl.sh`
+
+File yang dipakai:
+
+- `Dockerfile`
+- `docker-compose.yml`
+- `.dockerignore`
+- `docker/scheduler-entrypoint.sh`
+- `scripts/cron/traders_family_etl.cron`
+- `scripts/run_scheduled_etl.sh`
+
+Penyimpanan yang perlu diperhatikan:
+
+- `.env` dipakai oleh backend dan scheduler via `env_file`
+- `.streamlit/secrets.toml` di-mount ke container frontend
+- SQLite tetap berupa file dan di-mount dari `./app/db` ke `/app/app/db`
+- `logs/` dan `run/` di-mount supaya log ETL dan lock file tetap persisten
+
+Menjalankan seluruh stack:
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+Service utama:
+
+- backend: `http://localhost:8000`
+- frontend: `http://localhost:5504`
+
+Melihat status dan log:
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f scheduler
+```
+
+Catatan Docker:
+
+- setup ini masih difokuskan untuk localhost / development
+- frontend Streamlit tetap membaca `.streamlit/secrets.toml`
+- backend memakai `TrustedHostMiddleware`; di Compose host internal Docker sudah ikut di-allow
+- scheduler container tidak menjalankan ETL langsung, tetapi menyalakan cron lalu cron akan memanggil `scripts/run_scheduled_etl.sh`
 
 ## Auth Flow yang Dipakai Sekarang
 
@@ -378,6 +442,21 @@ Wrapper cron Linux:
 
 ```cron
 0 8 * * * /bin/bash /path/to/TF/scripts/run_scheduled_etl.sh
+```
+
+Catatan scheduler Docker:
+
+- source of truth jadwal tetap di `scripts/cron/traders_family_etl.cron`
+- `docker/scheduler-entrypoint.sh` akan mengubah file cron tersebut ke format `/etc/cron.d` saat container scheduler start
+- path host lama akan dipetakan ke path container `/app`
+- cron job di container akan me-load `/etc/environment` lebih dulu supaya `PATH` dan env lain ikut terbaca
+
+Cek scheduler di Docker:
+
+```bash
+docker compose ps
+docker compose exec scheduler cat /etc/cron.d/traders-family-etl
+tail -f logs/scheduled_etl.log
 ```
 
 ## Testing
