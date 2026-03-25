@@ -140,37 +140,6 @@ def parse_ads_dataframe(raw_rows: list) -> pd.DataFrame:
     return df
 
 
-def aggregate_ads_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate ads rows into daily business-grain records for loading.
-
-    Args:
-        df (pd.DataFrame): Parsed ads dataframe that may contain duplicate
-            business keys.
-
-    Returns:
-        pd.DataFrame: Aggregated dataframe grouped by
-        ``date/campaign_id/ad_group/ad_name`` with summed metrics.
-    """
-    if df.empty:
-        return df
-
-    aggregated = (
-        df.groupby(["date", "campaign_id", "ad_group", "ad_name"], as_index=False)
-        .agg(
-            campaign_name=("campaign_name", "first"),
-            cost=("cost", "sum"),
-            impressions=("impressions", "sum"),
-            clicks=("clicks", "sum"),
-            leads=("leads", "sum"),
-        )
-    )
-    aggregated["cost"] = aggregated["cost"].astype(float)
-    aggregated["impressions"] = aggregated["impressions"].astype(int)
-    aggregated["clicks"] = aggregated["clicks"].astype(int)
-    aggregated["leads"] = aggregated["leads"].astype(int)
-    return aggregated
-
-
 def dedupe_ads_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
     """Drop duplicate ads business keys without metric aggregation.
 

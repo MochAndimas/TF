@@ -25,8 +25,6 @@ from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataf
 from app.etl.staging import stage_ads_raw, stage_first_deposit_raw, stage_ga4_raw
 from app.etl.transform import (
     dedupe_ads_dataframe,
-    normalize_columns,
-    normalize_date,
     parse_ads_dataframe,
     parse_first_deposit_dataframe,
     parse_ga4_dataframe,
@@ -64,11 +62,6 @@ class GoogleSheetApi:
         """
         payload = {"event": event, **fields}
         self.logger.info(json.dumps(payload, default=str))
-
-    @staticmethod
-    def _normalize_date(value):
-        """Normalize one date-like value into ``datetime.date``."""
-        return normalize_date(value)
 
     def _resolve_date_window(self, types: str, start_date, end_date):
         """Resolve ETL date window from update mode and payload values."""
@@ -112,11 +105,6 @@ class GoogleSheetApi:
             list[dict]: JSON records returned by the first-deposit extractor.
         """
         return await self.extractor.fetch_first_deposit_records()
-
-    @staticmethod
-    def _normalize_columns(columns: list[str]) -> list[str]:
-        """Normalize raw source headers into standardized keys."""
-        return normalize_columns(columns)
 
     @staticmethod
     def _parse_ads_dataframe(raw_rows: list):
