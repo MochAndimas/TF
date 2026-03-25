@@ -3,22 +3,29 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 
 from decouple import config as env
+from jose import JWTError, jwt
 import secrets
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
 
+from app.core.config import settings
 from app.core.security import encrypt_secret
 from app.db.models.external_api import ManagedSecret
+from app.db.models.user import TfUser
 from app.db.session import sqlite_async_session
+from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/adwords"]
+GOOGLE_ADS_OAUTH_STATE_PURPOSE = "google_ads_oauth"
 
 
 def _load_client_config() -> dict:
@@ -120,6 +127,59 @@ def _html_page(title: str, body: str) -> HTMLResponse:
     return response
 
 
+def _create_google_ads_oauth_state(user_id: str) -> str:
+    """Create a signed short-lived OAuth state tied to one superadmin."""
+    payload = {
+        "sub": user_id,
+        "type": GOOGLE_ADS_OAUTH_STATE_PURPOSE,
+        "jti": str(secrets.token_urlsafe(16)),
+        "exp": (datetime.now() + timedelta(minutes=10)).timestamp(),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+async def _authorized_oauth_actor_from_state(state: str | None) -> TfUser | None:
+    """Resolve the superadmin encoded inside a signed OAuth state token."""
+    if not state:
+        return None
+
+    try:
+        payload = jwt.decode(state, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None
+
+    if payload.get("type") != GOOGLE_ADS_OAUTH_STATE_PURPOSE:
+        return None
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+
+    async with sqlite_async_session() as session:
+        user = await session.get(TfUser, user_id)
+        if user is None or user.deleted_at is not None:
+            return None
+        try:
+            require_roles(user, "superadmin")
+        except PermissionError:
+            return None
+        return user
+
+
+def _prepare_google_ads_authorization_url(current_user: TfUser) -> str:
+    """Create an authorization URL for a validated superadmin OAuth session."""
+    require_roles(current_user, "superadmin")
+
+    oauth_state = _create_google_ads_oauth_state(current_user.user_id)
+
+    flow = _build_flow(state=oauth_state)
+    authorization_url, _state = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+    )
+    return authorization_url
+
+
 @router.get("/api/google-ads/oauth/callback", response_class=HTMLResponse)
 async def google_ads_oauth_callback(
     request: Request,
@@ -134,18 +194,23 @@ async def google_ads_oauth_callback(
     if not code:
         return _html_page("Google Ads OAuth", "<p>Authorization code was not provided.</p>")
 
-    expected_state = request.session.get("google_ads_oauth_state")
-    if not state or not expected_state or not secrets.compare_digest(state, expected_state):
-        return _html_page("Google Ads OAuth Error", "<p>OAuth state validation failed.</p>")
+    oauth_actor = await _authorized_oauth_actor_from_state(state)
+    if oauth_actor is None:
+        return _html_page(
+            "Google Ads OAuth Error",
+            "<p>OAuth state validation failed.</p>",
+        )
 
     try:
         flow = _build_flow(state=state)
         flow.fetch_token(code=code)
         credentials = flow.credentials
-    except Exception as exc:
-        return _html_page("Google Ads OAuth Error", f"<p>{html.escape(str(exc))}</p>")
-    finally:
-        request.session.pop("google_ads_oauth_state", None)
+    except Exception:
+        logger.exception("Google Ads OAuth token exchange failed")
+        return _html_page(
+            "Google Ads OAuth Error",
+            "<p>OAuth exchange gagal. Cek backend log dan konfigurasi OAuth.</p>",
+        )
 
     refresh_token = credentials.refresh_token
     if not refresh_token:
@@ -186,18 +251,37 @@ async def google_ads_oauth_callback(
 
 
 @router.get("/api/google-ads/oauth/start")
-async def google_ads_oauth_start(request: Request):
+async def google_ads_oauth_start(
+    request: Request,
+    current_user: TfUser = Depends(get_current_user),
+):
     """Start Google Ads OAuth flow and redirect browser to Google consent."""
     try:
-        oauth_state = secrets.token_urlsafe(32)
-        request.session["google_ads_oauth_state"] = oauth_state
+        require_roles(current_user, "superadmin")
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
-        flow = _build_flow(state=oauth_state)
-        authorization_url, _state = flow.authorization_url(
-            access_type="offline",
-            prompt="consent",
-        )
+    try:
+        authorization_url = _prepare_google_ads_authorization_url(current_user)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.exception("Failed to prepare Google Ads OAuth redirect")
+        raise HTTPException(status_code=500, detail="Unable to start Google Ads OAuth flow.") from exc
 
     return RedirectResponse(url=authorization_url, status_code=302)
+
+
+@router.post("/api/google-ads/oauth/start")
+async def google_ads_oauth_start_payload(
+    request: Request,
+    current_user: TfUser = Depends(get_current_user),
+):
+    """Return the Google OAuth consent URL for authenticated frontend clients."""
+    try:
+        authorization_url = _prepare_google_ads_authorization_url(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except Exception as exc:
+        logger.exception("Failed to prepare Google Ads OAuth authorization URL")
+        raise HTTPException(status_code=500, detail="Unable to start Google Ads OAuth flow.") from exc
+
+    return {"authorization_url": authorization_url, "success": True}

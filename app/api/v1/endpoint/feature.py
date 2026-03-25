@@ -5,6 +5,7 @@ Traders Family application.
 """
 
 import asyncio
+import logging
 
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Depends
@@ -20,6 +21,7 @@ from app.db.models.etl_run import EtlRun
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/api/feature-data/update-external-api", response_model=UpdateDataResponse)
@@ -87,9 +89,10 @@ async def update_data(
     except Exception as e:
         if "run_id" in locals():
             await fail_run(session=session, run_id=run_id, error_detail=str(e))
+        logger.exception("Feature update job scheduling failed")
         raise HTTPException(
             status_code=500,
-            detail=f"An error occurred while updating data: {str(e)}"
+            detail="An internal error occurred while scheduling the update job."
         )
 
 

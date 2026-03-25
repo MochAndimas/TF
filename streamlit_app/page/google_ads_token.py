@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import httpx
 import streamlit as st
 from decouple import config as env
+
+from streamlit_app.functions.utils import get_access_token
 
 def _default_redirect_uri() -> str:
     """Resolve the callback URI users should register in Google Cloud.
@@ -96,13 +99,39 @@ async def show_google_ads_token_page(host: str) -> None:
         return
 
     start_url = _oauth_start_url()
+    access_token = get_access_token()
+    if not access_token:
+        st.error("Session login tidak ditemukan. Silakan login ulang.")
+        return
 
     with st.container(border=True):
         st.markdown("### Start OAuth")
-        st.write("Klik tombol di bawah untuk mulai OAuth dari backend FastAPI.")
+        st.write("Klik tombol di bawah untuk generate Google consent link lewat backend yang sudah terautentikasi.")
 
-        st.link_button("Start Google OAuth", start_url, type="primary")
-        st.code(start_url, language="text")
+        if st.button("Generate Google OAuth Link", type="primary", width="stretch"):
+            try:
+                async with httpx.AsyncClient(timeout=120) as client:
+                    response = await client.post(
+                        start_url,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                payload = response.json() if response.content else {}
+            except httpx.RequestError as error:
+                st.error(f"Gagal menghubungi backend OAuth: {error}")
+            else:
+                if response.status_code >= 400 or not payload.get("success"):
+                    detail = payload.get("detail") or payload.get("message") or "Gagal membuat OAuth link."
+                    st.error(detail)
+                else:
+                    st.session_state["google_ads_authorization_url"] = payload.get("authorization_url")
+
+        authorization_url = st.session_state.get("google_ads_authorization_url")
+        if authorization_url:
+            st.success("OAuth link siap dipakai.")
+            st.link_button("Continue to Google OAuth", authorization_url, type="primary")
+            st.code(authorization_url, language="text")
+        else:
+            st.caption("Consent link akan muncul di sini setelah berhasil digenerate.")
 
     st.caption(
         "Sesudah approve access, Google akan redirect ke endpoint backend callback dan token akan disimpan di backend tanpa ditampilkan ke UI."

@@ -10,6 +10,7 @@ Each handler validates period boundaries, loads the corresponding service object
 and returns a normalized JSON payload consumed by Streamlit FE.
 """
 
+import logging
 from datetime import date
 from typing import Literal
 
@@ -32,6 +33,7 @@ from app.utils.overview_utils import (
 from app.utils.user_utils import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def _build_overview_data(
@@ -165,10 +167,11 @@ async def overview_active_users(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
-    except Exception as error:
+    except Exception:
+        logger.exception("Failed to generate overview active users payload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating overview active users: {error}",
+            detail="An internal error occurred while generating overview active users.",
         )
 
 
@@ -209,10 +212,11 @@ async def overview_campaign_cost(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
-    except Exception as error:
+    except Exception:
+        logger.exception("Failed to generate overview campaign cost payload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating overview campaign cost: {error}",
+            detail="An internal error occurred while generating overview campaign cost.",
         )
 
 
@@ -253,10 +257,11 @@ async def overview_leads_acquisition(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
-    except Exception as error:
+    except Exception:
+        logger.exception("Failed to generate overview leads acquisition payload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating overview leads acquisition: {error}",
+            detail="An internal error occurred while generating overview leads acquisition.",
         )
 
 
@@ -297,8 +302,9 @@ async def overview_brand_awareness(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
-    except Exception as error:
+    except Exception:
+        logger.exception("Failed to generate overview brand awareness payload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating overview brand awareness: {error}",
+            detail="An internal error occurred while generating overview brand awareness.",
         )

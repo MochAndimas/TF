@@ -6,6 +6,8 @@ import httpx
 import streamlit as st
 from decouple import config as env
 
+from streamlit_app.functions.utils import refresh_backend_tokens
+
 
 def _internal_backend_url() -> str:
     """Resolve backend base URL for server-side calls from the Streamlit container."""
@@ -44,6 +46,43 @@ async def _fetch_status(access_token: str) -> dict:
     return response.json() if response.content else {}
 
 
+async def _authorized_request(
+    method: str,
+    url: str,
+    access_token: str,
+    *,
+    json_payload: dict | None = None,
+) -> tuple[httpx.Response, dict]:
+    """Send an authenticated request and refresh tokens once on 401."""
+    headers = {"Authorization": f"Bearer {access_token}"}
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            json=json_payload,
+        )
+
+        if response.status_code == 401 and st.session_state.get("refresh_token"):
+            refreshed_payload = await refresh_backend_tokens(
+                host=_internal_backend_url(),
+                refresh_token=st.session_state["refresh_token"],
+            )
+            if refreshed_payload and refreshed_payload.get("success"):
+                st.session_state.access_token = refreshed_payload.get("access_token")
+                st.session_state.refresh_token = refreshed_payload.get("refresh_token")
+                headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    json=json_payload,
+                )
+
+    payload = response.json() if response.content else {}
+    return response, payload
+
+
 async def show_meta_ads_token_page(host: str) -> None:
     """Render helper page for exchanging and storing Meta long-lived token."""
     del host
@@ -64,7 +103,14 @@ async def show_meta_ads_token_page(host: str) -> None:
 
     status_data: dict = {}
     try:
-        status_data = await _fetch_status(access_token)
+        response, status_data = await _authorized_request(
+            "GET",
+            _meta_status_url(),
+            access_token,
+        )
+        if response.status_code == 401:
+            st.error("Session login sudah expired. Silakan login ulang.")
+            return
     except Exception as error:  # noqa: BLE001
         st.warning(f"Gagal ambil status token saat ini: {error}")
 
@@ -98,13 +144,12 @@ async def show_meta_ads_token_page(host: str) -> None:
 
     with st.spinner("Exchanging Meta token..."):
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(
-                    _meta_exchange_url(),
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    json={"short_lived_token": short_lived_token},
-                )
-            data = response.json() if response.content else {}
+            response, data = await _authorized_request(
+                "POST",
+                _meta_exchange_url(),
+                st.session_state.get("access_token") or access_token,
+                json_payload={"short_lived_token": short_lived_token},
+            )
         except Exception as error:  # noqa: BLE001
             st.error(f"Token exchange gagal: {error}")
             return

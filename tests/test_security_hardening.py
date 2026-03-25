@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from datetime import datetime
 from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from starlette.requests import Request
 
 from app.api.v1.endpoint.auth import _RATE_LIMIT_BUCKETS, _enforce_rate_limit
+from app.api.v1.endpoint.google_ads_oauth import (
+    _authorized_oauth_actor_from_state,
+    _create_google_ads_oauth_state,
+)
 from app.core.security import (
     create_session_access_token,
     create_session_refresh_token,
@@ -188,3 +192,49 @@ class TestSecurityFlows(IsolatedAsyncioTestCase):
             token_result = await session.execute(select(UserToken).where(UserToken.user_id == "user-2"))
             stored_token = token_result.scalar_one()
             self.assertTrue(stored_token.is_revoked)
+
+    async def test_google_ads_oauth_actor_requires_active_superadmin_state(self):
+        async with self.session_factory() as session:
+            session.add_all(
+                [
+                    TfUser(
+                        user_id="user-superadmin",
+                        fullname="Super Admin",
+                        email="superadmin@example.com",
+                        role="superadmin",
+                        password=pwd_context.hash("secret"),
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                    ),
+                    TfUser(
+                        user_id="user-sales",
+                        fullname="Sales User",
+                        email="sales@example.com",
+                        role="sales",
+                        password=pwd_context.hash("secret"),
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                    ),
+                ]
+            )
+            await session.commit()
+
+        with patch("app.api.v1.endpoint.google_ads_oauth.sqlite_async_session", self.session_factory):
+            actor = await _authorized_oauth_actor_from_state(
+                _create_google_ads_oauth_state("user-superadmin")
+            )
+            self.assertIsNotNone(actor)
+            self.assertEqual(actor.user_id, "user-superadmin")
+
+            unauthorized_actor = await _authorized_oauth_actor_from_state(
+                _create_google_ads_oauth_state("user-sales")
+            )
+            self.assertIsNone(unauthorized_actor)
+
+            missing_actor = await _authorized_oauth_actor_from_state(
+                _create_google_ads_oauth_state("missing-user")
+            )
+            self.assertIsNone(missing_actor)
+
+            invalid_actor = await _authorized_oauth_actor_from_state("invalid-state-token")
+            self.assertIsNone(invalid_actor)

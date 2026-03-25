@@ -4,6 +4,7 @@ This module is part of `app.api.v1.endpoint` and contains runtime logic used by 
 Traders Family application.
 """
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -20,6 +21,7 @@ from app.utils.campaign_utils import CampaignData
 from app.utils.user_utils import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def _build_campaign_data(
@@ -104,10 +106,11 @@ async def user_acquisition_overview(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
-    except Exception as error:
+    except Exception:
+        logger.exception("Failed to generate user acquisition overview payload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating user acquisition overview: {error}",
+            detail="An internal error occurred while generating user acquisition overview.",
         )
 
 
@@ -160,8 +163,9 @@ async def brand_awareness_overview(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
-    except Exception as error:
+    except Exception:
+        logger.exception("Failed to generate brand awareness overview payload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating brand awareness overview: {error}",
+            detail="An internal error occurred while generating brand awareness overview.",
         )
