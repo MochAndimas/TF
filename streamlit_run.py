@@ -20,6 +20,7 @@ from streamlit_app.functions.utils import (
     footer,
     logout,
     restore_backend_session,
+    sync_refresh_cookie,
 )
 from streamlit_app.page import (
     brand_awareness,
@@ -261,6 +262,7 @@ def _restore_login_state_from_cookie() -> None:
     st.session_state.access_token = restored_payload.get("access_token")
     st.session_state.refresh_token = restored_payload.get("refresh_token")
     st.session_state.session_id = restored_payload.get("session_id")
+    sync_refresh_cookie(host, restored_payload.get("refresh_token"))
     st.session_state.page = st.session_state.get("page", "home")
 
 

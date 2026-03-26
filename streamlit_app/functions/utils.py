@@ -6,6 +6,7 @@ Traders Family application.
 
 import logging
 import re
+from urllib.parse import urlparse
 import httpx
 import pandas as pd
 import streamlit as st
@@ -40,6 +41,37 @@ streamlit_session = sessionmaker(
 def get_access_token() -> str | None:
     """Return the active access token from Streamlit session state."""
     return st.session_state.get("access_token")
+
+
+def refresh_cookie_options(host_url: str) -> dict[str, object]:
+    """Build cookie options that behave correctly for localhost and HTTPS hosts."""
+    parsed = urlparse(host_url)
+    hostname = parsed.hostname
+    secure = parsed.scheme == "https"
+    options: dict[str, object] = {
+        "path": "/",
+        "same_site": "strict",
+        "secure": secure,
+    }
+    if hostname and hostname not in {"localhost", "127.0.0.1"}:
+        options["domain"] = hostname
+    return options
+
+
+def sync_refresh_cookie(host: str, refresh_token: str | None) -> None:
+    """Keep the browser refresh-token cookie aligned with the latest rotation."""
+    if not refresh_token:
+        return
+
+    if not cookie_controller.get("refresh_token"):
+        return
+
+    cookie_controller.set(
+        name="refresh_token",
+        value=refresh_token,
+        expires=datetime.now() + timedelta(days=7),
+        **refresh_cookie_options(host),
+    )
 
 
 async def restore_backend_session(host: str, refresh_token: str) -> dict | None:
@@ -147,6 +179,11 @@ async def fetch_data(
                 if refreshed_payload and refreshed_payload.get("success"):
                     st.session_state.access_token = refreshed_payload.get("access_token")
                     st.session_state.refresh_token = refreshed_payload.get("refresh_token")
+                    st.session_state.session_id = refreshed_payload.get(
+                        "session_id",
+                        st.session_state.get("session_id"),
+                    )
+                    sync_refresh_cookie(host, st.session_state.refresh_token)
                     headers["Authorization"] = f"Bearer {st.session_state.access_token}"
                     response = await client.request(
                         method=method.upper(),

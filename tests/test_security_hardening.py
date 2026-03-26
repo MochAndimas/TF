@@ -7,6 +7,7 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi.requests import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -178,13 +179,18 @@ class TestSecurityFlows(IsolatedAsyncioTestCase):
             stored_token = token_result.scalar_one()
             self.assertNotEqual(stored_token.access_token, access_token)
             self.assertNotEqual(stored_token.refresh_token, refresh_token)
+            self.assertNotEqual(stored_token.session_id, session_id)
 
             await verify_access_token(session, access_token)
-            new_access_token, new_refresh_token, _, _ = await rotate_refresh_token(session, refresh_token)
+            new_access_token, new_refresh_token, _, _, rotated_session_id = await rotate_refresh_token(
+                session,
+                refresh_token,
+            )
 
             with self.assertRaises(Exception):
                 await verify_access_token(session, access_token)
             await verify_access_token(session, new_access_token)
+            self.assertEqual(rotated_session_id, session_id)
 
             with self.assertRaises(Exception):
                 await rotate_refresh_token(session, refresh_token)
@@ -192,6 +198,48 @@ class TestSecurityFlows(IsolatedAsyncioTestCase):
             token_result = await session.execute(select(UserToken).where(UserToken.user_id == "user-2"))
             stored_token = token_result.scalar_one()
             self.assertTrue(stored_token.is_revoked)
+
+    async def test_distinct_logins_create_distinct_session_rows(self):
+        async with self.session_factory() as session:
+            session.add(
+                TfUser(
+                    user_id="user-3",
+                    fullname="Multi Session User",
+                    email="multi@example.com",
+                    role="admin",
+                    password=pwd_context.hash("secret"),
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+            )
+            await session.commit()
+
+            access_token_a = create_session_access_token(subject="user-3", session_id="session-a")
+            refresh_token_a = create_session_refresh_token(subject="user-3", session_id="session-a")
+            await user_token(
+                session=session,
+                user_id="user-3",
+                role="admin",
+                access_token=access_token_a,
+                refresh_token=refresh_token_a,
+                session_id="session-a",
+            )
+
+            access_token_b = create_session_access_token(subject="user-3", session_id="session-b")
+            refresh_token_b = create_session_refresh_token(subject="user-3", session_id="session-b")
+            await user_token(
+                session=session,
+                user_id="user-3",
+                role="admin",
+                access_token=access_token_b,
+                refresh_token=refresh_token_b,
+                session_id="session-b",
+            )
+
+            token_result = await session.execute(select(UserToken).where(UserToken.user_id == "user-3"))
+            stored_tokens = token_result.scalars().all()
+            self.assertEqual(len(stored_tokens), 2)
+            self.assertTrue(all(token.session_id not in {"session-a", "session-b"} for token in stored_tokens))
 
     async def test_google_ads_oauth_actor_requires_active_superadmin_state(self):
         async with self.session_factory() as session:

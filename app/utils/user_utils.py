@@ -14,6 +14,7 @@ from sqlalchemy import select
 from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTError
 from app.db.models.user import AuthAuditEvent, LoginThrottle, TfUser, UserToken
 from app.db.session import get_db
+from app.schemas.user import TokenData
 from app.core.security import (
     fingerprint_session_id,
     fingerprint_token,
@@ -230,8 +231,31 @@ async def get_user_by_id(
     )
 
 
-async def get_current_user(
+async def get_current_token_data(
         token: str = Depends(oauth2_scheme),
+        session: AsyncSession = Depends(get_db)
+) -> TokenData:
+    """Resolve validated token metadata for the active bearer session."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"}
+    )
+
+    try:
+        return await verify_access_token(session, token)
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except (JWSSignatureError, JWTError):
+        raise credentials_exception
+
+
+async def get_current_user(
+        token_data: TokenData = Depends(get_current_token_data),
         session: AsyncSession = Depends(get_db)
 ):
     """Resolve authenticated user from bearer token.
@@ -252,17 +276,6 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"}
     )
 
-    try:
-        token_data = await verify_access_token(session, token)
-    except ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Access token has expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except (JWSSignatureError, JWTError):
-        raise credentials_exception
-    
     # fetch the user from the database
     user = await get_user_by_id(user_id=token_data.id, session=session)
 
@@ -317,22 +330,25 @@ async def user_token(
     session_id = session_id or str(uuid.uuid4())
     expiry = today + timedelta(days=7)
 
-    query = select(UserToken).where(UserToken.user_id == user_id)
+    session_fingerprint = fingerprint_session_id(session_id)
+    query = select(UserToken).where(UserToken.session_id == session_fingerprint)
     result = await session.execute(query)
     user = result.scalars().first()
 
     if user:
-        user.session_id = fingerprint_session_id(session_id)
+        user.session_id = session_fingerprint
+        user.user_id = user_id
         user.logged_in = True
         user.expiry = expiry
         user.is_revoked = False
+        user.role = role
         user.access_token = fingerprint_token(access_token)
         user.refresh_token = fingerprint_token(refresh_token)
         user.updated_at = today
     else:
         session.add(
             UserToken(
-                session_id=fingerprint_session_id(session_id),
+                session_id=session_fingerprint,
                 user_id=user_id,
                 page="home",
                 logged_in=True,
@@ -403,7 +419,8 @@ async def create_account(
 
 async def logout(
         session: AsyncSession,
-        user_id
+        user_id,
+        session_id: str | None = None,
 ):
     """Revoke a user's active token row and mark the session as logged out.
 
@@ -415,7 +432,10 @@ async def logout(
         bool: `True` when a token row was found and updated, otherwise `False`.
     """
     today = datetime.now()
-    query = select(UserToken).filter_by(user_id=user_id)
+    query = select(UserToken).where(UserToken.user_id == user_id)
+    if session_id:
+        query = query.where(UserToken.session_id == fingerprint_session_id(session_id))
+
     user_data = await session.execute(query)
     user = user_data.scalars().first()
     if user is None:

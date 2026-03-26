@@ -174,7 +174,7 @@ async def _get_user_token(
 async def rotate_refresh_token(
     sqlite_session: AsyncSession,
     refresh_token: str,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str | None]:
     """Rotate both access and refresh token for an active session."""
     payload = _decode_token(refresh_token, settings.JWT_REFRESH_SECRET_KEY)
     user_id = payload.get("sub")
@@ -201,7 +201,7 @@ async def rotate_refresh_token(
     stored_token.expiry = datetime.now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     stored_token.updated_at = datetime.now()
     await sqlite_session.commit()
-    return new_access_token, new_refresh_token, stored_token.role, stored_token.user_id
+    return new_access_token, new_refresh_token, stored_token.role, stored_token.user_id, session_id
 
 
 async def verify_access_token(sqlite_session: AsyncSession, token: str) -> TokenData:
@@ -234,8 +234,7 @@ async def verify_access_token(sqlite_session: AsyncSession, token: str) -> Token
 
     return TokenData(
         id=stored_token.user_id,
-        session_id=stored_token.session_id,
+        session_id=session_id,
         jti=payload.get("jti"),
     )
-
 

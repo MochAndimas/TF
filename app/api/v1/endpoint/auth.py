@@ -19,6 +19,7 @@ from app.utils.user_utils import (
     authenticate_user,
     create_account,
     delete_account,
+    get_current_token_data,
     get_current_user,
     logout,
     require_roles,
@@ -35,6 +36,7 @@ from app.schemas.user import (
     MessageResponse,
     RegisterBase,
     RegisterResponse,
+    TokenData,
     TokenRefreshRequest,
     TokenRefreshResponse,
 )
@@ -255,7 +257,7 @@ async def refresh_user_token(
         window_seconds=60,
     )
     try:
-        access_token, refresh_token, role, user_id = await rotate_refresh_token(
+        access_token, refresh_token, role, user_id, session_id = await rotate_refresh_token(
             sqlite_session=session,
             refresh_token=payload.refresh_token,
         )
@@ -272,6 +274,7 @@ async def refresh_user_token(
             "token_type": "Bearer",
             "role": role,
             "user_id": user_id,
+            "session_id": session_id,
             "success": True,
         }
     )
@@ -284,6 +287,7 @@ async def refresh_user_token(
 async def logout_user(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),
+    token_data: TokenData = Depends(get_current_token_data),
 ):
     """Log out the current user and revoke persisted token state.
 
@@ -294,7 +298,11 @@ async def logout_user(
     Returns:
         JSONResponse: Success/failure status message for logout action.
     """
-    result = await logout(session=session, user_id=current_user.user_id)
+    result = await logout(
+        session=session,
+        user_id=current_user.user_id,
+        session_id=token_data.session_id,
+    )
     if not result:
         return JSONResponse(
             content={"message": "Session data not found", "success": False},

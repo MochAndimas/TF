@@ -6,7 +6,7 @@ import httpx
 import streamlit as st
 from decouple import config as env
 
-from streamlit_app.functions.utils import refresh_backend_tokens
+from streamlit_app.functions.utils import refresh_backend_tokens, sync_refresh_cookie
 
 
 def _internal_backend_url() -> str:
@@ -61,6 +61,11 @@ async def _authorized_request(
             if refreshed_payload and refreshed_payload.get("success"):
                 st.session_state.access_token = refreshed_payload.get("access_token")
                 st.session_state.refresh_token = refreshed_payload.get("refresh_token")
+                st.session_state.session_id = refreshed_payload.get(
+                    "session_id",
+                    st.session_state.get("session_id"),
+                )
+                sync_refresh_cookie(_internal_backend_url(), st.session_state.refresh_token)
                 headers["Authorization"] = f"Bearer {st.session_state.access_token}"
                 response = await client.request(
                     method=method,

@@ -7,8 +7,7 @@ Traders Family application.
 import httpx
 import streamlit as st
 from datetime import datetime, timedelta
-from urllib.parse import urlparse
-from streamlit_app.functions.utils import cookie_controller
+from streamlit_app.functions.utils import cookie_controller, refresh_cookie_options
 
 LOGIN_STYLE = """
 <style>
@@ -62,22 +61,6 @@ def _extract_error_message(payload: dict, default: str) -> str:
         str: Best-effort error message for FE display.
     """
     return payload.get("detail") or payload.get("message") or default
-
-
-def _cookie_options_from_host(host_url: str) -> dict[str, object]:
-    """Build cookie options that behave correctly for localhost and HTTPS hosts."""
-    parsed = urlparse(host_url)
-    hostname = parsed.hostname
-    secure = parsed.scheme == "https"
-    options: dict[str, object] = {
-        "path": "/",
-        "same_site": "strict",
-        "secure": secure,
-    }
-    if hostname and hostname not in {"localhost", "127.0.0.1"}:
-        options["domain"] = hostname
-    return options
-
 
 async def _request_login(
     client: httpx.AsyncClient,
@@ -178,7 +161,7 @@ async def show_login_page(host):
     st.session_state.session_id = login_payload.get("session_id")
 
     if remember:
-        cookie_options = _cookie_options_from_host(st.secrets["api"]["HOST"])
+        cookie_options = refresh_cookie_options(st.secrets["api"]["HOST"])
         cookie_controller.set(
             name="refresh_token",
             value=refresh_token,

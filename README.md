@@ -37,7 +37,7 @@ Data utama yang dikelola:
 - Session restore di Streamlit dari cookie `refresh_token`
 - Logout dengan revocation session
 - Role-based access untuk halaman dan endpoint sensitif
-- Create account dan delete account untuk `admin` / `superadmin`
+- Create account dan delete account untuk `superadmin`
 - Optional bootstrap one-time `superadmin` via environment variable
 
 ### Security hardening yang sudah aktif
@@ -83,6 +83,7 @@ Data utama yang dikelola:
 - `Create Account`
 - `Update Data`
 - `Google Ads Token`
+- `Meta Ads Token`
 
 ### ETL dan data update
 
@@ -135,9 +136,9 @@ Role yang digunakan aplikasi:
 Hak akses halaman saat ini:
 
 - `superadmin`: semua halaman
-- `admin`: semua halaman
-- `digital_marketing`: `Home`, `Overview`, `User Acquisition`, `Brand Awareness`, `First Deposit`
-- `sales`: `Home`, `Overview`, `User Acquisition`, `Brand Awareness`, `First Deposit`
+- `admin`: `Home`, `Overview`, `User Acquisition`, `Brand Awareness`, `First Deposit`
+- `digital_marketing`: `Home`, `Overview`, `User Acquisition`, `Brand Awareness`
+- `sales`: saat ini belum diaktifkan di navigasi Streamlit
 
 ## Konfigurasi Environment
 

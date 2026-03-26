@@ -16,16 +16,8 @@ RUN apt-get update \
 
 COPY requirements.txt ./requirements.txt
 
-RUN python - <<'PY'
-from pathlib import Path
-
-source = Path("requirements.txt")
-target = Path("/tmp/requirements.docker.txt")
-target.write_text(source.read_text(encoding="utf-16"), encoding="utf-8")
-PY
-
 RUN pip install --upgrade pip \
-    && pip install -r /tmp/requirements.docker.txt
+    && pip install -r requirements.txt
 
 COPY . .
 
