@@ -166,10 +166,17 @@ def _apply_currency_to_ua_figure(figure: go.Figure, chart_type: str, currency_un
 
     if chart_type == "cost_vs_leads":
         cost_trace = figure.data[0]
+        cpl_trace = figure.data[1]
         cost_trace.y = [_convert_idr_to_usd(value) for value in (cost_trace.y or [])]
+        cpl_trace.y = [_convert_idr_to_usd(value) for value in (cpl_trace.y or [])]
         cost_trace.name = "Cost (USD)"
+        cpl_trace.name = "Cost/Lead (USD)"
         cost_trace.hovertemplate = "<b>%{x}</b><br>Cost: $ %{y:,.2f}<extra></extra>"
-        figure.update_layout(yaxis=dict(title="Cost (USD)"))
+        cpl_trace.hovertemplate = "<b>%{x}</b><br>Cost/Lead: $ %{y:,.2f}<extra></extra>"
+        figure.update_layout(
+            yaxis=dict(title="Cost (USD)"),
+            yaxis2=dict(title="Cost/Lead (USD)"),
+        )
         return figure
 
     if chart_type == "cost_to_revenue":
@@ -736,7 +743,7 @@ async def show_overview_page(host: str) -> None:
 
     cost_vs_leads_figure = campaign_figure_from_payload(
         cost_vs_leads_payload,
-        "Cost per Leads (Cost & Leads)",
+        "Cost per Leads (Cost & Cost/Lead)",
     )
     cost_vs_leads_figure = _set_transparent_chart_background(cost_vs_leads_figure)
     cost_vs_leads_figure = _apply_currency_to_ua_figure(

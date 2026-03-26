@@ -1109,12 +1109,16 @@ class OverviewLeadsAcquisitionData:
         return {"table_rows": table_rows, "pie_chart": {"rows": pie_rows, "figure": json.loads(pie_json)}}
 
     async def cost_vs_leads_chart(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build combined chart payload: daily cost bars + leads line."""
+        """Build combined chart payload: daily cost bars + cost-per-lead line."""
         ads_df = await self._ads_for_range(from_date, to_date)
         daily = self._daily_totals_frame(ads_df, from_date, to_date)
+        daily["cost_leads"] = daily.apply(
+            lambda row: round(float(row["cost"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0,
+            axis=1,
+        )
         date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()
         cost_values = pd.to_numeric(daily["cost"], errors="coerce").fillna(0).tolist()
-        leads_values = pd.to_numeric(daily["leads"], errors="coerce").fillna(0).tolist()
+        cost_leads_values = pd.to_numeric(daily["cost_leads"], errors="coerce").fillna(0).tolist()
 
         figure = go.Figure()
         figure.add_trace(
@@ -1129,24 +1133,29 @@ class OverviewLeadsAcquisitionData:
         figure.add_trace(
             go.Scatter(
                 x=date_labels,
-                y=leads_values,
+                y=cost_leads_values,
                 mode="lines+markers",
-                name="Leads",
+                name="Cost/Lead",
                 yaxis="y2",
                 line=dict(color="#ff6248", width=2),
-                hovertemplate="<b>%{x}</b><br>Leads: %{y:,}<extra></extra>",
+                hovertemplate="<b>%{x}</b><br>Cost/Lead: Rp. %{y:,.0f}<extra></extra>",
             )
         )
         figure.update_layout(
-            title="Cost per Leads (Cost & Leads)",
+            title="Cost per Leads (Cost & Cost/Lead)",
             xaxis=dict(type="category"),
             yaxis=dict(title="Cost"),
-            yaxis2=dict(title="Leads", overlaying="y", side="right"),
+            yaxis2=dict(title="Cost/Lead", overlaying="y", side="right"),
             legend=dict(orientation="h", y=1.1, x=0),
         )
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [
-            {"date": row["date"].isoformat(), "cost": float(row["cost"]), "leads": int(row["leads"])}
+            {
+                "date": row["date"].isoformat(),
+                "cost": float(row["cost"]),
+                "leads": int(row["leads"]),
+                "cost_leads": float(row["cost_leads"]),
+            }
             for _, row in daily.iterrows()
         ]
         return {"rows": rows, "figure": json.loads(chart_json)}

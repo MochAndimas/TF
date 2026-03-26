@@ -36,16 +36,6 @@ def _meta_exchange_url() -> str:
     return f"{_internal_backend_url()}/api/meta-ads/token/exchange"
 
 
-async def _fetch_status(access_token: str) -> dict:
-    """Fetch current Meta token storage status from backend."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(
-            _meta_status_url(),
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-    return response.json() if response.content else {}
-
-
 async def _authorized_request(
     method: str,
     url: str,
