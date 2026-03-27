@@ -6,7 +6,7 @@ import httpx
 import streamlit as st
 from decouple import config as env
 
-from streamlit_app.functions.utils import get_access_token, resolve_backend_base_url
+from streamlit_app.functions.runtime import get_access_token, resolve_backend_base_url
 
 def _default_redirect_uri() -> str:
     """Resolve the callback URI users should register in Google Cloud.

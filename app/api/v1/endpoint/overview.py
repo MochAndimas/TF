@@ -24,7 +24,7 @@ from app.api.v1.functions.fetch_overview_campaign import fetch_overview_campaign
 from app.api.v1.functions.fetch_overview_leads import fetch_overview_leads_acquisition_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
-from app.utils.overview_utils import (
+from app.utils.overview import (
     OverviewBrandAwarenessData,
     OverviewCampaignCostData,
     OverviewData,

@@ -7,7 +7,7 @@ Traders Family application.
 from datetime import date
 import asyncio
 
-from app.utils.campaign_utils import CampaignData
+from app.utils.campaign import CampaignData
 
 
 async def fetch_ads_metrics_with_growth_payload(

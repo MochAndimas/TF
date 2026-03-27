@@ -7,7 +7,7 @@ This module gathers KPI summaries and chart/table blocks for the Overview
 from datetime import date
 import asyncio
 
-from app.utils.overview_utils import OverviewLeadsAcquisitionData
+from app.utils.overview import OverviewLeadsAcquisitionData
 
 
 async def fetch_overview_leads_acquisition_payload(

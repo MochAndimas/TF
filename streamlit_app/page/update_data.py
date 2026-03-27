@@ -5,93 +5,11 @@ Traders Family application.
 """
 
 import asyncio
-import datetime as dt
 import httpx
 import streamlit as st
-from streamlit_app.functions.utils import get_date_range
 
-
-DATA_SOURCE_OPTIONS = {
-    "Unique Campaign": "unique_campaign",
-    "Google Ads (API)": "google_ads",
-    "Facebook Ads (API)": "facebook_ads",
-    "TikTok Ads (GSheet)": "tiktok_ads",
-    "GA4 Daily Users (App/Web)": "ga4_daily_metrics",
-    "First Deposit (API)": "first_deposit",
-}
-
-
-def _date_presets(today: dt.date) -> dict[str, tuple[dt.date, dt.date]]:
-    """Build the preset date windows shown in the update form.
-
-    Args:
-        today (dt.date): Anchor date used to derive relative presets.
-
-    Returns:
-        dict[str, tuple[dt.date, dt.date]]: Mapping of preset labels to
-        inclusive ``(start_date, end_date)`` tuples. ``Custom Range`` maps to
-        ``None`` because it is resolved from a date input widget later.
-    """
-    yesterday = today - dt.timedelta(days=1)
-    this_month_start = today.replace(day=1)
-    last_month_start = (this_month_start - dt.timedelta(days=1)).replace(day=1)
-    last_month_end = this_month_start - dt.timedelta(days=1)
-
-    return {
-        "Yesterday": (yesterday, yesterday),
-        "Last 7 Days": (today - dt.timedelta(days=7), yesterday),
-        "This Month": (this_month_start, today),
-        "Last Month": (last_month_start, last_month_end),
-        "Custom Range": None,
-    }
-
-
-def _resolve_date_input(
-    mode: str,
-    preset_key: str,
-    presets: dict[str, tuple[dt.date, dt.date]],
-) -> tuple[dt.date, dt.date]:
-    """Resolve the effective date range for an ETL update request.
-
-    In ``auto`` mode the range is always forced to yesterday. In ``manual``
-    mode the helper either uses the selected preset directly or reads the
-    custom range from Streamlit date input state.
-
-    Args:
-        mode (str): Selected update mode (`auto` or `manual`).
-        preset_key (str): Selected preset label from the UI.
-        presets (dict[str, tuple[dt.date, dt.date]]): Preset lookup generated
-            by ``_date_presets``.
-
-    Returns:
-        tuple[dt.date, dt.date]: Inclusive ``(from_date, to_date)`` range.
-
-    Raises:
-        ValueError: If the custom range is incomplete or chronologically
-        invalid.
-    """
-    if mode == "auto":
-        yesterday = dt.date.today() - dt.timedelta(days=1)
-        return yesterday, yesterday
-
-    if preset_key != "Custom Range":
-        return presets[preset_key]
-
-    selected_range = st.date_input(
-        "Select Date Range",
-        value=get_date_range(days=7, period="days"),
-        min_value=dt.date(2022, 1, 1),
-        max_value=get_date_range(days=2, period="days")[1],
-        key="update_date_range",
-    )
-
-    if not isinstance(selected_range, tuple) or len(selected_range) != 2:
-        raise ValueError("Please select a start and end date.")
-
-    from_date, to_date = selected_range
-    if from_date > to_date:
-        raise ValueError("Start date cannot be after end date.")
-    return from_date, to_date
+from streamlit_app.page.update_data_components.api import poll_update_job, trigger_update_job
+from streamlit_app.page.update_data_components.form import DATA_SOURCE_OPTIONS, render_update_form, resolve_date_input
 
 
 async def show_update_page(host):
@@ -106,45 +24,14 @@ async def show_update_page(host):
     st.markdown("""<h1 align="center">Update Data</h1>""", unsafe_allow_html=True)
     st.caption("Trigger manual or automatic synchronization for campaign and GA4 datasets.")
 
-    presets = _date_presets(dt.date.today())
-    from_date = None
-    to_date = None
-
-    with st.container(border=True):
-        left_col, right_col = st.columns(2)
-        with left_col:
-            source_label = st.selectbox(
-                "Data Source",
-                options=list(DATA_SOURCE_OPTIONS.keys()),
-                index=None,
-                placeholder="Select a data source",
-                key="update_data_source",
-            )
-            mode = st.radio(
-                "Update Mode",
-                options=["manual", "auto"],
-                horizontal=True,
-                key="update_mode",
-            )
-        with right_col:
-            preset_key = st.selectbox(
-                "Date Preset",
-                options=list(presets.keys()),
-                index=0 if mode == "auto" else None,
-                disabled=(mode == "auto"),
-                placeholder="Select date range preset",
-                key="update_period",
-            )
-            if mode == "auto":
-                auto_date = dt.date.today() - dt.timedelta(days=1)
-                st.info(f"Auto mode uses date: `{auto_date.isoformat()}`")
-            elif preset_key:
-                try:
-                    from_date, to_date = _resolve_date_input(mode, preset_key, presets)
-                except ValueError as error:
-                    st.warning(str(error))
-
-        submitted = st.button("Run Update", type="primary", width="stretch", key="update_submit")
+    form_state = render_update_form()
+    submitted = form_state["submitted"]
+    source_label = form_state["source_label"]
+    mode = form_state["mode"]
+    preset_key = form_state["preset_key"]
+    presets = form_state["presets"]
+    from_date = form_state["from_date"]
+    to_date = form_state["to_date"]
 
     if not submitted:
         return
@@ -173,14 +60,9 @@ async def show_update_page(host):
 
     with st.spinner("Updating data..."):
         try:
-            async with httpx.AsyncClient(timeout=600) as client:
-                response = await client.post(
-                    f"{host}/api/feature-data/update-external-api",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    json=payload,
-                )
-
-            data = response.json() if response.content else {}
+            initial_result = await trigger_update_job(host, access_token, payload)
+            response = initial_result["response"]
+            data = initial_result["data"]
             if response.status_code >= 400:
                 message = data.get("detail") or data.get("message") or "Update request failed."
                 st.error(message)
@@ -193,45 +75,15 @@ async def show_update_page(host):
 
             status_url = f"{host}/api/feature-data/update-external-api/{run_id}"
             st.info(f"Job accepted. Run ID: `{run_id}`")
-            status_placeholder = st.empty()
-            progress_placeholder = st.empty()
-
-            max_wait_seconds = 600
-            poll_interval_seconds = 5
-            elapsed = 0
-            final_status = None
-            final_message = None
-            final_error = None
-
-            async with httpx.AsyncClient(timeout=600) as client:
-                while elapsed < max_wait_seconds:
-                    status_response = await client.get(
-                        status_url,
-                        headers={"Authorization": f"Bearer {access_token}"},
-                    )
-                    status_data = status_response.json() if status_response.content else {}
-                    if status_response.status_code >= 400:
-                        message = (
-                            status_data.get("detail")
-                            or status_data.get("message")
-                            or "Failed to fetch update status."
-                        )
-                        st.error(message)
-                        return
-
-                    final_status = status_data.get("status")
-                    final_message = status_data.get("message")
-                    final_error = status_data.get("error_detail")
-                    status_placeholder.info(
-                        f"Current status: `{final_status}` | Elapsed: {elapsed}s / {max_wait_seconds}s"
-                    )
-                    progress_placeholder.progress(min(elapsed / max_wait_seconds, 1.0))
-
-                    if final_status in {"success", "failed"}:
-                        break
-
-                    await asyncio.sleep(poll_interval_seconds)
-                    elapsed += poll_interval_seconds
+            poll_result = await poll_update_job(host, access_token, run_id)
+            if poll_result.get("error"):
+                st.error(poll_result["error"])
+                return
+            status_placeholder = poll_result["status_placeholder"]
+            progress_placeholder = poll_result["progress_placeholder"]
+            final_status = poll_result["final_status"]
+            final_message = poll_result["final_message"]
+            final_error = poll_result["final_error"]
 
             if final_status == "success":
                 status_placeholder.empty()
@@ -247,10 +99,7 @@ async def show_update_page(host):
 
             status_placeholder.warning("Current status: `running`")
             progress_placeholder.progress(1.0)
-            st.warning(
-                "Update still running. Please check again later using this run_id: "
-                f"`{run_id}`"
-            )
+            st.warning(f"Update still running. Please check again later using this run_id: `{run_id}`")
         except httpx.RequestError as error:
             st.error(f"Network error while updating data: {error}")
         except Exception as error:

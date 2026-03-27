@@ -7,7 +7,7 @@ This module gathers KPI summaries and chart payloads for the Overview
 from datetime import date
 import asyncio
 
-from app.utils.overview_utils import OverviewBrandAwarenessData
+from app.utils.overview import OverviewBrandAwarenessData
 
 
 async def fetch_overview_brand_awareness_payload(

@@ -6,7 +6,7 @@ import httpx
 import streamlit as st
 from decouple import config as env
 
-from streamlit_app.functions.utils import (
+from streamlit_app.functions.runtime import (
     refresh_backend_tokens,
     resolve_backend_base_url,
     sync_refresh_cookie,

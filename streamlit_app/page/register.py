@@ -5,11 +5,9 @@ Traders Family application.
 """
 
 import streamlit as st
-from streamlit_app.functions.utils import (
-    add_account_modal,
-    edit_account_modal,
-    get_accounts,
-)
+
+from streamlit_app.functions.account_modals import add_account_modal, edit_account_modal
+from streamlit_app.functions.accounts import get_accounts
 
 
 TABLE_STYLE = """

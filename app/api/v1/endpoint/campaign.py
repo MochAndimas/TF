@@ -17,7 +17,7 @@ from app.api.v1.functions.fetch_campaign import (
 )
 from app.db.models.user import TfUser
 from app.db.session import get_db
-from app.utils.campaign_utils import CampaignData
+from app.utils.campaign import CampaignData
 from app.utils.user_utils import get_current_user
 
 router = APIRouter()

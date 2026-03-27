@@ -7,7 +7,7 @@ Traders Family application.
 import httpx
 import streamlit as st
 from datetime import datetime, timedelta
-from streamlit_app.functions.utils import cookie_controller, refresh_cookie_options
+from streamlit_app.functions.runtime import cookie_controller, refresh_cookie_options
 
 LOGIN_STYLE = """
 <style>

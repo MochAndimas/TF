@@ -7,7 +7,7 @@ returns a response shape that is directly consumed by FE cards and chart blocks.
 from datetime import date
 import asyncio
 
-from app.utils.overview_utils import OverviewData
+from app.utils.overview import OverviewData
 
 
 async def fetch_overview_active_users_payload(

@@ -7,7 +7,7 @@ object for the Overview FE section "Ad Cost Spend".
 from datetime import date
 import asyncio
 
-from app.utils.overview_utils import OverviewCampaignCostData
+from app.utils.overview import OverviewCampaignCostData
 
 
 async def fetch_overview_campaign_cost_payload(
