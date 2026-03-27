@@ -6,7 +6,7 @@ import httpx
 import streamlit as st
 from decouple import config as env
 
-from streamlit_app.functions.utils import get_access_token
+from streamlit_app.functions.utils import get_access_token, resolve_backend_base_url
 
 def _default_redirect_uri() -> str:
     """Resolve the callback URI users should register in Google Cloud.
@@ -40,14 +40,7 @@ def _oauth_start_url() -> str:
         current backend host, used by the Streamlit page's primary action
         button.
     """
-    backend_public_url = env("BACKEND_PUBLIC_URL", default="", cast=str).strip()
-    if backend_public_url:
-        return f"{backend_public_url.rstrip('/')}/api/google-ads/oauth/start"
-    backend_host = env("DEV_HOST", default="localhost", cast=str).strip() or "localhost"
-    backend_port = env("DEV_PORT", default=8000, cast=int)
-    if backend_host.startswith("http://") or backend_host.startswith("https://"):
-        return f"{backend_host.rstrip('/')}/api/google-ads/oauth/start"
-    return f"http://{backend_host}:{backend_port}/api/google-ads/oauth/start"
+    return f"{resolve_backend_base_url(prefer_internal=True)}/api/google-ads/oauth/start"
 
 
 async def show_google_ads_token_page(host: str) -> None:

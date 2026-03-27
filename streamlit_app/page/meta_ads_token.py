@@ -6,24 +6,16 @@ import httpx
 import streamlit as st
 from decouple import config as env
 
-from streamlit_app.functions.utils import refresh_backend_tokens, sync_refresh_cookie
+from streamlit_app.functions.utils import (
+    refresh_backend_tokens,
+    resolve_backend_base_url,
+    sync_refresh_cookie,
+)
 
 
 def _internal_backend_url() -> str:
     """Resolve backend base URL for server-side calls from the Streamlit container."""
-    internal_api_host = env("STREAMLIT_API_HOST", default="", cast=str).strip()
-    if internal_api_host:
-        return internal_api_host.rstrip("/")
-
-    backend_public_url = env("BACKEND_PUBLIC_URL", default="", cast=str).strip()
-    if backend_public_url:
-        return backend_public_url.rstrip("/")
-
-    backend_host = env("DEV_HOST", default="localhost", cast=str).strip() or "localhost"
-    backend_port = env("DEV_PORT", default=8000, cast=int)
-    if backend_host.startswith("http://") or backend_host.startswith("https://"):
-        return backend_host.rstrip("/")
-    return f"http://{backend_host}:{backend_port}"
+    return resolve_backend_base_url(prefer_internal=True)
 
 
 def _meta_status_url() -> str:

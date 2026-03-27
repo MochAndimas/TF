@@ -120,7 +120,6 @@ Data utama yang dikelola:
 |  |- test_security_hardening.py
 |- main.py                    # entrypoint FastAPI
 |- streamlit_run.py           # entrypoint Streamlit
-|- run_app.py                 # shortcut menjalankan Streamlit
 |- run_scheduled_etl.py       # CLI scheduled ETL runner
 ```
 
@@ -233,7 +232,7 @@ streamlit run streamlit_run.py --server.port 5504
 atau:
 
 ```bash
-python run_app.py
+streamlit run streamlit_run.py --server.port 5504
 ```
 
 ## Menjalankan Dengan Docker

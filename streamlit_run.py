@@ -13,12 +13,12 @@ from typing import Awaitable, Callable
 
 import streamlit as st
 from streamlit.components.v1 import html
-from decouple import config
 
 from streamlit_app.functions.utils import (
     cookie_controller,
     footer,
     logout,
+    resolve_backend_base_url,
     restore_backend_session,
     sync_refresh_cookie,
 )
@@ -82,6 +82,20 @@ ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness"],
     # "sales": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
 }
+
+PAGE_HANDLERS: dict[str, PageHandler] = {
+    "home": home.show_home_page,
+    "overview": overview.show_overview_page,
+    "user_acquisition": user_acquisition.show_user_acquisition_page,
+    "brand_awareness": brand_awareness.show_brand_awareness_page,
+    "deposit_report": deposit.show_deposit_page,
+    "register": register.create_account,
+    "update_data": update_data.show_update_page,
+    "google_ads_token": google_ads_token.show_google_ads_token_page,
+    "meta_ads_token": meta_ads_token.show_meta_ads_token_page,
+}
+
+PUBLIC_PAGE_KEYS = {"google_ads_token", "meta_ads_token"}
 
 
 def _inject_navigation_style() -> None:
@@ -183,14 +197,7 @@ def _resolve_host() -> str:
     Returns:
         str: API base URL used by all Streamlit page handlers.
     """
-    internal_api_host = config("STREAMLIT_API_HOST", default="", cast=str).strip()
-    if internal_api_host:
-        return internal_api_host.rstrip("/")
-
-    env_name = config("ENV", default="development", cast=str).lower()
-    if env_name == "production":
-        return st.secrets["api"]["HOST"]
-    return st.secrets["api"]["DEV_HOST"]
+    return resolve_backend_base_url(prefer_internal=True)
 
 
 def _initialize_session_state() -> None:
@@ -385,13 +392,9 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
     Returns:
         None: Renders page UI as side effect.
     """
-    if selected_page == "google_ads_token":
+    if selected_page in PUBLIC_PAGE_KEYS:
         st.session_state.page = selected_page
-        await google_ads_token.show_google_ads_token_page(host)
-        return
-    elif selected_page == "meta_ads_token":
-        st.session_state.page = selected_page
-        await meta_ads_token.show_meta_ads_token_page(host)
+        await PAGE_HANDLERS[selected_page](host)
         return
 
     if not st.session_state.logged_in:
@@ -402,19 +405,7 @@ async def _dispatch_page(host: str, selected_page: str | None) -> None:
         st.error("Unable to determine page selection.")
         return
 
-    page_handlers: dict[str, PageHandler] = {
-        "home": home.show_home_page,
-        "overview": overview.show_overview_page,
-        "user_acquisition": user_acquisition.show_user_acquisition_page,
-        "brand_awareness": brand_awareness.show_brand_awareness_page,
-        "deposit_report": deposit.show_deposit_page,
-        "register": register.create_account,
-        "update_data": update_data.show_update_page,
-        "google_ads_token": google_ads_token.show_google_ads_token_page,
-        "meta_ads_token": meta_ads_token.show_meta_ads_token_page,
-    }
-
-    handler = page_handlers.get(selected_page)
+    handler = PAGE_HANDLERS.get(selected_page)
     if handler is None:
         st.error("Page is not available.")
         return
