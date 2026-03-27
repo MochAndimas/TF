@@ -245,7 +245,12 @@ class FastApiApp:
         )
 
     def _add_trusted_host_middleware(self) -> None:
-        """Restrict accepted Host headers to known backend/frontend hosts."""
+        """Restrict accepted ``Host`` headers to configured safe origins.
+
+        Returns:
+            None: Registers Starlette's trusted-host middleware on ``self.app``
+            so unexpected host headers are rejected early.
+        """
         self.app.add_middleware(
             TrustedHostMiddleware,
             allowed_hosts=settings.trusted_hosts,
@@ -366,7 +371,17 @@ class FastApiApp:
 
     @classmethod
     def _sanitize_log_payload(cls, value: Any) -> Any:
-        """Redact secrets from structured log payloads before persisting them."""
+        """Recursively redact sensitive fields before request logs are stored.
+
+        Args:
+            value (Any): Arbitrary structured payload extracted from request or
+                response bodies.
+
+        Returns:
+            Any: Copy of the payload where known secret-bearing keys are
+            replaced with ``[REDACTED]`` while preserving the surrounding data
+            structure for observability.
+        """
         if isinstance(value, dict):
             sanitized: dict[str, Any] = {}
             for key, item in value.items():
@@ -397,7 +412,20 @@ class FastApiApp:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
+        docs_paths = {"/docs", "/redoc", "/openapi.json"}
+        if request.url.path in docs_paths:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self' https://cdn.jsdelivr.net; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+                "font-src 'self' https://fonts.gstatic.com data:; "
+                "img-src 'self' data: https:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none'; "
+                "base-uri 'self'"
+            )
+        else:
+            response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; base-uri 'self'"
         return response
 
     def _include_routers_v1(self) -> None:

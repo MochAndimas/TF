@@ -1699,7 +1699,7 @@ class CampaignData:
                     mode="lines+markers",
                     name="Cost Per Clicks",
                     yaxis="y2",
-                    hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.2f}<extra></extra>",
+                    hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.0f}<extra></extra>",
                 )
             )
             figure.add_trace(

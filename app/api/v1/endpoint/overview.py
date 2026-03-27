@@ -130,7 +130,7 @@ async def _build_overview_brand_data(
 async def overview_active_users(
     start_date: date = Query(...),
     end_date: date = Query(...),
-    source: Literal["app", "web"] = Query(default="app"),
+    source: Literal["app", "web", "app_web"] = Query(default="app"),
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
@@ -139,7 +139,7 @@ async def overview_active_users(
     Query Params:
         start_date: Inclusive period start date.
         end_date: Inclusive period end date.
-        source: GA4 source bucket (``app`` or ``web``).
+        source: GA4 source bucket (``app``, ``web``, or combined ``app_web``).
     """
     try:
         overview_data = await _build_overview_data(

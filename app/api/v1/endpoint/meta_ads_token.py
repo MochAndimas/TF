@@ -35,7 +35,15 @@ class MetaAdsTokenStatusResponse(BaseModel):
 
 
 def _meta_app_config() -> tuple[str, str]:
-    """Load Meta app credentials used for token exchange."""
+    """Load Meta application credentials required for token exchange calls.
+
+    Returns:
+        tuple[str, str]: ``(app_id, app_secret)`` pair read from environment
+        configuration.
+
+    Raises:
+        HTTPException: When required Meta credentials are not configured.
+    """
     app_id = env("META_APP_ID", default="", cast=str).strip()
     app_secret = env("META_APP_SECRET", default="", cast=str).strip()
     if not app_id or not app_secret:
@@ -47,7 +55,11 @@ def _meta_app_config() -> tuple[str, str]:
 
 
 def _meta_api_version() -> str:
-    """Resolve Graph API version for token exchange calls."""
+    """Resolve the Graph API version used for outbound Meta token requests.
+
+    Returns:
+        str: Configured API version, defaulting to ``v22.0`` when unset.
+    """
     return env("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
 
 
@@ -56,7 +68,12 @@ async def meta_ads_token_status(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),
 ):
-    """Return whether a long-lived Meta Ads token is configured."""
+    """Return whether a reusable long-lived Meta Ads token is stored.
+
+    Returns:
+        MetaAdsTokenStatusResponse: Status payload describing whether the
+        managed secret exists and when it was last updated.
+    """
     try:
         require_roles(current_user, "superadmin")
     except PermissionError as error:
@@ -77,7 +94,16 @@ async def exchange_meta_ads_token(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),
 ):
-    """Exchange a short-lived Meta user token and store the long-lived token."""
+    """Exchange and persist a long-lived Meta Ads token for backend ETL usage.
+
+    Args:
+        payload (MetaAdsTokenExchangeRequest): Incoming short-lived token
+            payload from the admin UI.
+
+    Returns:
+        JSONResponse-compatible dict: Success payload confirming that the
+        exchanged long-lived token has been stored.
+    """
     try:
         require_roles(current_user, "superadmin")
     except PermissionError as error:

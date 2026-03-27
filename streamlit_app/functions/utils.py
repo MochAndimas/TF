@@ -39,7 +39,12 @@ streamlit_session = sessionmaker(
 
 
 def get_access_token() -> str | None:
-    """Return the active access token from Streamlit session state."""
+    """Read the current bearer token from Streamlit session storage.
+
+    Returns:
+        str | None: Access token used for authenticated backend API calls, or
+        ``None`` when the current browser session is not authenticated.
+    """
     return st.session_state.get("access_token")
 
 
@@ -75,7 +80,18 @@ def sync_refresh_cookie(host: str, refresh_token: str | None) -> None:
 
 
 async def restore_backend_session(host: str, refresh_token: str) -> dict | None:
-    """Restore backend session by rotating a persisted refresh token."""
+    """Attempt silent login restoration with a persisted refresh token.
+
+    Args:
+        host (str): Backend base URL that exposes the refresh endpoint.
+        refresh_token (str): Refresh token recovered from cookie or session
+            storage.
+
+    Returns:
+        dict | None: Parsed backend response when rotation succeeds, otherwise
+        ``None`` when the token is missing, rejected, or the response body is
+        empty.
+    """
     if not refresh_token:
         return None
 
@@ -330,6 +346,49 @@ def _campaign_format_number(value: float | int) -> str:
     return f"{number:,.2f}"
 
 
+def _campaign_format_compact_number(value: float | int, suffix: str = "") -> str:
+    """Format a numeric value into compact K/M/B/T notation for narrow cards.
+
+    Args:
+        value (float | int): Raw numeric value to abbreviate.
+        suffix (str): Optional string appended after the compact number, such
+            as a unit symbol.
+
+    Returns:
+        str: Compact representation that preserves up to roughly three
+        significant digits, for example ``8.93M`` or ``12.4K``.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return f"0{suffix}"
+
+    absolute = abs(number)
+    if absolute >= 1_000_000_000_000:
+        scaled = number / 1_000_000_000_000
+        unit = "T"
+    elif absolute >= 1_000_000_000:
+        scaled = number / 1_000_000_000
+        unit = "B"
+    elif absolute >= 1_000_000:
+        scaled = number / 1_000_000
+        unit = "M"
+    elif absolute >= 1_000:
+        scaled = number / 1_000
+        unit = "K"
+    else:
+        scaled = number
+        unit = ""
+
+    if not unit:
+        return f"{_campaign_format_number(scaled)}{suffix}"
+
+    integer_digits = len(str(int(abs(scaled)))) if scaled else 1
+    decimal_places = max(0, 3 - integer_digits)
+    compact_value = f"{scaled:.{decimal_places}f}".rstrip("0").rstrip(".")
+    return f"{compact_value}{unit}{suffix}"
+
+
 def _campaign_format_currency(value: float | int, compact: bool = False) -> str:
     """Format an IDR-denominated currency metric for cards and tables.
 
@@ -341,22 +400,9 @@ def _campaign_format_currency(value: float | int, compact: bool = False) -> str:
     Returns:
         str: Formatted IDR currency string prefixed with ``Rp.``.
     """
-    full_currency = f"Rp. {_campaign_format_number(value)}"
-    if not compact and len(full_currency) <= 12:
-        return full_currency
-
-    number = float(value)
-    absolute = abs(number)
-    if absolute >= 1_000_000_000:
-        compact_value = f"{number / 1_000_000_000:.1f}B"
-    elif absolute >= 1_000_000:
-        compact_value = f"{number / 1_000_000:.1f}M"
-    elif absolute >= 1_000:
-        compact_value = f"{number / 1_000:.1f}K"
-    else:
-        compact_value = _campaign_format_number(number)
-
-    return f"Rp. {compact_value}"
+    if not compact:
+        return f"Rp. {_campaign_format_number(value)}"
+    return f"Rp. {_campaign_format_compact_number(value)}"
 
 
 def _campaign_format_usd(value: float | int, compact: bool = False) -> str:
@@ -370,22 +416,9 @@ def _campaign_format_usd(value: float | int, compact: bool = False) -> str:
     Returns:
         str: Formatted USD currency string prefixed with ``$``.
     """
-    full_currency = f"$ {_campaign_format_number(value)}"
-    if not compact and len(full_currency) <= 12:
-        return full_currency
-
-    number = float(value)
-    absolute = abs(number)
-    if absolute >= 1_000_000_000:
-        compact_value = f"{number / 1_000_000_000:.1f}B"
-    elif absolute >= 1_000_000:
-        compact_value = f"{number / 1_000_000:.1f}M"
-    elif absolute >= 1_000:
-        compact_value = f"{number / 1_000:.1f}K"
-    else:
-        compact_value = _campaign_format_number(number)
-
-    return f"$ {compact_value}"
+    if not compact:
+        return f"$ {_campaign_format_number(value)}"
+    return f"$ {_campaign_format_compact_number(value)}"
 
 
 def _campaign_convert_idr_to_usd(value: float | int) -> float:
@@ -438,6 +471,42 @@ def _campaign_metric_value(metrics: dict[str, float], key: str) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _render_hover_metric_card(
+    st,
+    label: str,
+    value: str,
+    delta: str,
+    growth_value: float | None = None,
+    tooltip: str | None = None,
+) -> None:
+    """Render one metric card using Streamlit defaults plus optional help text.
+
+    Args:
+        st: Streamlit module/object used to render the metric widget.
+        label (str): Metric label shown above the value.
+        value (str): Preformatted metric value string.
+        delta (str): Preformatted growth or delta text shown below the value.
+        growth_value (float | None): Raw numeric delta used to decide whether
+            neutral coloring should be applied for zero growth.
+        tooltip (str | None): Optional help text exposed through Streamlit's
+            built-in metric help affordance.
+
+    Returns:
+        None: Writes the metric widget into the active Streamlit container.
+    """
+    delta_color = "normal"
+    if growth_value == 0:
+        delta_color = "off"
+
+    st.metric(
+        label=label,
+        value=value,
+        delta=delta,
+        delta_color=delta_color,
+        help=tooltip,
+    )
 
 
 def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -> float:
@@ -497,25 +566,48 @@ def render_campaign_metric_cards(st, source_metrics: dict[str, object], source_l
             with st.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
                 if key == "cost":
-                    metric_value = _campaign_format_currency(raw_value)
+                    metric_value = _campaign_format_currency(raw_value, compact=True)
+                    tooltip_value = _campaign_format_currency(raw_value, compact=False)
                 elif key == "cost_leads":
                     metric_value = _campaign_format_currency(raw_value, compact=True)
+                    tooltip_value = _campaign_format_currency(raw_value, compact=False)
                 else:
                     metric_value = _campaign_format_number(raw_value)
+                    tooltip_value = None
 
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = _campaign_growth_from_periods(source_metrics, key)
                 growth_text = _campaign_format_growth(growth_value)
-                st.metric(
-                    label=label,
-                    value=metric_value,
-                    delta=growth_text,
-                )
+                if key in {"cost", "cost_leads"}:
+                    _render_hover_metric_card(
+                        st,
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                        growth_value=growth_value,
+                        tooltip=tooltip_value,
+                    )
+                else:
+                    st.metric(
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                    )
 
 
 def render_brand_awareness_metric_cards(st, source_metrics: dict[str, object], source_label: str) -> None:
-    """Render six KPI cards for selected Brand Awareness source."""
+    """Render the six-card KPI row for Brand Awareness dashboard sections.
+
+    Args:
+        st: Streamlit module/object used to output UI components.
+        source_metrics (dict[str, object]): Summary payload containing current,
+            previous, and growth metrics for the selected source.
+        source_label (str): Optional source label shown in the section title.
+
+    Returns:
+        None: Produces Streamlit metric cards as UI side effects.
+    """
     if source_label:
         st.markdown(f'<div class="metric-section-title">{source_label} - Brand Awareness</div>', unsafe_allow_html=True)
     st.markdown(
@@ -532,10 +624,12 @@ def render_brand_awareness_metric_cards(st, source_metrics: dict[str, object], s
                 line-height: 1.15 !important;
             }
             div[data-testid="stMetricDelta"] > div {
-                font-size: 0.92rem !important;
-                white-space: nowrap !important;
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
+                font-size: 0.84rem !important;
+                white-space: normal !important;
+                overflow: visible !important;
+                text-overflow: unset !important;
+                line-height: 1.2 !important;
+                word-break: break-word !important;
             }
         </style>
         """,
@@ -558,26 +652,38 @@ def render_brand_awareness_metric_cards(st, source_metrics: dict[str, object], s
         with column:
             with st.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
-                if key in ("cost", "cpm", "cpc"):
+                if key == "cpc":
+                    metric_value = f"Rp. {round(raw_value):,}"
+                    tooltip_value = f"Rp. {round(raw_value):,}"
+                elif key in ("cost", "cpm"):
                     metric_value = _campaign_format_currency(raw_value, compact=True)
+                    tooltip_value = _campaign_format_currency(raw_value, compact=False)
                 elif key == "ctr":
                     metric_value = f"{raw_value:.2f}%"
+                    tooltip_value = None
                 else:
                     metric_value = _campaign_format_number(raw_value)
+                    tooltip_value = None
 
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = _campaign_growth_from_periods(source_metrics, key)
-                if growth_value is None:
-                    growth_text = "N/A"
+                growth_text = _campaign_format_growth(growth_value)
+                if key in {"cost", "cpm", "cpc"}:
+                    _render_hover_metric_card(
+                        st,
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                        growth_value=growth_value,
+                        tooltip=tooltip_value,
+                    )
                 else:
-                    sign = "+" if growth_value > 0 else ""
-                    growth_text = f"{sign}{growth_value:.2f}%"
-                st.metric(
-                    label=label,
-                    value=metric_value,
-                    delta=growth_text,
-                )
+                    st.metric(
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                    )
 
 
 def render_overview_metric_cards(st, summary_payload: dict[str, object]) -> None:
@@ -641,16 +747,19 @@ def render_overview_cost_metric_cards(st, summary_payload: dict[str, object]) ->
             with st.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
                 metric_value = _campaign_format_currency(raw_value, compact=True)
+                tooltip_value = _campaign_format_currency(raw_value, compact=False)
 
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = 0.0
                 growth_text = _campaign_format_growth(growth_value)
-
-                st.metric(
+                _render_hover_metric_card(
+                    st,
                     label=label,
                     value=metric_value,
                     delta=growth_text,
+                    growth_value=growth_value,
+                    tooltip=tooltip_value,
                 )
 
 
@@ -687,25 +796,38 @@ def render_overview_leads_metric_cards(
                 raw_value = _campaign_metric_value(current_metrics, key)
                 if key in ("cost", "cost_leads"):
                     if currency_unit == "USD":
+                        converted_value = _campaign_convert_idr_to_usd(raw_value)
                         metric_value = _campaign_format_usd(
-                            _campaign_convert_idr_to_usd(raw_value),
+                            converted_value,
                             compact=True,
                         )
+                        tooltip_value = _campaign_format_usd(converted_value, compact=False)
                     else:
                         metric_value = _campaign_format_currency(raw_value, compact=True)
+                        tooltip_value = _campaign_format_currency(raw_value, compact=False)
                 else:
                     metric_value = _campaign_format_number(raw_value)
+                    tooltip_value = None
 
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = 0.0
                 growth_text = _campaign_format_growth(growth_value)
-
-                st.metric(
-                    label=label,
-                    value=metric_value,
-                    delta=growth_text,
-                )
+                if key in {"cost", "cost_leads"}:
+                    _render_hover_metric_card(
+                        st,
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                        growth_value=growth_value,
+                        tooltip=tooltip_value,
+                    )
+                else:
+                    st.metric(
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                    )
 
     secondary_columns = st.columns(2, gap="small")
     for column, (label, key) in zip(secondary_columns, secondary_cards):
@@ -714,25 +836,38 @@ def render_overview_leads_metric_cards(
                 raw_value = _campaign_metric_value(current_metrics, key)
                 if key == "first_deposit":
                     if currency_unit == "USD":
+                        converted_value = _campaign_convert_idr_to_usd(raw_value)
                         metric_value = _campaign_format_usd(
-                            _campaign_convert_idr_to_usd(raw_value),
+                            converted_value,
                             compact=True,
                         )
+                        tooltip_value = _campaign_format_usd(converted_value, compact=False)
                     else:
                         metric_value = _campaign_format_currency(raw_value, compact=True)
+                        tooltip_value = _campaign_format_currency(raw_value, compact=False)
                 else:
                     metric_value = f"{raw_value:.2f}%"
+                    tooltip_value = None
 
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = 0.0
                 growth_text = _campaign_format_growth(growth_value)
-
-                st.metric(
-                    label=label,
-                    value=metric_value,
-                    delta=growth_text,
-                )
+                if key == "first_deposit":
+                    _render_hover_metric_card(
+                        st,
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                        growth_value=growth_value,
+                        tooltip=tooltip_value,
+                    )
+                else:
+                    st.metric(
+                        label=label,
+                        value=metric_value,
+                        delta=growth_text,
+                    )
 
 
 def get_streamlit():

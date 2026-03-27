@@ -27,12 +27,21 @@ def _internal_backend_url() -> str:
 
 
 def _meta_status_url() -> str:
-    """Resolve backend URL used to inspect current Meta token status."""
+    """Build the backend URL used to inspect stored Meta token status.
+
+    Returns:
+        str: Fully qualified status endpoint for the current environment.
+    """
     return f"{_internal_backend_url()}/api/meta-ads/token/status"
 
 
 def _meta_exchange_url() -> str:
-    """Resolve backend URL used to exchange a Meta token."""
+    """Build the backend URL used to exchange a short-lived Meta token.
+
+    Returns:
+        str: Fully qualified token-exchange endpoint for the current
+        environment.
+    """
     return f"{_internal_backend_url()}/api/meta-ads/token/exchange"
 
 
@@ -43,7 +52,18 @@ async def _authorized_request(
     *,
     json_payload: dict | None = None,
 ) -> tuple[httpx.Response, dict]:
-    """Send an authenticated request and refresh tokens once on 401."""
+    """Send one authenticated request with a single refresh-token retry path.
+
+    Args:
+        method (str): HTTP method to send.
+        url (str): Fully qualified backend URL.
+        access_token (str): Current bearer token from session state.
+        json_payload (dict | None): Optional JSON payload for non-GET requests.
+
+    Returns:
+        tuple[httpx.Response, dict]: Final HTTP response plus parsed JSON payload
+        after at most one token refresh retry.
+    """
     headers = {"Authorization": f"Bearer {access_token}"}
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.request(
@@ -79,7 +99,15 @@ async def _authorized_request(
 
 
 async def show_meta_ads_token_page(host: str) -> None:
-    """Render helper page for exchanging and storing Meta long-lived token."""
+    """Render the admin UI for exchanging and storing Meta long-lived tokens.
+
+    Args:
+        host (str): Backend host parameter kept for page-handler consistency.
+
+    Returns:
+        None: Writes Streamlit controls and status messages for Meta token
+        management.
+    """
     del host
 
     st.title("Meta Ads Token")

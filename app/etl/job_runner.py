@@ -28,7 +28,18 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
 
 
 def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any, Any]:
-    """Resolve the persisted ETL window for one source trigger."""
+    """Resolve the effective ETL date window for one requested source update.
+
+    Args:
+        data (str): Source key selected by the caller.
+        types (str): Update mode, for example scheduled or manual/custom.
+        start_date: Optional explicit start date from the request payload.
+        end_date: Optional explicit end date from the request payload.
+
+    Returns:
+        tuple[Any, Any]: Normalized ``(start_date, end_date)`` pair, or
+        ``(None, None)`` for sources that do not operate on date windows.
+    """
     if data == "unique_campaign":
         return None, None
     return resolve_date_window(types, start_date, end_date)
@@ -42,7 +53,19 @@ async def execute_update_job(
     start_date,
     end_date,
 ) -> dict[str, Any]:
-    """Execute one ETL job and persist success/failure into ``etl_run``."""
+    """Execute one ETL task and persist lifecycle status into ``etl_run``.
+
+    Args:
+        run_id (str): Existing ETL run identifier that tracks job status.
+        data (str): Source key to process.
+        types (str): Trigger mode that influences date-window resolution.
+        start_date: Optional requested start date.
+        end_date: Optional requested end date.
+
+    Returns:
+        dict[str, Any]: Structured result payload describing whether the job
+        succeeded and the message or error captured for the run.
+    """
     logger.info(
         json.dumps(
             {

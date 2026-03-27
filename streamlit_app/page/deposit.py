@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from decouple import config
 
-from streamlit_app.functions.utils import campaign_preset_ranges, fetch_data
+from streamlit_app.functions.utils import campaign_preset_ranges, fetch_data, _render_hover_metric_card
 
 USD_TO_IDR_RATE = config("USD_TO_IDR_RATE", default=16968, cast=float)
 
@@ -51,6 +51,14 @@ PAGE_STYLE = """
     z-index: 2;
     background: rgb(15, 23, 42);
 }
+.deposit-table tbody td.sticky-col {
+    background: #e8eefc;
+    color: #22304a;
+}
+.deposit-table thead .sticky-col {
+    background: rgba(43, 63, 92, 0.32);
+    color: #2f3747;
+}
 .section-head td {
     background: rgba(37, 99, 235, 0.25);
     font-weight: 700;
@@ -58,6 +66,7 @@ PAGE_STYLE = """
 }
 .metric-name {
     font-weight: 600;
+    color: #22304a;
 }
 .metric-section-title {
     text-align: center;
@@ -90,43 +99,84 @@ div[data-testid="stMetricValue"] > div {
 }
 div[data-testid="stMetricDelta"] > div {
     font-size: 0.9rem !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: unset !important;
+    line-height: 1.2 !important;
+    word-break: break-word !important;
 }
 </style>
 """
 
 
 def _currency_multiplier(currency_unit: str) -> float:
-    """Return multiplier used to display money in the selected currency."""
+    """Return the factor used to convert stored USD values into display units.
+
+    Args:
+        currency_unit (str): Requested UI currency, typically ``"USD"`` or
+            ``"IDR"``.
+
+    Returns:
+        float: ``1.0`` for USD display or the configured FX multiplier for IDR
+        display.
+    """
     if currency_unit == "IDR":
         return float(USD_TO_IDR_RATE)
     return 1.0
 
 
 def _currency_label(currency_unit: str) -> str:
-    """Return short label used in UI for the selected currency."""
+    """Map a currency selection into the short symbol shown in UI labels.
+
+    Args:
+        currency_unit (str): Requested UI currency code.
+
+    Returns:
+        str: Compact currency marker used in labels and table headers.
+    """
     if currency_unit == "IDR":
         return "Rp"
     return "$"
 
 
 def _compact_currency_value(value: float, currency_unit: str) -> str:
-    """Format currency value compactly for cards to avoid truncation."""
-    if currency_unit == "USD":
-        return f"${value:,.0f}"
+    """Format a monetary value into a compact card-friendly text representation.
 
+    Args:
+        value (float): Amount already converted into the requested currency.
+        currency_unit (str): Target display currency used to choose the prefix.
+
+    Returns:
+        str: Abbreviated amount such as ``$12.4K`` or ``Rp8.93M`` sized for KPI
+        cards with tight horizontal space.
+    """
     absolute = abs(value)
     if absolute >= 1_000_000_000_000:
-        compact = f"{value / 1_000_000_000_000:.1f}T"
+        scaled = value / 1_000_000_000_000
+        unit = "T"
     elif absolute >= 1_000_000_000:
-        compact = f"{value / 1_000_000_000:.1f}B"
+        scaled = value / 1_000_000_000
+        unit = "B"
     elif absolute >= 1_000_000:
-        compact = f"{value / 1_000_000:.1f}M"
+        scaled = value / 1_000_000
+        unit = "M"
     elif absolute >= 1_000:
-        compact = f"{value / 1_000:.1f}K"
+        scaled = value / 1_000
+        unit = "K"
     else:
-        compact = f"{value:,.0f}"
-    compact = compact.rstrip("0").rstrip(".")
-    return f"Rp{compact}"
+        scaled = value
+        unit = ""
+
+    if unit:
+        integer_digits = len(str(int(abs(scaled)))) if scaled else 1
+        decimal_places = max(0, 3 - integer_digits)
+        compact = f"{scaled:.{decimal_places}f}".rstrip("0").rstrip(".")
+        compact = f"{compact}{unit}"
+    else:
+        compact = f"{scaled:,.0f}"
+
+    prefix = "Rp" if currency_unit == "IDR" else "$"
+    return f"{prefix}{compact}"
 
 
 def _format_amount(value: float | int, currency_unit: str = "USD") -> str:
@@ -168,6 +218,22 @@ def _format_aov(value: float | int, currency_unit: str = "USD") -> str:
     return _format_amount(value, currency_unit=currency_unit)
 
 
+def _format_amount_full(value: float | int, currency_unit: str = "USD") -> str:
+    """Format a full-precision amount string for tooltip and help surfaces.
+
+    Args:
+        value (float | int): Raw stored monetary amount.
+        currency_unit (str): Target display currency code.
+
+    Returns:
+        str: Non-abbreviated currency text suitable for hover/help details.
+    """
+    converted_value = float(value) * _currency_multiplier(currency_unit)
+    if currency_unit == "IDR":
+        return f"Rp{converted_value:,.0f}"
+    return f"${converted_value:,.2f}"
+
+
 def _metric_formatter(metric_key: str, value: float | int, currency_unit: str = "USD") -> str:
     """Dispatch cell formatter based on report metric key.
 
@@ -187,7 +253,21 @@ def _metric_formatter(metric_key: str, value: float | int, currency_unit: str = 
 
 
 def _extract_section_metric_values(section: dict[str, object], metric_key: str, timeline: list[str]) -> dict[str, dict[str, float]]:
-    """Extract one metric's per-day status map from a section payload."""
+    """Extract one metric's daily new/existing-user split from a section block.
+
+    Args:
+        section (dict[str, object]): One campaign or total section from the
+            backend deposit report payload.
+        metric_key (str): Metric identifier to extract, such as
+            ``depo_amount`` or ``qty``.
+        timeline (list[str]): Ordered ISO-date strings expected by the table
+            and chart builders.
+
+    Returns:
+        dict[str, dict[str, float]]: Date-keyed mapping containing ``new`` and
+        ``existing`` values for every day in the selected window, including
+        zero-filled defaults when a metric row is absent.
+    """
     for row in section.get("rows", []):
         if str(row.get("key")) == metric_key:
             values = row.get("values", {})
@@ -202,7 +282,17 @@ def _extract_section_metric_values(section: dict[str, object], metric_key: str, 
 
 
 def _build_daily_deposit_amount_figure(report: dict[str, object], currency_unit: str) -> go.Figure:
-    """Build stacked daily deposit amount chart split by new vs existing users."""
+    """Build the stacked daily deposit-amount chart for new vs existing users.
+
+    Args:
+        report (dict[str, object]): Backend report payload containing timeline
+            dates and per-section metric values.
+        currency_unit (str): Display currency used to scale y-axis values and
+            hover labels.
+
+    Returns:
+        go.Figure: Plotly figure configured for the deposit summary page.
+    """
     timeline = report.get("timeline", [])
     sections = report.get("sections", [])
     total_section = next((section for section in sections if str(section.get("campaign_id")) == "TOTAL"), None)
@@ -331,7 +421,17 @@ def _build_daily_deposit_qty_aov_figure(report: dict[str, object], currency_unit
 
 
 def _build_top_campaign_deposit_figure(report: dict[str, object], currency_unit: str, top_n: int = 10) -> go.Figure:
-    """Build ranked campaign chart by total deposit amount."""
+    """Build a ranked horizontal chart of campaigns by total deposit amount.
+
+    Args:
+        report (dict[str, object]): Backend deposit report payload.
+        currency_unit (str): Selected display currency for axis and hover text.
+        top_n (int): Maximum number of campaigns to keep in the ranking.
+
+    Returns:
+        go.Figure: Horizontal stacked bar chart showing top campaigns by
+        aggregate deposit amount.
+    """
     timeline = report.get("timeline", [])
     sections = report.get("sections", [])
     campaign_sections = [section for section in sections if str(section.get("campaign_id")) != "TOTAL"]
@@ -432,13 +532,22 @@ def _render_status_cards(
     for column, (label, key, formatter) in zip(columns, card_specs):
         with column:
             with st.container(border=True):
-                st.metric(
-                    label=label,
-                    value=formatter(totals.get(key, 0.0), currency_unit=currency_unit)
-                    if key in {"depo_amount", "aov"}
-                    else formatter(totals.get(key, 0.0)),
-                    delta=f"{growth.get(key, 0.0):+.2f}% vs prev period",
-                )
+                if key in {"depo_amount", "aov"}:
+                    raw_value = totals.get(key, 0.0)
+                    _render_hover_metric_card(
+                        st,
+                        label=label,
+                        value=formatter(raw_value, currency_unit=currency_unit),
+                        delta=f"{growth.get(key, 0.0):+.2f}% vs prev period",
+                        growth_value=growth.get(key, 0.0),
+                        tooltip=_format_amount_full(raw_value, currency_unit=currency_unit),
+                    )
+                else:
+                    st.metric(
+                        label=label,
+                        value=formatter(totals.get(key, 0.0)),
+                        delta=f"{growth.get(key, 0.0):+.2f}% vs prev period",
+                    )
 
 
 def _render_metric_cards(report: dict[str, object], currency_unit: str) -> None:

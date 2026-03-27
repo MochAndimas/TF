@@ -167,7 +167,16 @@ async def _get_or_create_login_throttle(
     session: AsyncSession,
     email: str,
 ) -> LoginThrottle:
-    """Return login throttle record, creating one when missing."""
+    """Load the throttle row for one email, creating a default row if absent.
+
+    Args:
+        session (AsyncSession): Active database session.
+        email (str): Normalized email address used as the throttle key.
+
+    Returns:
+        LoginThrottle: Existing or newly created throttle row used to track
+        failed attempts and lockout timing.
+    """
     result = await session.execute(select(LoginThrottle).where(LoginThrottle.email == email))
     throttle = result.scalar_one_or_none()
     if throttle is not None:
@@ -197,7 +206,21 @@ async def _record_auth_event(
     ip_address: str | None,
     user_agent: str | None,
 ) -> None:
-    """Persist one authentication audit event."""
+    """Persist one authentication-related audit trail record.
+
+    Args:
+        session (AsyncSession): Active database session.
+        email (str): Email value associated with the auth event.
+        user_id (str | None): Authenticated user ID when one is known.
+        event_type (str): Event category such as login failure or refresh.
+        success (bool): Whether the attempted action succeeded.
+        detail (str): Human-readable event detail for later investigation.
+        ip_address (str | None): Source IP address when available.
+        user_agent (str | None): Browser or client user agent string.
+
+    Returns:
+        None: Adds the audit row to the current session for later commit.
+    """
     session.add(
         AuthAuditEvent(
             email=email,

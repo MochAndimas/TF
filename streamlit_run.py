@@ -94,10 +94,11 @@ def _inject_navigation_style() -> None:
         """
         <style>
             .tf-nav-title {
-                font-size: 0.78rem;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-                opacity: 0.72;
+                font-size: 1.2rem;
+                font-weight: 700;
+                text-transform: none;
+                letter-spacing: 0.01em;
+                opacity: 0.92;
                 margin-top: 0.35rem;
                 margin-bottom: 0.2rem;
             }
@@ -212,7 +213,15 @@ def _initialize_session_state() -> None:
 
 
 def _query_param(name: str) -> str | None:
-    """Read a query parameter as a single string value."""
+    """Read one query parameter and normalize list-style values into one string.
+
+    Args:
+        name (str): Query-string key to retrieve from ``st.query_params``.
+
+    Returns:
+        str | None: First value for list-backed params, the direct scalar value
+        otherwise, or ``None`` when the key is absent.
+    """
     value = st.query_params.get(name)
     if isinstance(value, list):
         return value[0] if value else None
@@ -220,7 +229,16 @@ def _query_param(name: str) -> str | None:
 
 
 def _resolve_public_page_from_query_params() -> str | None:
-    """Resolve non-authenticated pages that can be reached via query params."""
+    """Detect public pages that must stay reachable before login completes.
+
+    This currently exists to support Google Ads OAuth redirects, where the
+    browser lands on the Streamlit app with callback query parameters before an
+    authenticated in-app navigation state has been restored.
+
+    Returns:
+        str | None: Public page key to dispatch immediately, or ``None`` when
+        no special query-param driven routing is needed.
+    """
     oauth_callback_params = ("code", "error", "state", "scope", "authuser", "prompt")
     if _query_param("google_ads_oauth") == "1":
         return "google_ads_token"
@@ -306,7 +324,7 @@ def _render_sidebar_navigation(host: str) -> str | None:
             current_page = available_pages[0]
             st.session_state.page = current_page
 
-        st.markdown('<p class="tf-nav-title">Navigation</p>', unsafe_allow_html=True)
+        st.markdown('<p class="tf-nav-title">Traders Family</p>', unsafe_allow_html=True)
         collapse_nav_once = st.session_state.get("collapse_nav_once", False)
         selected_page = current_page
 
@@ -353,7 +371,6 @@ def _render_sidebar_navigation(host: str) -> str | None:
             st.session_state["collapse_nav_once"] = False
 
         st.markdown('<div class="tf-nav-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="tf-nav-title">Session</div>', unsafe_allow_html=True)
         asyncio.run(logout(st, host))
         return selected_page
 

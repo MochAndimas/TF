@@ -95,7 +95,15 @@ class Settings(BaseModel):
 
     @staticmethod
     def _split_origins(raw_value: str | None) -> list[str]:
-        """Parse a comma-separated origins string into a normalized list."""
+        """Parse a comma-separated origins string into a normalized list.
+
+        Args:
+            raw_value (str | None): Raw environment value containing zero or
+                more origins separated by commas.
+
+        Returns:
+            list[str]: Trimmed non-empty origins with trailing slashes removed.
+        """
         if not raw_value:
             return []
         return [item.strip().rstrip("/") for item in raw_value.split(",") if item.strip()]
@@ -111,7 +119,11 @@ class Settings(BaseModel):
 
     @property
     def cookie_samesite(self) -> str:
-        """Use one cookie policy consistently across session-related cookies."""
+        """Return the canonical SameSite policy for session-related cookies.
+
+        Returns:
+            str: SameSite policy string reused across auth and session cookies.
+        """
         return "lax"
 
     @property
@@ -134,7 +146,12 @@ class Settings(BaseModel):
 
     @property
     def trusted_hosts(self) -> list[str]:
-        """Resolve allowed hostnames for Host-header validation."""
+        """Resolve the set of allowed hosts used for Host-header validation.
+
+        Returns:
+            list[str]: Sorted list of hostnames accepted by trusted-host
+            middleware in the current environment.
+        """
         hosts = {"localhost", "127.0.0.1"}
         if self.HOST not in {"0.0.0.0", "::"}:
             hosts.add(self.HOST)
@@ -145,7 +162,15 @@ class Settings(BaseModel):
         return sorted(hosts)
 
     def validate_bootstrap_config(self) -> None:
-        """Ensure required bootstrap settings exist when bootstrap is enabled."""
+        """Validate bootstrap-superadmin settings before bootstrap runs.
+
+        Returns:
+            None: Completes silently when configuration is sufficient.
+
+        Raises:
+            ValueError: When bootstrap mode is enabled but one or more required
+            bootstrap settings are missing.
+        """
         if not self.BOOTSTRAP_SUPERADMIN:
             return
 
@@ -162,7 +187,7 @@ class Settings(BaseModel):
 
 
 class DevelopmentSettings(Settings):
-    """Settings profile for local development workflow."""
+    """Settings profile tuned for local development, debugging, and localhost."""
 
     ENV: EnvironmentName = "development"
     DEBUG: bool = True
@@ -194,7 +219,7 @@ class DevelopmentSettings(Settings):
 
 
 class ProductionSettings(Settings):
-    """Settings profile for production deployment workflow."""
+    """Settings profile tuned for production deployment and stricter defaults."""
 
     ENV: EnvironmentName = "production"
     DEBUG: bool = False

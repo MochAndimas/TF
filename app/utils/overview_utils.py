@@ -17,7 +17,7 @@ from decouple import config as env
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.utils
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import Campaign, DataDepo, FacebookAds, Ga4DailyMetrics, GoogleAds, TikTokAds
@@ -43,8 +43,8 @@ class OverviewData:
             session (AsyncSession): Database session used for all reads.
             from_date (date): Inclusive start date for the preload window.
             to_date (date): Inclusive end date for the preload window.
-            source (str): Logical GA4 source selector, typically ``app`` or
-                ``web``.
+            source (str): Logical GA4 source selector, typically ``app``,
+                ``web``, or the combined ``app_web`` bucket.
         """
         self.session = session
         self.from_date = from_date
@@ -130,27 +130,46 @@ class OverviewData:
         Args:
             from_date (date): Inclusive range start date.
             to_date (date): Inclusive range end date.
-            source (str): Logical source selector (`app` or `web`).
+            source (str): Logical source selector (`app`, `web`, or
+                `app_web`).
 
         Returns:
             pd.DataFrame: Dataframe containing GA4 metric rows for the
             requested source and period. Returns an empty dataframe with the
             expected schema when no rows are available.
         """
-        query = (
-            select(
-                Ga4DailyMetrics.date.label("date"),
-                Ga4DailyMetrics.source.label("source"),
-                Ga4DailyMetrics.daily_active_users.label("daily_active_users"),
-                Ga4DailyMetrics.monthly_active_users.label("monthly_active_users"),
-                Ga4DailyMetrics.active_users.label("active_users"),
+        normalized_source = source.strip().lower()
+        if normalized_source == "app_web":
+            query = (
+                select(
+                    Ga4DailyMetrics.date.label("date"),
+                    literal("app_web").label("source"),
+                    func.sum(Ga4DailyMetrics.daily_active_users).label("daily_active_users"),
+                    func.sum(Ga4DailyMetrics.monthly_active_users).label("monthly_active_users"),
+                    func.sum(Ga4DailyMetrics.active_users).label("active_users"),
+                )
+                .where(
+                    Ga4DailyMetrics.date.between(from_date, to_date),
+                    Ga4DailyMetrics.source.in_(["app", "web"]),
+                )
+                .group_by(Ga4DailyMetrics.date)
+                .order_by(Ga4DailyMetrics.date.asc())
             )
-            .where(
-                Ga4DailyMetrics.date.between(from_date, to_date),
-                Ga4DailyMetrics.source == source,
+        else:
+            query = (
+                select(
+                    Ga4DailyMetrics.date.label("date"),
+                    Ga4DailyMetrics.source.label("source"),
+                    Ga4DailyMetrics.daily_active_users.label("daily_active_users"),
+                    Ga4DailyMetrics.monthly_active_users.label("monthly_active_users"),
+                    Ga4DailyMetrics.active_users.label("active_users"),
+                )
+                .where(
+                    Ga4DailyMetrics.date.between(from_date, to_date),
+                    Ga4DailyMetrics.source == normalized_source,
+                )
+                .order_by(Ga4DailyMetrics.date.asc())
             )
-            .order_by(Ga4DailyMetrics.date.asc())
-        )
         result = await self.session.execute(query)
         rows = result.fetchall()
         if not rows:
@@ -337,7 +356,7 @@ class OverviewData:
             and a Plotly figure for daily active-user visualization.
         """
         daily = self._build_daily_series(await self._frame_for_range(from_date, to_date), from_date, to_date)
-        source_label = self.source.upper()
+        source_label = "APP + WEB" if self.source == "app_web" else self.source.upper()
         date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()
         dau_values = pd.to_numeric(daily["daily_active_users"], errors="coerce").fillna(0).tolist()
         mau_values = pd.to_numeric(daily["monthly_active_users"], errors="coerce").fillna(0).tolist()
@@ -828,7 +847,16 @@ class OverviewLeadsAcquisitionData:
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Return previous date window with the same number of days."""
+        """Return the immediately preceding date window with equal duration.
+
+        Args:
+            from_date (date): Inclusive start date of the current period.
+            to_date (date): Inclusive end date of the current period.
+
+        Returns:
+            tuple[date, date]: Previous-period ``(from_date, to_date)`` pair
+            spanning the same number of days as the current period.
+        """
         period_days = (to_date - from_date).days + 1
         previous_to = from_date - timedelta(days=1)
         previous_from = previous_to - timedelta(days=period_days - 1)
@@ -836,7 +864,16 @@ class OverviewLeadsAcquisitionData:
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float:
-        """Compute percentage growth with zero-baseline safeguard."""
+        """Compute percentage growth while handling zero-baseline comparisons.
+
+        Args:
+            current_value (float): Current-period metric value.
+            previous_value (float): Previous-period metric value.
+
+        Returns:
+            float: Rounded growth percentage, returning ``100.0`` when the
+            current value is positive and the previous value is zero.
+        """
         if previous_value == 0:
             return 100.0 if current_value else 0.0
         return round(((current_value - previous_value) / previous_value) * 100, 2)
@@ -882,7 +919,16 @@ class OverviewLeadsAcquisitionData:
         return dataframe
 
     async def _read_ads_ua_with_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Load and merge UA ads data across Google/Facebook/TikTok."""
+        """Load and merge user-acquisition ads data across all ad platforms.
+
+        Args:
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+
+        Returns:
+            pd.DataFrame: Unified UA ads dataframe spanning Google, Facebook,
+            and TikTok sources for the requested period.
+        """
         google = await self._read_one_source_ads_ua(GoogleAds, "google", from_date, to_date)
         facebook = await self._read_one_source_ads_ua(FacebookAds, "facebook", from_date, to_date)
         tiktok = await self._read_one_source_ads_ua(TikTokAds, "tiktok", from_date, to_date)
@@ -895,7 +941,16 @@ class OverviewLeadsAcquisitionData:
         return dataframe
 
     async def _read_revenue_ua_with_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Load first-deposit totals (stored as ``revenue``) for UA campaigns."""
+        """Load first-deposit totals used as revenue for UA reporting views.
+
+        Args:
+            from_date (date): Inclusive range start date.
+            to_date (date): Inclusive range end date.
+
+        Returns:
+            pd.DataFrame: Revenue-like first-deposit totals aligned to UA
+            campaigns for the requested date window.
+        """
         query = (
             select(
                 DataDepo.tanggal_regis.label("date"),
@@ -922,13 +977,31 @@ class OverviewLeadsAcquisitionData:
         return dataframe
 
     async def _ads_for_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Return UA ads data from cache or DB for requested range."""
+        """Return UA ads data for one range, reusing the preload cache when possible.
+
+        Args:
+            from_date (date): Inclusive requested start date.
+            to_date (date): Inclusive requested end date.
+
+        Returns:
+            pd.DataFrame: Ads dataframe for the requested period sourced from
+            cache or a fresh DB read.
+        """
         if from_date >= self.from_date and to_date <= self.to_date and not self.df_ads.empty:
             return self.df_ads.loc[(self.df_ads["date"] >= from_date) & (self.df_ads["date"] <= to_date)].copy()
         return await self._read_ads_ua_with_range(from_date, to_date)
 
     async def _revenue_for_range(self, from_date: date, to_date: date) -> pd.DataFrame:
-        """Return UA first-deposit data from cache or DB for requested range."""
+        """Return UA revenue data for one range with cache reuse when valid.
+
+        Args:
+            from_date (date): Inclusive requested start date.
+            to_date (date): Inclusive requested end date.
+
+        Returns:
+            pd.DataFrame: First-deposit revenue dataframe for the requested
+            period.
+        """
         if from_date >= self.from_date and to_date <= self.to_date and not self.df_revenue.empty:
             return self.df_revenue.loc[
                 (self.df_revenue["date"] >= from_date) & (self.df_revenue["date"] <= to_date)
@@ -937,7 +1010,17 @@ class OverviewLeadsAcquisitionData:
 
     @staticmethod
     def _daily_totals_frame(dataframe: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
-        """Build full-day timeline with zero-filled UA numeric columns."""
+        """Build a complete day-by-day UA frame with zero-filled numeric gaps.
+
+        Args:
+            dataframe (pd.DataFrame): Raw UA dataframe for the requested window.
+            from_date (date): Inclusive timeline start date.
+            to_date (date): Inclusive timeline end date.
+
+        Returns:
+            pd.DataFrame: Normalized daily totals frame covering every day in
+            the requested period.
+        """
         timeline = pd.DataFrame({"date": pd.date_range(start=from_date, end=to_date, freq="D").date})
         if dataframe.empty:
             merged = timeline.copy()
@@ -1038,7 +1121,16 @@ class OverviewLeadsAcquisitionData:
         }
 
     async def leads_by_source(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build leads-by-source table rows and donut chart payload."""
+        """Build the leads-by-source table rows and companion donut-chart payload.
+
+        Args:
+            from_date (date): Inclusive report start date.
+            to_date (date): Inclusive report end date.
+
+        Returns:
+            dict[str, object]: FE-ready payload containing table rows, chart
+            series, and serialized figure output for the leads-by-source block.
+        """
         ads_df = await self._ads_for_range(from_date, to_date)
         if ads_df.empty:
             figure = go.Figure()
@@ -1109,7 +1201,16 @@ class OverviewLeadsAcquisitionData:
         return {"table_rows": table_rows, "pie_chart": {"rows": pie_rows, "figure": json.loads(pie_json)}}
 
     async def cost_vs_leads_chart(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build combined chart payload: daily cost bars + cost-per-lead line."""
+        """Build the combined daily cost and cost-per-lead chart payload.
+
+        Args:
+            from_date (date): Inclusive chart start date.
+            to_date (date): Inclusive chart end date.
+
+        Returns:
+            dict[str, object]: Serialized Plotly payload containing daily cost
+            bars and cost-per-lead trend data.
+        """
         ads_df = await self._ads_for_range(from_date, to_date)
         daily = self._daily_totals_frame(ads_df, from_date, to_date)
         daily["cost_leads"] = daily.apply(
@@ -1161,7 +1262,16 @@ class OverviewLeadsAcquisitionData:
         return {"rows": rows, "figure": json.loads(chart_json)}
 
     async def leads_per_day_chart(self, from_date: date, to_date: date) -> dict[str, object]:
-        """Build daily leads bar-chart payload for UA section."""
+        """Build the daily leads bar-chart payload for the UA overview section.
+
+        Args:
+            from_date (date): Inclusive chart start date.
+            to_date (date): Inclusive chart end date.
+
+        Returns:
+            dict[str, object]: Serialized chart payload and raw daily rows for
+            the leads-per-day visualization.
+        """
         ads_df = await self._ads_for_range(from_date, to_date)
         daily = self._daily_totals_frame(ads_df, from_date, to_date)
         date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()
@@ -1667,7 +1777,7 @@ class OverviewBrandAwarenessData:
                 name="CPC",
                 yaxis="y2",
                 line=dict(color="#b379ff", width=2),
-                hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.2f}<extra></extra>",
+                hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.0f}<extra></extra>",
             )
         )
         figure.update_layout(

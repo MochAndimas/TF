@@ -230,7 +230,16 @@ def _go_to(page_key: str) -> None:
 
 
 async def show_home_page(host: str) -> None:
-    """Render a lightweight internal-portal landing page."""
+    """Render the internal portal landing page with account and ETL context.
+
+    Args:
+        host (str): Backend host parameter kept for dispatcher signature
+            consistency across Streamlit pages.
+
+    Returns:
+        None: Writes the home-page layout, quick actions, and recent ETL
+        context into the active Streamlit session.
+    """
     del host
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
 

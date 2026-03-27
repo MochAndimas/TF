@@ -29,7 +29,12 @@ GOOGLE_ADS_OAUTH_STATE_PURPOSE = "google_ads_oauth"
 
 
 def _load_client_config() -> dict:
-    """Load OAuth client configuration from environment variables only."""
+    """Load Google OAuth client configuration from environment variables.
+
+    Returns:
+        dict: Client configuration payload shaped for
+        ``google_auth_oauthlib.flow.Flow`` construction.
+    """
     client_id = env("GOOGLE_ADS_CLIENT_ID", default="", cast=str).strip()
     client_secret = env("GOOGLE_ADS_CLIENT_SECRET", default="", cast=str).strip()
     if not client_id or not client_secret:
@@ -47,7 +52,11 @@ def _load_client_config() -> dict:
 
 
 def _callback_redirect_uri() -> str:
-    """Resolve backend callback URL used for Google OAuth."""
+    """Resolve the backend callback URL registered for Google OAuth redirects.
+
+    Returns:
+        str: Fully qualified callback URL consumed by the OAuth flow.
+    """
     configured = env("GOOGLE_ADS_REDIRECT_URI", default="", cast=str).strip()
     if configured:
         return configured
@@ -63,14 +72,30 @@ def _callback_redirect_uri() -> str:
 
 
 def _build_flow(state: str | None = None) -> Flow:
-    """Build configured Google OAuth flow for callback exchange."""
+    """Build a configured Google OAuth flow object for redirects and callbacks.
+
+    Args:
+        state (str | None): Optional signed state token bound to the flow.
+
+    Returns:
+        Flow: Configured OAuth flow ready to create authorization URLs or
+        exchange callback codes.
+    """
     flow = Flow.from_client_config(_load_client_config(), scopes=SCOPES, state=state)
     flow.redirect_uri = _callback_redirect_uri()
     return flow
 
 
 def _html_page(title: str, body: str) -> HTMLResponse:
-    """Render a minimal HTML result page."""
+    """Render a minimal standalone HTML page for OAuth callback outcomes.
+
+    Args:
+        title (str): Browser-page title text.
+        body (str): HTML body fragment rendered inside the result card.
+
+    Returns:
+        HTMLResponse: Small HTML page used for OAuth success and error states.
+    """
     response = HTMLResponse(
         f"""
         <!doctype html>
@@ -128,7 +153,14 @@ def _html_page(title: str, body: str) -> HTMLResponse:
 
 
 def _create_google_ads_oauth_state(user_id: str) -> str:
-    """Create a signed short-lived OAuth state tied to one superadmin."""
+    """Create a signed short-lived OAuth state token tied to one superadmin.
+
+    Args:
+        user_id (str): Superadmin user ID initiating the OAuth flow.
+
+    Returns:
+        str: Signed state token validated during the callback exchange.
+    """
     payload = {
         "sub": user_id,
         "type": GOOGLE_ADS_OAUTH_STATE_PURPOSE,
@@ -139,7 +171,15 @@ def _create_google_ads_oauth_state(user_id: str) -> str:
 
 
 async def _authorized_oauth_actor_from_state(state: str | None) -> TfUser | None:
-    """Resolve the superadmin encoded inside a signed OAuth state token."""
+    """Resolve the superadmin encoded inside a signed OAuth state token.
+
+    Args:
+        state (str | None): Signed state token returned by Google.
+
+    Returns:
+        TfUser | None: Authorized superadmin when the state token is valid and
+        still maps to an active account, otherwise ``None``.
+    """
     if not state:
         return None
 
@@ -167,7 +207,14 @@ async def _authorized_oauth_actor_from_state(state: str | None) -> TfUser | None
 
 
 def _prepare_google_ads_authorization_url(current_user: TfUser) -> str:
-    """Create an authorization URL for a validated superadmin OAuth session."""
+    """Create the Google authorization URL for a validated superadmin session.
+
+    Args:
+        current_user (TfUser): Authenticated superadmin starting the OAuth flow.
+
+    Returns:
+        str: Browser redirect URL pointing at Google consent screens.
+    """
     require_roles(current_user, "superadmin")
 
     oauth_state = _create_google_ads_oauth_state(current_user.user_id)
@@ -187,7 +234,11 @@ async def google_ads_oauth_callback(
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
 ):
-    """Exchange Google OAuth authorization code for a refresh token."""
+    """Handle Google OAuth callback and exchange the code for a refresh token.
+
+    Returns:
+        HTMLResponse: Result page describing callback success or failure.
+    """
     if error:
         return _html_page("Google Ads OAuth Error", f"<p>{html.escape(error)}</p>")
 

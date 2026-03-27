@@ -39,7 +39,17 @@ def create_session_access_token(
     session_id: str,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """Create an access token bound to a specific persisted session."""
+    """Create a signed short-lived access token bound to one stored session.
+
+    Args:
+        subject (str | Any): Principal identifier embedded into the token.
+        session_id (str): Persisted session identifier linked to the login row.
+        expires_delta (timedelta | None): Optional override for token lifetime.
+
+    Returns:
+        str: Encoded JWT access token carrying standard claims and session
+        binding metadata.
+    """
     expiry = datetime.now() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTE))
     return _encode_token(
         subject=subject,
@@ -55,7 +65,17 @@ def create_session_refresh_token(
     session_id: str,
     expires_delta: timedelta | None = None,
 ) -> str:
-    """Create a refresh token bound to a specific persisted session."""
+    """Create a signed long-lived refresh token tied to one stored session.
+
+    Args:
+        subject (str | Any): Principal identifier embedded into the token.
+        session_id (str): Persisted session identifier linked to the login row.
+        expires_delta (timedelta | None): Optional override for refresh-token
+            lifetime.
+
+    Returns:
+        str: Encoded JWT refresh token used for session rotation.
+    """
     expiry = datetime.now() + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
     return _encode_token(
         subject=subject,
@@ -67,17 +87,37 @@ def create_session_refresh_token(
 
 
 def fingerprint_token(token: str) -> str:
-    """Return a non-reversible fingerprint for a token value."""
+    """Hash a token into a non-reversible fingerprint for safe persistence.
+
+    Args:
+        token (str): Raw token string that must not be stored directly.
+
+    Returns:
+        str: SHA-256 digest suitable for comparison and audit storage.
+    """
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def fingerprint_session_id(session_id: str) -> str:
-    """Return a stable fingerprint for a session identifier."""
+    """Hash a session identifier using the same strategy as token fingerprints.
+
+    Args:
+        session_id (str): Raw session identifier value.
+
+    Returns:
+        str: Stable digest used during lookups and gradual data migrations.
+    """
     return fingerprint_token(session_id)
 
 
 def _session_matches(stored_session_id: str | None, session_id: str | None) -> bool:
-    """Support raw-to-hashed session ID transition during lookups."""
+    """Compare stored and presented session IDs across raw and hashed formats.
+
+    Returns:
+        bool: ``True`` when the stored value matches either the raw session ID
+        or its fingerprint, supporting backward-compatible lookups during
+        migration.
+    """
     if not stored_session_id or not session_id:
         return False
     return stored_session_id in {session_id, fingerprint_session_id(session_id)}
@@ -113,18 +153,37 @@ def _encode_token(
 
 
 def _fernet_key_material() -> bytes:
-    """Derive a valid Fernet key from configured application secret material."""
+    """Derive a Fernet-compatible key from configured application secrets.
+
+    Returns:
+        bytes: URL-safe base64-encoded key material suitable for Fernet
+        encryption helpers.
+    """
     seed = (settings.APP_ENCRYPTION_KEY or settings.JWT_SECRET_KEY).encode("utf-8")
     return base64.urlsafe_b64encode(hashlib.sha256(seed).digest())
 
 
 def encrypt_secret(value: str) -> str:
-    """Encrypt a secret value for backend-at-rest storage."""
+    """Encrypt one sensitive value before it is persisted to application data.
+
+    Args:
+        value (str): Plaintext secret such as an external API access token.
+
+    Returns:
+        str: Encrypted string that can be stored at rest in the database.
+    """
     return Fernet(_fernet_key_material()).encrypt(value.encode("utf-8")).decode("utf-8")
 
 
 def decrypt_secret(value: str) -> str:
-    """Decrypt a previously encrypted backend secret."""
+    """Decrypt one previously stored secret back into plaintext form.
+
+    Args:
+        value (str): Encrypted string produced by :func:`encrypt_secret`.
+
+    Returns:
+        str: Plaintext secret value ready for outbound API use.
+    """
     return Fernet(_fernet_key_material()).decrypt(value.encode("utf-8")).decode("utf-8")
 
 
@@ -175,7 +234,17 @@ async def rotate_refresh_token(
     sqlite_session: AsyncSession,
     refresh_token: str,
 ) -> tuple[str, str, str, str, str | None]:
-    """Rotate both access and refresh token for an active session."""
+    """Rotate session-bound bearer tokens after validating a refresh token.
+
+    Args:
+        sqlite_session (AsyncSession): Database session used to validate and
+            update persisted auth-session state.
+        refresh_token (str): Incoming refresh token presented by the client.
+
+    Returns:
+        tuple[str, str, str, TfUser]: New access token, new refresh token,
+        resolved session ID, and the authenticated user bound to that session.
+    """
     payload = _decode_token(refresh_token, settings.JWT_REFRESH_SECRET_KEY)
     user_id = payload.get("sub")
     session_id = payload.get("sid")
@@ -237,4 +306,3 @@ async def verify_access_token(sqlite_session: AsyncSession, token: str) -> Token
         session_id=session_id,
         jti=payload.get("jti"),
     )
-

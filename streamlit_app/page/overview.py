@@ -399,6 +399,7 @@ async def show_overview_page(host: str) -> None:
     cached_active_payload_map = st.session_state.get("overview_active_users_payload_by_source", {})
     cached_app_payload = cached_active_payload_map.get("app", {})
     cached_web_payload = cached_active_payload_map.get("web", {})
+    cached_combined_payload = cached_active_payload_map.get("app_web", {})
     has_app_metric = (
         "active_user" in
         cached_app_payload.get("data", {}).get("stickiness_with_growth", {}).get("current_period", {}).get("metrics", {})
@@ -406,6 +407,10 @@ async def show_overview_page(host: str) -> None:
     has_web_metric = (
         "active_user" in
         cached_web_payload.get("data", {}).get("stickiness_with_growth", {}).get("current_period", {}).get("metrics", {})
+    )
+    has_combined_metric = (
+        "active_user" in
+        cached_combined_payload.get("data", {}).get("stickiness_with_growth", {}).get("current_period", {}).get("metrics", {})
     )
     cached_leads_payload = st.session_state.get("overview_leads_payload", {})
     has_leads_metric = (
@@ -427,6 +432,7 @@ async def show_overview_page(host: str) -> None:
         "overview_active_users_payload_by_source" not in st.session_state
         or not has_app_metric
         or not has_web_metric
+        or not has_combined_metric
         or st.session_state.get("overview_active_range") != selected_range
     )
     should_fetch_leads = (
@@ -450,6 +456,7 @@ async def show_overview_page(host: str) -> None:
         response_brand = None
         response_app = None
         response_web = None
+        response_combined = None
         with st.spinner("Fetching data..."):
             if should_fetch_cost:
                 response_cost = await fetch_data(
@@ -463,7 +470,7 @@ async def show_overview_page(host: str) -> None:
                     },
                 )
             if should_fetch_active:
-                response_app, response_web = await asyncio.gather(
+                response_app, response_web, response_combined = await asyncio.gather(
                     fetch_data(
                         st=st,
                         host=host,
@@ -484,6 +491,17 @@ async def show_overview_page(host: str) -> None:
                             "start_date": start_date.isoformat(),
                             "end_date": end_date.isoformat(),
                             "source": "web",
+                        },
+                    ),
+                    fetch_data(
+                        st=st,
+                        host=host,
+                        uri="overview/active-users",
+                        method="GET",
+                        params={
+                            "start_date": start_date.isoformat(),
+                            "end_date": end_date.isoformat(),
+                            "source": "app_web",
                         },
                     ),
                 )
@@ -553,7 +571,11 @@ async def show_overview_page(host: str) -> None:
             st.session_state["overview_brand_range"] = selected_range
 
         if should_fetch_active:
-            if not isinstance(response_app, dict) or not isinstance(response_web, dict):
+            if (
+                not isinstance(response_app, dict)
+                or not isinstance(response_web, dict)
+                or not isinstance(response_combined, dict)
+            ):
                 st.error("Invalid response from overview active users endpoint.")
                 return
             if not response_app.get("success", False):
@@ -570,14 +592,22 @@ async def show_overview_page(host: str) -> None:
                     or "Failed to fetch overview active users web."
                 )
                 return
+            if not response_combined.get("success", False):
+                st.error(
+                    response_combined.get("detail")
+                    or response_combined.get("message")
+                    or "Failed to fetch overview active users app + web."
+                )
+                return
             st.session_state["overview_active_users_payload_by_source"] = {
                 "app": response_app,
                 "web": response_web,
+                "app_web": response_combined,
             }
             st.session_state["overview_active_range"] = selected_range
 
     st.markdown('<div class="metric-section-title">FireBase Active User</div>', unsafe_allow_html=True)
-    source_options = {"App": "app", "Web": "web"}
+    source_options = {"App + Web": "app_web", "App": "app", "Web": "web"}
     source_col_left, source_col_right = st.columns([1, 3], gap="small")
     with source_col_left:
         selected_source = st.selectbox(
