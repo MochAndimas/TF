@@ -1,17 +1,16 @@
-"""User Utils module.
-
-This module is part of `app.utils` and contains runtime logic used by the
-Traders Family application.
-"""
+"""User/account/domain helpers for authentication and profile management."""
 
 import uuid
 from datetime import datetime, timedelta
 from typing import Final
+
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from jose.exceptions import ExpiredSignatureError, JWSSignatureError, JWTError
+
+from app.db.models.etl_run import EtlRun
 from app.db.models.user import AuthAuditEvent, LoginThrottle, TfUser, UserToken
 from app.db.session import get_db
 from app.schemas.user import TokenData
@@ -449,6 +448,77 @@ async def create_account(
     await session.commit()
 
     return new_account
+
+
+async def list_accounts(session: AsyncSession) -> list[TfUser]:
+    """Return all active accounts ordered for admin presentation."""
+    result = await session.execute(
+        select(TfUser)
+        .where(TfUser.deleted_at == None)
+        .order_by(TfUser.created_at.desc(), TfUser.email.asc())
+    )
+    return result.scalars().all()
+
+
+async def update_account(
+    session: AsyncSession,
+    *,
+    actor: TfUser,
+    user_id: str,
+    fullname: str | None = None,
+    email: str | None = None,
+    role: str | None = None,
+) -> TfUser | None:
+    """Update mutable account fields through the backend authorization layer."""
+    require_roles(actor, "superadmin")
+
+    target_user = await get_user_by_id(user_id=user_id, session=session)
+    if target_user is None:
+        return None
+
+    next_fullname = fullname.strip() if fullname is not None else target_user.fullname
+    if not next_fullname:
+        raise ValueError("Fullname cannot be empty.")
+
+    target_user.fullname = next_fullname
+
+    if email is not None:
+        normalized_email = normalize_email(email)
+        if normalized_email != target_user.email:
+            duplicate_result = await session.execute(
+                select(TfUser).where(
+                    TfUser.email == normalized_email,
+                    TfUser.user_id != user_id,
+                    TfUser.deleted_at == None,
+                )
+            )
+            if duplicate_result.scalar_one_or_none() is not None:
+                raise ValueError("Email already registered.")
+            target_user.email = normalized_email
+
+    if role is not None:
+        normalized_role = role.strip().lower()
+        validate_role_assignment(actor.role, normalized_role)
+        target_user.role = normalized_role
+
+    target_user.updated_at = datetime.now()
+    await session.commit()
+    await session.refresh(target_user)
+    return target_user
+
+
+async def get_home_context(
+    session: AsyncSession,
+    *,
+    user_id: str,
+) -> tuple[TfUser | None, EtlRun | None]:
+    """Load the account and latest ETL run needed by the Streamlit home page."""
+    account = await get_user_by_id(user_id=user_id, session=session)
+    latest_run_result = await session.execute(
+        select(EtlRun).order_by(EtlRun.started_at.desc())
+    )
+    latest_run = latest_run_result.scalars().first()
+    return account, latest_run
         
 
 async def logout(

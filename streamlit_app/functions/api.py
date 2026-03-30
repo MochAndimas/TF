@@ -5,20 +5,21 @@ from __future__ import annotations
 import logging
 
 import httpx
-import streamlit as st
-from requests.exceptions import ConnectionError, HTTPError, RequestException, Timeout
+import streamlit as stlib
 
 from streamlit_app.functions.runtime import (
+    apply_auth_payload,
     clear_auth_state,
+    consume_auth_bridge_response,
     get_access_token,
     refresh_backend_tokens,
     start_auth_bridge_request,
-    consume_auth_bridge_response,
 )
 
 
 async def fetch_data(st, host, uri, params=None, method: str = "GET", json_payload: dict | None = None):
     """Fetch data from a protected API endpoint with token refresh support."""
+    st_module = st if st is not None else stlib
     try:
         access_token = get_access_token()
         if not access_token:
@@ -36,8 +37,8 @@ async def fetch_data(st, host, uri, params=None, method: str = "GET", json_paylo
             if response.status_code == 401:
                 refreshed_payload = await refresh_backend_tokens(host=host)
                 if refreshed_payload and refreshed_payload.get("success"):
-                    st.session_state.access_token = refreshed_payload.get("access_token")
-                    headers["Authorization"] = f"Bearer {st.session_state.access_token}"
+                    apply_auth_payload(refreshed_payload)
+                    headers["Authorization"] = f"Bearer {st_module.session_state.access_token}"
                     response = await client.request(
                         method=method.upper(),
                         url=url,
@@ -49,13 +50,13 @@ async def fetch_data(st, host, uri, params=None, method: str = "GET", json_paylo
                     clear_auth_state()
             response.raise_for_status()
             return response.json()
-    except HTTPError as http_error:
+    except httpx.HTTPStatusError as http_error:
         logging.error("HTTP error occurred: %s", http_error)
         return {"message": f"HTTP error: {http_error}"}
-    except (ConnectionError, Timeout) as conn_error:
+    except (httpx.ConnectError, httpx.TimeoutException) as conn_error:
         logging.error("Connection error or timeout: %s", conn_error)
         return {"message": f"Connection error or timeout: {conn_error}"}
-    except RequestException as req_error:
+    except httpx.RequestError as req_error:
         logging.error("Request failed: %s", req_error)
         return {"message": f"Request failed: {req_error}"}
     except Exception as error:

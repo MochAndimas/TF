@@ -178,7 +178,9 @@ async def create_account(host):
         st.error("Unable to load session token. Please log in again.")
         return
 
-    users = get_accounts()
+    users = await get_accounts(host)
+    if users.empty:
+        st.info("No account records found yet, or the account list could not be loaded.")
     st.markdown(TABLE_STYLE, unsafe_allow_html=True)
     _render_page_header(host=host, token=access_token)
 

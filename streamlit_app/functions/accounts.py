@@ -5,24 +5,21 @@ from __future__ import annotations
 import re
 
 import pandas as pd
-from sqlalchemy import select
 
-from app.db.models.user import TfUser
-from streamlit_app.functions.runtime import get_streamlit
+from streamlit_app.functions.api import fetch_data
 
 
-def get_accounts(data: str = "all", user_id: str = None):
-    """Retrieve account records for admin pages."""
-    session_gen = get_streamlit()
-    session = next(session_gen)
-    with session.begin():
-        if data == "all":
-            query = select(TfUser.user_id, TfUser.fullname, TfUser.email, TfUser.role).where(TfUser.deleted_at == None)
-        else:
-            query = select(TfUser).where(TfUser.user_id == user_id, TfUser.deleted_at == None)
-        result = session.execute(query)
+async def get_accounts(host: str) -> pd.DataFrame:
+    """Retrieve account records from the backend API for admin pages."""
+    response = await fetch_data(st=None, host=host, uri="accounts", method="GET")
+    if not response or not response.get("success"):
+        return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at"])
 
-    return pd.DataFrame(result.fetchall()) if data == "all" else result.scalar_one_or_none()
+    rows = response.get("data", [])
+    if not rows:
+        return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at"])
+
+    return pd.DataFrame(rows)
 
 
 def is_valid_email(email):

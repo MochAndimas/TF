@@ -4,26 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-import httpx
 import streamlit as st
 from decouple import config
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from streamlit_app.components.auth_bridge import auth_bridge
-
-streamlit_engine = create_engine(
-    st.secrets["db"]["DB_DEV"] if config("ENV") == "development" else st.secrets["db"]["DB"],
-    echo=False,
-    poolclass=StaticPool,
-    pool_pre_ping=True,
-)
-streamlit_session = sessionmaker(
-    bind=streamlit_engine,
-    expire_on_commit=False,
-    class_=Session,
-)
 
 
 def get_access_token() -> str | None:
@@ -100,9 +84,14 @@ def consume_auth_bridge_response(host: str, *, component_key: str) -> dict | Non
     if not pending_request:
         return None
 
+    # Browser-originated requests must use a public/reachable backend URL.
+    # Docker-internal hosts like `http://backend:8000` work for server-side
+    # Streamlit calls but are not resolvable from the user's browser.
+    bridge_host = resolve_backend_base_url(prefer_internal=False) or host
+
     response = auth_bridge(
         action=pending_request["action"],
-        host=host,
+        host=bridge_host,
         request_id=pending_request["id"],
         payload=pending_request.get("payload", {}),
         key=component_key,
@@ -118,21 +107,23 @@ def consume_auth_bridge_response(host: str, *, component_key: str) -> dict | Non
 
 
 async def refresh_backend_tokens(host: str) -> dict | None:
-    """Request a new access token using the HttpOnly persisted session cookie."""
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.post(
-            f"{host}/api/token/refresh",
-            json={},
-        )
-    if response.status_code >= 400:
+    """Refresh access token through the browser so HttpOnly cookies are included."""
+    pending_request = st.session_state.get("auth_bridge_request")
+    if not pending_request or pending_request.get("action") != "refresh":
+        start_auth_bridge_request("refresh")
+        pending_request = st.session_state.get("auth_bridge_request")
+
+    request_id = pending_request["id"]
+    bridge_response = consume_auth_bridge_response(
+        host,
+        component_key=f"auth_refresh_bridge_{request_id}",
+    )
+    if bridge_response is None:
+        st.caption("Refreshing your session...")
+        st.stop()
+
+    payload = bridge_response.get("payload", {})
+    if not bridge_response.get("ok") or not payload.get("success"):
         return None
-    return response.json() if response.content else None
 
-
-def get_streamlit():
-    """Yield a synchronous SQLAlchemy session for Streamlit components."""
-    with streamlit_session() as session:
-        try:
-            yield session
-        finally:
-            session.close()
+    return payload

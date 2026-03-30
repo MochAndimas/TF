@@ -5,26 +5,32 @@ Traders Family application.
 """
 
 import secrets
-from datetime import datetime
 from collections import defaultdict, deque
+from datetime import datetime
 from threading import Lock
-from sqlalchemy.ext.asyncio import AsyncSession
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security.oauth2 import OAuth2PasswordRequestForm
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.config import settings
+from app.db.models.etl_run import EtlRun
 from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.utils.user_utils import (
     authenticate_user,
     create_account,
     delete_account,
+    get_home_context,
     get_current_token_data,
     get_current_user,
+    list_accounts,
     logout,
     logout_all_sessions,
     record_auth_event,
     require_roles,
+    update_account,
     user_token,
     validate_role_assignment,
 )
@@ -34,7 +40,14 @@ from app.core.security import (
     rotate_session_handle,
 )
 from app.schemas.user import (
+    AccountListResponse,
+    AccountSummary,
+    AccountUpdateRequest,
+    AccountUpdateResponse,
+    HomeContextResponse,
+    HomeAccountSummary,
     LoginResponse,
+    LatestEtlRunSummary,
     LogoutAllSessionsRequest,
     LogoutAllSessionsResponse,
     MessageResponse,
@@ -48,6 +61,38 @@ from app.schemas.user import (
 router = APIRouter()
 _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
 _RATE_LIMIT_LOCK = Lock()
+
+
+def _serialize_account(user: TfUser) -> AccountSummary:
+    """Convert one SQLAlchemy user model into a response-safe account payload."""
+    return AccountSummary(
+        user_id=user.user_id,
+        fullname=user.fullname,
+        email=user.email,
+        role=user.role,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
+
+
+def _serialize_latest_run(run: EtlRun | None) -> LatestEtlRunSummary | None:
+    """Convert the latest ETL run model into a compact API payload."""
+    if run is None:
+        return None
+    return LatestEtlRunSummary(
+        run_id=run.run_id,
+        pipeline=run.pipeline,
+        source=run.source,
+        mode=run.mode,
+        status=run.status,
+        message=run.message,
+        error_detail=run.error_detail,
+        window_start=run.window_start,
+        window_end=run.window_end,
+        started_at=run.started_at,
+        ended_at=run.ended_at,
+        triggered_by=run.triggered_by,
+    )
 
 
 def _set_auth_session_cookie(response: JSONResponse, session_id: str) -> None:
@@ -206,6 +251,100 @@ async def register(
             "message": "Account created successfully",
             "user_id": user.user_id,
         }
+    )
+
+
+@router.get("/api/accounts", response_model=AccountListResponse)
+async def get_accounts(
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),
+):
+    """Return all active accounts for the account-management page."""
+    try:
+        require_roles(current_user, "superadmin")
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
+
+    users = await list_accounts(session=session)
+    return AccountListResponse(
+        success=True,
+        message="Accounts loaded successfully.",
+        data=[_serialize_account(user) for user in users],
+    )
+
+
+@router.patch("/api/accounts/{user_id}", response_model=AccountUpdateResponse)
+async def patch_account(
+    user_id: str,
+    payload: AccountUpdateRequest,
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),
+):
+    """Update mutable account profile fields through the backend layer."""
+    try:
+        user = await update_account(
+            session=session,
+            actor=current_user,
+            user_id=user_id,
+            fullname=payload.fullname,
+            email=payload.email,
+            role=payload.role,
+        )
+    except PermissionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(error),
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found!",
+        )
+
+    return AccountUpdateResponse(
+        success=True,
+        message="Account updated successfully.",
+        data=_serialize_account(user),
+    )
+
+
+@router.get("/api/home/context", response_model=HomeContextResponse)
+async def home_context(
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),
+):
+    """Return the authenticated user's home-page context payload."""
+    account, latest_run = await get_home_context(
+        session=session,
+        user_id=current_user.user_id,
+    )
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found!",
+        )
+
+    return HomeContextResponse(
+        success=True,
+        message="Home context loaded successfully.",
+        data={
+            "account": HomeAccountSummary(
+                user_id=account.user_id,
+                fullname=account.fullname,
+                email=account.email,
+                role=account.role,
+            ),
+            "latest_run": _serialize_latest_run(latest_run),
+        },
     )
 
 

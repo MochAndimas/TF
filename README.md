@@ -447,8 +447,9 @@ Wrapper cron Linux:
 Catatan scheduler Docker:
 
 - source of truth jadwal tetap di `scripts/cron/traders_family_etl.cron`
-- `docker/scheduler-entrypoint.sh` akan mengubah file cron tersebut ke format `/etc/cron.d` saat container scheduler start
-- path host lama akan dipetakan ke path container `/app`
+- `scripts/cron/traders_family_etl.cron` memakai placeholder `{{PROJECT_ROOT}}`, bukan path laptop / host tertentu
+- `docker/scheduler-entrypoint.sh` akan merender placeholder itu ke `PROJECT_ROOT` saat container scheduler start
+- default `PROJECT_ROOT` di Docker adalah `/app`, tetapi bisa dioverride via environment bila layout container berubah
 - cron job di container akan me-load `/etc/environment` lebih dulu supaya `PATH` dan env lain ikut terbaca
 
 Cek scheduler di Docker:

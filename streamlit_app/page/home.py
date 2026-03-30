@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import streamlit as st
 from streamlit_app.page.home_components.data import format_datetime, load_home_context, role_label
 from streamlit_app.page.home_components.ui import PAGE_STYLE, render_hero, render_quick_access, render_status_cards
@@ -18,16 +20,17 @@ async def show_home_page(host: str) -> None:
         None: Writes the home-page layout, quick actions, and recent ETL
         context into the active Streamlit session.
     """
-    del host
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
 
-    context = load_home_context(st.session_state._user_id)
+    context = await load_home_context(host)
     account = context["account"]
     latest_run = context["latest_run"]
-    fullname = getattr(account, "fullname", None) or getattr(account, "email", None) or "Team"
+    fullname = account.get("fullname") or account.get("email") or "Team"
     active_role_label = role_label(st.session_state.get("role"))
     if latest_run is not None:
-        setattr(latest_run, "formatted_started_at", format_datetime(getattr(latest_run, "started_at", None)))
+        latest_run["formatted_started_at"] = format_datetime(
+            datetime.fromisoformat(latest_run["started_at"]) if latest_run.get("started_at") else None
+        )
 
     st.markdown('<div class="tf-home-shell">', unsafe_allow_html=True)
     render_hero(fullname)

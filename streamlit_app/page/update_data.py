@@ -41,7 +41,7 @@ async def show_update_page(host):
         return
 
     if mode == "auto":
-        from_date, to_date = _resolve_date_input(mode, "Yesterday", presets)
+        from_date, to_date = resolve_date_input(mode, "Yesterday", presets)
     elif not from_date or not to_date:
         st.warning("Please provide a valid date range.")
         return

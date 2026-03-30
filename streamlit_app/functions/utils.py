@@ -26,7 +26,6 @@ from streamlit_app.functions.runtime import (
     clear_auth_state,
     consume_auth_bridge_response,
     get_access_token,
-    get_streamlit,
     refresh_backend_tokens,
     resolve_backend_base_url,
     start_auth_bridge_request,

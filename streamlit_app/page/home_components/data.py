@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from streamlit_app.functions.api import fetch_data
+
 
 def format_datetime(value: datetime | None) -> str:
     """Format nullable datetimes for the home-page status cards."""
@@ -23,20 +25,14 @@ def role_label(role: str | None) -> str:
     return labels.get(role or "", role or "-")
 
 
-def load_home_context(user_id: str) -> dict[str, object]:
+async def load_home_context(host: str) -> dict[str, object]:
     """Load the minimal account and ETL context needed by the home page."""
-    from sqlalchemy import select
+    response = await fetch_data(st=None, host=host, uri="home/context", method="GET")
+    if not response or not response.get("success"):
+        return {"account": {}, "latest_run": None}
 
-    from app.db.models.etl_run import EtlRun
-    from app.db.models.user import TfUser
-    from streamlit_app.functions.runtime import get_streamlit
-
-    session_gen = get_streamlit()
-    session = next(session_gen)
-    try:
-        with session.begin():
-            account = session.execute(select(TfUser).where(TfUser.user_id == user_id, TfUser.deleted_at == None)).scalar_one_or_none()
-            latest_run = session.execute(select(EtlRun).order_by(EtlRun.started_at.desc())).scalars().first()
-    finally:
-        session.close()
-    return {"account": account, "latest_run": latest_run}
+    data = response.get("data", {})
+    return {
+        "account": data.get("account", {}) or {},
+        "latest_run": data.get("latest_run"),
+    }

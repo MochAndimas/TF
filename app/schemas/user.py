@@ -1,12 +1,9 @@
-"""User module.
+"""User and account-related API schemas."""
 
-This module is part of `app.schemas` and contains runtime logic used by the
-Traders Family application.
-"""
+from datetime import date, datetime
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
-from datetime import datetime
 
 
 class RegisterBase(BaseModel):
@@ -47,6 +44,82 @@ class TfUser(BaseModel):
     created_at: datetime
     updated_at: datetime
     deleted_at: datetime
+
+
+class AccountSummary(BaseModel):
+    """Public-safe account payload returned to frontend consumers."""
+
+    user_id: str
+    fullname: str
+    email: str
+    role: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccountListResponse(BaseModel):
+    """Response wrapper for account listing endpoints."""
+
+    success: bool
+    message: str
+    data: list[AccountSummary]
+
+
+class AccountUpdateRequest(BaseModel):
+    """Payload used to update mutable account profile fields."""
+
+    fullname: str | None = None
+    email: EmailStr | None = None
+    role: str | None = None
+
+
+class AccountUpdateResponse(BaseModel):
+    """Response wrapper for account update operations."""
+
+    success: bool
+    message: str
+    data: AccountSummary
+
+
+class HomeAccountSummary(BaseModel):
+    """Compact current-account payload used by the home page."""
+
+    user_id: str
+    fullname: str
+    email: str
+    role: str
+
+
+class LatestEtlRunSummary(BaseModel):
+    """Compact ETL-run payload used by the home page."""
+
+    run_id: str
+    pipeline: str
+    source: str
+    mode: str
+    status: str
+    message: str | None = None
+    error_detail: str | None = None
+    window_start: date | None = None
+    window_end: date | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+    triggered_by: str | None = None
+
+
+class HomeContextData(BaseModel):
+    """Aggregated home-page context payload."""
+
+    account: HomeAccountSummary
+    latest_run: LatestEtlRunSummary | None = None
+
+
+class HomeContextResponse(BaseModel):
+    """Response wrapper for home-page context endpoint."""
+
+    success: bool
+    message: str
+    data: HomeContextData
 
 
 class TokenBase(BaseModel):

@@ -168,7 +168,7 @@ def render_status_cards(*, account, latest_run, role_label: str) -> None:
     status_columns = st.columns(3 if is_superadmin else 2, gap="small")
 
     with status_columns[0]:
-        session_status_copy = f"Signed in as {getattr(account, 'email', '-')}"
+        session_status_copy = f"Signed in as {account.get('email', '-')}"
         st.markdown(
             f"""
             <div class="tf-home-status-card">
@@ -182,9 +182,9 @@ def render_status_cards(*, account, latest_run, role_label: str) -> None:
 
     if is_superadmin:
         with status_columns[1]:
-            latest_status = getattr(latest_run, "status", None) or "No run"
-            latest_source = getattr(latest_run, "source", None) or "-"
-            latest_started = getattr(latest_run, "formatted_started_at", None) or "-"
+            latest_status = latest_run.get("status") if latest_run else None
+            latest_source = latest_run.get("source") if latest_run else None
+            latest_started = latest_run.get("formatted_started_at") if latest_run else None
             st.markdown(
                 f"""
                 <div class="tf-home-status-card">
@@ -202,16 +202,16 @@ def render_status_cards(*, account, latest_run, role_label: str) -> None:
     data_window_column = status_columns[2] if is_superadmin else status_columns[1]
     with data_window_column:
         latest_window = "-"
-        if latest_run and getattr(latest_run, "window_start", None) and getattr(latest_run, "window_end", None):
-            latest_window = f"{latest_run.window_start} to {latest_run.window_end}"
+        if latest_run and latest_run.get("window_start") and latest_run.get("window_end"):
+            latest_window = f"{latest_run['window_start']} to {latest_run['window_end']}"
         st.markdown(
             f"""
             <div class="tf-home-status-card">
                 <div class="tf-home-status-label">Data Window</div>
                 <div class="tf-home-status-value">{latest_window}</div>
                 <div class="tf-home-status-copy">
-                    Pipeline: {getattr(latest_run, "pipeline", "-")}<br/>
-                    Message: {getattr(latest_run, "message", None) or "No ETL activity recorded yet."}
+                    Pipeline: {latest_run.get("pipeline", "-") if latest_run else "-"}<br/>
+                    Message: {(latest_run.get("message") if latest_run else None) or "No ETL activity recorded yet."}
                 </div>
             </div>
             """,

@@ -75,7 +75,7 @@
               },
               body: form.toString(),
             });
-          } else if (args.action === "restore") {
+          } else if (args.action === "restore" || args.action === "refresh") {
             response = await fetch(`${host}/api/token/refresh`, {
               method: "POST",
               credentials: "include",
