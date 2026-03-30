@@ -18,6 +18,7 @@ from app.schemas.user import TokenData
 from app.core.security import (
     fingerprint_session_id,
     fingerprint_token,
+    validate_password_policy,
     verify_access_token,
     pwd_context,
     verify_password,
@@ -105,7 +106,7 @@ async def authenticate_user(
     throttle = await _get_or_create_login_throttle(session=session, email=normalized_email)
     now = datetime.now()
     if throttle.locked_until and throttle.locked_until > now:
-        await _record_auth_event(
+        await record_auth_event(
             session=session,
             email=normalized_email,
             user_id=None,
@@ -127,7 +128,7 @@ async def authenticate_user(
         throttle.failed_attempts = 0
         throttle.locked_until = None
         throttle.updated_at = now
-        await _record_auth_event(
+        await record_auth_event(
             session=session,
             email=normalized_email,
             user_id=active_user.user_id,
@@ -146,7 +147,7 @@ async def authenticate_user(
     throttle.updated_at = now
     if throttle.failed_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
         throttle.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
-    await _record_auth_event(
+    await record_auth_event(
         session=session,
         email=normalized_email,
         user_id=deleted_user.user_id if deleted_user else active_user.user_id if active_user else None,
@@ -196,7 +197,7 @@ async def _get_or_create_login_throttle(
     return throttle
 
 
-async def _record_auth_event(
+async def record_auth_event(
     session: AsyncSession,
     email: str,
     user_id: str | None,
@@ -336,6 +337,8 @@ async def user_token(
         access_token: str,
         refresh_token: str,
         session_id: str | None = None,
+        client_ip: str | None = None,
+        user_agent: str | None = None,
 ):
     """Create or update token/session row for a user login.
 
@@ -368,6 +371,9 @@ async def user_token(
         user.access_token = fingerprint_token(access_token)
         user.refresh_token = fingerprint_token(refresh_token)
         user.updated_at = today
+        user.last_seen_ip = client_ip
+        user.last_seen_user_agent = user_agent
+        user.last_rotated_at = today
     else:
         session.add(
             UserToken(
@@ -382,6 +388,10 @@ async def user_token(
                 is_revoked=False,
                 created_at=today,
                 updated_at=today,
+                created_ip=client_ip,
+                last_seen_ip=client_ip,
+                last_seen_user_agent=user_agent,
+                last_rotated_at=today,
             )
         )
     await session.commit()
@@ -416,6 +426,7 @@ async def create_account(
     """
     email = email.lower()
     today = datetime.now()
+    validate_password_policy(password)
 
     query = select(TfUser).filter_by(email=email)
     user_data = await session.execute(query)
@@ -471,6 +482,38 @@ async def logout(
 
     await session.commit()
     return True
+
+
+async def logout_all_sessions(
+    session: AsyncSession,
+    *,
+    actor: TfUser,
+    target_user_id: str | None = None,
+) -> int:
+    """Revoke all sessions for the actor or a superadmin-selected target user."""
+    normalized_role = (actor.role or "").strip().lower()
+    resolved_target_user_id = target_user_id or actor.user_id
+    if normalized_role != "superadmin" and resolved_target_user_id != actor.user_id:
+        raise PermissionError("Not authorized to revoke sessions for another user.")
+
+    query = select(UserToken).where(
+        UserToken.user_id == resolved_target_user_id,
+        UserToken.logged_in.is_(True),
+        UserToken.is_revoked.is_(False),
+    )
+    token_rows = (await session.execute(query)).scalars().all()
+    if not token_rows:
+        return 0
+
+    now = datetime.now()
+    for token_row in token_rows:
+        token_row.logged_in = False
+        token_row.is_revoked = True
+        token_row.expiry = now
+        token_row.updated_at = now
+
+    await session.commit()
+    return len(token_rows)
 
 
 async def delete_account(

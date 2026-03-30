@@ -4,8 +4,7 @@ This module is part of `app.db.models` and contains runtime logic used by the
 Traders Family application.
 """
 
-from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Integer
-from sqlalchemy import String, DateTime, JSON, Boolean, Float
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, JSON, String
 from app.db.base import SqliteBase
 
 
@@ -23,6 +22,9 @@ class TfUser(SqliteBase):
         deleted_at (DateTime | None): Soft-delete timestamp.
     """
     __tablename__ = "tf_user"
+    __table_args__ = (
+        Index("uq_tf_user_email", "email", unique=True),
+    )
 
     user_id = Column("user_id", String, primary_key=True)
     fullname = Column("fullname", String, nullable= False)
@@ -53,6 +55,12 @@ class UserToken(SqliteBase):
         deleted_at (DateTime | None): Soft-delete timestamp.
     """
     __tablename__ = "user_token"
+    __table_args__ = (
+        Index("uq_user_token_session_id", "session_id", unique=True),
+        Index("uq_user_token_access_token", "access_token", unique=True),
+        Index("uq_user_token_refresh_token", "refresh_token", unique=True),
+        Index("ix_user_token_user_id", "user_id"),
+    )
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     session_id = Column("session_id", String, nullable=False)
@@ -64,8 +72,12 @@ class UserToken(SqliteBase):
     access_token = Column("access_token", String, nullable=False)
     refresh_token = Column("refresh_token", String, nullable=False)
     is_revoked = Column("is_revoked", Boolean, nullable=False)
-    created_at = Column("created_at",DateTime, nullable=False)
+    created_at = Column("created_at", DateTime, nullable=False)
     updated_at = Column("updated_at", DateTime, nullable=False)
+    created_ip = Column("created_ip", String, nullable=True)
+    last_seen_ip = Column("last_seen_ip", String, nullable=True)
+    last_seen_user_agent = Column("last_seen_user_agent", String, nullable=True)
+    last_rotated_at = Column("last_rotated_at", DateTime, nullable=True)
     deleted_at = Column("deleted_at", DateTime, nullable=True)
 
 
@@ -109,6 +121,10 @@ class AuthAuditEvent(SqliteBase):
     """Persist security-relevant authentication audit events."""
 
     __tablename__ = "auth_audit_event"
+    __table_args__ = (
+        Index("ix_auth_audit_event_created_at", "created_at"),
+        Index("ix_auth_audit_event_event_type", "event_type"),
+    )
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     email = Column("email", String, nullable=False)

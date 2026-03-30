@@ -127,6 +127,16 @@ class Settings(BaseModel):
         return "lax"
 
     @property
+    def auth_cookie_name(self) -> str:
+        """Return the cookie name used for persistent auth session handles."""
+        return "tf_session"
+
+    @property
+    def auth_cookie_max_age(self) -> int:
+        """Return persistent auth cookie lifetime in seconds."""
+        return self.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+
+    @property
     def cors_origins(self) -> list[str]:
         """Resolve allowed CORS origins based on active environment.
 

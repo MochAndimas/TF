@@ -9,7 +9,7 @@ from datetime import datetime
 from collections import defaultdict, deque
 from threading import Lock
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from app.core.config import settings
@@ -22,6 +22,8 @@ from app.utils.user_utils import (
     get_current_token_data,
     get_current_user,
     logout,
+    logout_all_sessions,
+    record_auth_event,
     require_roles,
     user_token,
     validate_role_assignment,
@@ -29,15 +31,16 @@ from app.utils.user_utils import (
 from app.core.security import (
     create_session_access_token,
     create_session_refresh_token,
-    rotate_refresh_token,
+    rotate_session_handle,
 )
 from app.schemas.user import (
     LoginResponse,
+    LogoutAllSessionsRequest,
+    LogoutAllSessionsResponse,
     MessageResponse,
     RegisterBase,
     RegisterResponse,
     TokenData,
-    TokenRefreshRequest,
     TokenRefreshResponse,
 )
 
@@ -45,6 +48,30 @@ from app.schemas.user import (
 router = APIRouter()
 _RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
 _RATE_LIMIT_LOCK = Lock()
+
+
+def _set_auth_session_cookie(response: JSONResponse, session_id: str) -> None:
+    """Persist the opaque session handle as an HttpOnly cookie."""
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=session_id,
+        max_age=settings.auth_cookie_max_age,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        path="/",
+    )
+
+
+def _clear_auth_session_cookie(response: JSONResponse) -> None:
+    """Expire the persistent auth cookie in the browser."""
+    response.delete_cookie(
+        key=settings.auth_cookie_name,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        path="/",
+    )
 
 
 def _client_identifier(request: Request, scope: str, extra: str | None = None) -> str:
@@ -153,14 +180,20 @@ async def register(
             detail=str(error),
         ) from error
 
-    user = await create_account(
-        session=session,
-        fullname=data.fullname,
-        email=data.email,
-        role=data.role,
-        password=data.password
-    )
-
+    try:
+        user = await create_account(
+            session=session,
+            fullname=data.fullname,
+            email=data.email,
+            role=data.role,
+            password=data.password
+        )
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        ) from error
+    
     if not user:
         raise HTTPException(
             status_code=409,
@@ -180,6 +213,7 @@ async def register(
 async def login_user(
     request: Request,
     creds: OAuth2PasswordRequestForm = Depends(),
+    remember_me: bool = Form(False),
     session: AsyncSession = Depends(get_db),
 ):
     """Authenticate user credentials and issue access/refresh tokens.
@@ -221,24 +255,28 @@ async def login_user(
         access_token=access_token,
         refresh_token=refresh_token,
         session_id=provisional_session_id,
+        client_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
     )
 
-    # Return access token in JSON response and refresh token in headers
+    # Return only the short-lived access token in JSON response. The persistent
+    # session handle stays cookie-only so browser-side code never sees it.
     response = JSONResponse(
         content={
             "access_token": personal_token.get("access_token"),
             "token_type": "Bearer",
             "role": user_role,
             "user_id": user.user_id,
-            "refresh_token": personal_token.get("refresh_token"),
-            "session_id": personal_token.get("session_id"),
-            "success": True
+            "success": True,
         }
     )
+    if remember_me:
+        _set_auth_session_cookie(response, personal_token["session_id"])
+    else:
+        _clear_auth_session_cookie(response)
 
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
-    response.headers["Authentication"] = str(user.user_id)  # consumed by Streamlit client
 
     return response
 
@@ -246,38 +284,48 @@ async def login_user(
 @router.post("/api/token/refresh", response_model=TokenRefreshResponse)
 async def refresh_user_token(
     request: Request,
-    payload: TokenRefreshRequest,
     session: AsyncSession = Depends(get_db),
 ):
-    """Rotate bearer tokens using an active refresh token."""
+    """Rotate bearer tokens using an active persisted session handle."""
     _enforce_rate_limit(
         request=request,
         scope="token_refresh",
         max_requests=15,
         window_seconds=60,
     )
-    try:
-        access_token, refresh_token, role, user_id, session_id = await rotate_refresh_token(
-            sqlite_session=session,
-            refresh_token=payload.refresh_token,
+    session_id = request.cookies.get(settings.auth_cookie_name)
+
+    if not session_id:
+        return JSONResponse(
+            content={"success": False, "message": "No persisted session found."},
+            status_code=status.HTTP_200_OK,
         )
-    except Exception as error:
-        raise HTTPException(
+
+    try:
+        access_token, role, user_id, refreshed_session_id = await rotate_session_handle(
+            sqlite_session=session,
+            session_id=session_id,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except Exception:
+        response = JSONResponse(
+            content={"detail": "Refresh session is invalid or expired.", "success": False},
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is invalid or expired.",
-        ) from error
+        )
+        _clear_auth_session_cookie(response)
+        return response
 
     response = JSONResponse(
         content={
             "access_token": access_token,
-            "refresh_token": refresh_token,
             "token_type": "Bearer",
             "role": role,
             "user_id": user_id,
-            "session_id": session_id,
             "success": True,
         }
     )
+    _set_auth_session_cookie(response, refreshed_session_id)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     return response
@@ -285,6 +333,7 @@ async def refresh_user_token(
 
 @router.post("/api/logout", response_model=MessageResponse)
 async def logout_user(
+    request: Request,
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),
     token_data: TokenData = Depends(get_current_token_data),
@@ -303,6 +352,17 @@ async def logout_user(
         user_id=current_user.user_id,
         session_id=token_data.session_id,
     )
+    await record_auth_event(
+        session=session,
+        email=current_user.email,
+        user_id=current_user.user_id,
+        event_type="logout_success" if result else "logout_failed",
+        success=result,
+        detail="User logged out from current session." if result else "Session data not found during logout.",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    await session.commit()
     if not result:
         return JSONResponse(
             content={"message": "Session data not found", "success": False},
@@ -313,12 +373,49 @@ async def logout_user(
         content={"message": "Successfully logged out", "success": True},
         status_code=status.HTTP_200_OK,
     )
-    response.delete_cookie(
-        key="refresh_token",
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
+    _clear_auth_session_cookie(response)
+    return response
+
+
+@router.post("/api/logout-all", response_model=LogoutAllSessionsResponse)
+async def logout_all_user_sessions(
+    request: Request,
+    payload: LogoutAllSessionsRequest,
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),
+):
+    """Revoke all sessions owned by the caller or by a superadmin-selected user."""
+    try:
+        revoked_sessions = await logout_all_sessions(
+            session=session,
+            actor=current_user,
+            target_user_id=payload.user_id,
+        )
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    target_user_id = payload.user_id or current_user.user_id
+    await record_auth_event(
+        session=session,
+        email=current_user.email,
+        user_id=current_user.user_id,
+        event_type="logout_all_sessions",
+        success=True,
+        detail=f"Revoked {revoked_sessions} session(s) for user {target_user_id}.",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
     )
+    await session.commit()
+    response = JSONResponse(
+        content={
+            "success": True,
+            "message": "All matching sessions have been revoked.",
+            "revoked_sessions": revoked_sessions,
+        },
+        status_code=status.HTTP_200_OK,
+    )
+    if target_user_id == current_user.user_id:
+        _clear_auth_session_cookie(response)
     return response
 
 

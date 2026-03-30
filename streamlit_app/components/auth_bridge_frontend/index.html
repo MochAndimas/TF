@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auth Bridge</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      const STREAMLIT_RENDER_EVENT = "streamlit:render";
+      const lastRequest = { id: null };
+
+      function sendMessage(type, data) {
+        window.parent.postMessage(
+          { isStreamlitMessage: true, type, ...data },
+          "*",
+        );
+      }
+
+      function setFrameHeight(height) {
+        sendMessage("streamlit:setFrameHeight", { height });
+      }
+
+      function setComponentValue(value) {
+        sendMessage("streamlit:setComponentValue", {
+          value,
+          dataType: "json",
+        });
+      }
+
+      function normalizePayload(response, requestId, fallbackError) {
+        const contentType = response.headers.get("content-type") || "";
+        const isJson = contentType.includes("application/json");
+        return (isJson ? response.json() : Promise.resolve({}))
+          .catch(() => ({}))
+          .then((payload) => ({
+            request_id: requestId,
+            ok: response.ok,
+            status: response.status,
+            payload,
+            error:
+              payload.detail ||
+              payload.message ||
+              fallbackError ||
+              (response.ok ? null : `Request failed with status ${response.status}.`),
+          }));
+      }
+
+      async function executeAction(args) {
+        const host = (args.host || "").replace(/\/$/, "");
+        const requestId = args.request_id;
+        const payload = args.payload || {};
+        let response;
+
+        try {
+          if (args.action === "login") {
+            const form = new URLSearchParams();
+            form.set("username", payload.email || "");
+            form.set("password", payload.password || "");
+            form.set("remember_me", payload.remember ? "true" : "false");
+            response = await fetch(`${host}/api/login`, {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: form.toString(),
+            });
+          } else if (args.action === "restore") {
+            response = await fetch(`${host}/api/token/refresh`, {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({}),
+            });
+          } else if (args.action === "logout") {
+            response = await fetch(`${host}/api/logout`, {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                Authorization: payload.access_token
+                  ? `Bearer ${payload.access_token}`
+                  : "",
+              },
+            });
+          } else {
+            setComponentValue({
+              request_id: requestId,
+              ok: false,
+              status: 400,
+              payload: {},
+              error: `Unsupported auth action: ${args.action}`,
+            });
+            return;
+          }
+
+          const result = await normalizePayload(response, requestId, null);
+          setComponentValue(result);
+        } catch (error) {
+          setComponentValue({
+            request_id: requestId,
+            ok: false,
+            status: 0,
+            payload: {},
+            error: error instanceof Error ? error.message : "Unexpected auth bridge error.",
+          });
+        }
+      }
+
+      sendMessage("streamlit:componentReady", { apiVersion: 1 });
+      setFrameHeight(0);
+
+      window.addEventListener("message", (event) => {
+        const data = event.data || {};
+        if (data.type !== STREAMLIT_RENDER_EVENT || !data.args) {
+          return;
+        }
+
+        const args = data.args;
+        if (!args.request_id || args.request_id === lastRequest.id) {
+          return;
+        }
+
+        lastRequest.id = args.request_id;
+        void executeAction(args);
+      });
+    </script>
+  </body>
+</html>

@@ -4,7 +4,7 @@ This module is part of `app.schemas` and contains runtime logic used by the
 Traders Family application.
 """
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
@@ -22,8 +22,8 @@ class RegisterBase(BaseModel):
     email: EmailStr
     fullname: str
     role: str
-    password: str
-    confirm_password: str
+    password: str = Field(min_length=12)
+    confirm_password: str = Field(min_length=12)
 
 
 class TfUser(BaseModel):
@@ -67,14 +67,10 @@ class LoginResponse(TokenBase):
 
     role: str
     user_id: str
-    refresh_token: str
-    session_id: str | None = None
 
 
 class TokenRefreshRequest(BaseModel):
-    """Schema for bearer-token refresh requests."""
-
-    refresh_token: str
+    """Legacy placeholder schema kept for backward-compatible empty payloads."""
 
 
 class TokenRefreshResponse(LoginResponse):
@@ -94,6 +90,18 @@ class MessageResponse(BaseModel):
 
     success: bool
     message: str
+
+
+class LogoutAllSessionsRequest(BaseModel):
+    """Payload for revoking all sessions owned by a user."""
+
+    user_id: str | None = None
+
+
+class LogoutAllSessionsResponse(MessageResponse):
+    """Response emitted after revoking one or more user sessions."""
+
+    revoked_sessions: int
 
 
 class TokenData(BaseModel):

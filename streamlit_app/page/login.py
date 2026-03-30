@@ -4,10 +4,13 @@ This module is part of `streamlit_app.page` and contains runtime logic used by t
 Traders Family application.
 """
 
-import httpx
 import streamlit as st
-from datetime import datetime, timedelta
-from streamlit_app.functions.runtime import cookie_controller, refresh_cookie_options
+
+from streamlit_app.functions.runtime import (
+    apply_auth_payload,
+    consume_auth_bridge_response,
+    start_auth_bridge_request,
+)
 
 LOGIN_STYLE = """
 <style>
@@ -47,50 +50,9 @@ div[data-testid="stForm"] {
 }
 </style>
 """
-
-
 def _extract_error_message(payload: dict, default: str) -> str:
-    """Extract the most useful human-readable error text from an API payload.
-
-    Args:
-        payload (dict): JSON response payload returned by the backend.
-        default (str): Fallback message used when the payload has no useful
-            ``detail`` or ``message`` field.
-
-    Returns:
-        str: Best-effort error message for FE display.
-    """
+    """Extract the most useful human-readable error text from an API payload."""
     return payload.get("detail") or payload.get("message") or default
-
-async def _request_login(
-    client: httpx.AsyncClient,
-    host: str,
-    email: str,
-    password: str,
-) -> tuple[dict, httpx.Response]:
-    """Send the authenticated login request.
-
-    Args:
-        client (httpx.AsyncClient): Shared HTTP client used for auth requests.
-        host (str): Backend API base URL.
-        email (str): Submitted login email.
-        password (str): Submitted login password.
-    Returns:
-        tuple[dict, httpx.Response]: Parsed JSON payload plus the raw HTTP
-        response object so the caller can inspect headers and cookies.
-    """
-    response = await client.post(
-        f"{host}/api/login",
-        data={"username": email, "password": password},
-    )
-    if not response.content:
-        payload = {}
-    else:
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {"detail": response.text or "Unexpected non-JSON response from backend."}
-    return payload, response
 
 
 async def show_login_page(host):
@@ -120,6 +82,26 @@ async def show_login_page(host):
 
     st.markdown("</div></div>", unsafe_allow_html=True)
 
+    pending_request = st.session_state.get("auth_bridge_request")
+    if pending_request and pending_request.get("action") == "login":
+        bridge_response = consume_auth_bridge_response(host, component_key="auth_login_bridge")
+        if bridge_response is None:
+            st.caption("Signing in...")
+            return
+
+        login_payload = bridge_response.get("payload", {})
+        if not bridge_response.get("ok") or not login_payload.get("success"):
+            st.error(_extract_error_message(login_payload, bridge_response.get("error") or "Invalid email or password."))
+            return
+
+        if not login_payload.get("user_id") or not login_payload.get("access_token"):
+            st.error("Login response is incomplete. Please try again.")
+            return
+
+        apply_auth_payload(login_payload)
+        st.session_state.page = "home"
+        st.rerun()
+
     if not submitted:
         return
 
@@ -128,45 +110,8 @@ async def show_login_page(host):
         st.warning("Email and password are required.")
         return
 
-    with st.spinner("Signing in..."):
-        try:
-            async with httpx.AsyncClient(timeout=120) as client:
-                login_payload, response = await _request_login(
-                    client=client,
-                    host=host,
-                    email=email,
-                    password=password,
-                )
-        except httpx.RequestError as error:
-            st.error(f"Unable to reach authentication service: {error}")
-            return
-
-    if not login_payload.get("success"):
-        st.error(_extract_error_message(login_payload, "Invalid email or password."))
-        return
-
-    user_id = login_payload.get("user_id") or response.headers.get("Authentication")
-    access_token = login_payload.get("access_token")
-    refresh_token = login_payload.get("refresh_token")
-    if not user_id or not access_token or not refresh_token:
-        st.error("Login response is incomplete. Please try again.")
-        return
-
-    st.session_state.role = login_payload.get("role")
-    st.session_state.logged_in = True
-    st.session_state.page = "home"
-    st.session_state._user_id = user_id
-    st.session_state.access_token = access_token
-    st.session_state.refresh_token = refresh_token
-    st.session_state.session_id = login_payload.get("session_id")
-
-    if remember:
-        cookie_options = refresh_cookie_options(st.secrets["api"]["HOST"])
-        cookie_controller.set(
-            name="refresh_token",
-            value=refresh_token,
-            expires=datetime.now() + timedelta(days=7),
-            **cookie_options,
-        )
-
+    start_auth_bridge_request(
+        "login",
+        {"email": email, "password": password, "remember": remember},
+    )
     st.rerun()

@@ -33,8 +33,8 @@ Data utama yang dikelola:
 ### Authentication dan account management
 
 - Login dengan bearer access token
-- Refresh token rotation via `POST /api/token/refresh`
-- Session restore di Streamlit dari cookie `refresh_token`
+- Refresh access token via `POST /api/token/refresh`
+- Session restore dari cookie `HttpOnly` berisi opaque session handle
 - Logout dengan revocation session
 - Role-based access untuk halaman dan endpoint sensitif
 - Create account dan delete account untuk `superadmin`
@@ -292,11 +292,11 @@ Catatan Docker:
 Flow auth yang aktif:
 
 1. User login ke `POST /api/login`
-2. Backend mengembalikan `access_token`, `refresh_token`, `role`, dan `user_id`
-3. Streamlit menyimpan `refresh_token` di cookie browser
-4. Saat session dipulihkan atau access token expired, frontend memanggil `POST /api/token/refresh`
-5. Backend merotate refresh token dan mengembalikan pasangan token baru
-6. Logout memanggil `POST /api/logout` dan menghapus cookie `refresh_token`
+2. Backend mengembalikan `access_token`, `role`, `user_id`, dan `session_id`
+3. Jika `remember me` aktif, backend menyimpan opaque `session_id` di cookie `HttpOnly`
+4. Saat session dipulihkan, browser memanggil `POST /api/token/refresh` memakai cookie tersebut
+5. Saat access token expired di sesi aktif, Streamlit me-refresh access token memakai `session_id` opaque yang tersimpan server-side
+6. Logout memanggil `POST /api/logout`, merevoke session, dan menghapus cookie auth
 
 Catatan:
 
@@ -370,7 +370,7 @@ curl -X POST "http://localhost:5505/api/login" \
 curl -X POST "http://localhost:5505/api/token/refresh" \
   -H "Content-Type: application/json" \
   -d '{
-    "refresh_token": "<refresh_token>"
+    "session_id": "<opaque_session_id>"
   }'
 ```
 

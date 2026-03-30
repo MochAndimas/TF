@@ -168,7 +168,7 @@ def render_status_cards(*, account, latest_run, role_label: str) -> None:
     status_columns = st.columns(3 if is_superadmin else 2, gap="small")
 
     with status_columns[0]:
-        session_status_copy = f"Signed in as {getattr(account, 'email', '-')}<br/>Session ID: {st.session_state.get('session_id', '-')}"
+        session_status_copy = f"Signed in as {getattr(account, 'email', '-')}"
         st.markdown(
             f"""
             <div class="tf-home-status-card">

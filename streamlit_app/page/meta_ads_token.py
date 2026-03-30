@@ -9,7 +9,6 @@ from decouple import config as env
 from streamlit_app.functions.runtime import (
     refresh_backend_tokens,
     resolve_backend_base_url,
-    sync_refresh_cookie,
 )
 
 
@@ -65,19 +64,12 @@ async def _authorized_request(
             json=json_payload,
         )
 
-        if response.status_code == 401 and st.session_state.get("refresh_token"):
+        if response.status_code == 401:
             refreshed_payload = await refresh_backend_tokens(
                 host=_internal_backend_url(),
-                refresh_token=st.session_state["refresh_token"],
             )
             if refreshed_payload and refreshed_payload.get("success"):
                 st.session_state.access_token = refreshed_payload.get("access_token")
-                st.session_state.refresh_token = refreshed_payload.get("refresh_token")
-                st.session_state.session_id = refreshed_payload.get(
-                    "session_id",
-                    st.session_state.get("session_id"),
-                )
-                sync_refresh_cookie(_internal_backend_url(), st.session_state.refresh_token)
                 headers["Authorization"] = f"Bearer {st.session_state.access_token}"
                 response = await client.request(
                     method=method,

@@ -22,12 +22,13 @@ from streamlit_app.functions.metrics import (
     render_overview_metric_cards,
 )
 from streamlit_app.functions.runtime import (
-    cookie_controller,
+    apply_auth_payload,
+    clear_auth_state,
+    consume_auth_bridge_response,
     get_access_token,
     get_streamlit,
-    refresh_cookie_options,
+    refresh_backend_tokens,
     resolve_backend_base_url,
-    restore_backend_session,
-    sync_refresh_cookie,
+    start_auth_bridge_request,
 )
 from streamlit_app.functions.ui import footer

@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import streamlit as st
 
 from streamlit_app.functions.runtime import (
-    cookie_controller,
+    apply_auth_payload,
+    clear_auth_state,
+    consume_auth_bridge_response,
     resolve_backend_base_url,
-    restore_backend_session,
-    sync_refresh_cookie,
+    start_auth_bridge_request,
 )
 
 
@@ -26,8 +25,8 @@ def initialize_session_state() -> None:
         "logged_in": False,
         "role": None,
         "access_token": None,
-        "refresh_token": None,
-        "session_id": None,
+        "auth_bridge_request": None,
+        "auth_restore_completed": False,
     }
     for key, default_value in defaults.items():
         if key not in st.session_state:
@@ -54,28 +53,27 @@ def resolve_public_page_from_query_params() -> str | None:
     return None
 
 
-def restore_login_state_from_cookie() -> None:
-    """Restore login/session state from persisted cookie value."""
+def restore_login_state_from_cookie(host: str) -> None:
+    """Restore login/session state from the browser HttpOnly auth cookie."""
     if st.session_state.get("logged_in") and st.session_state.get("_user_id"):
         return
 
-    remembered_refresh_token = cookie_controller.get("refresh_token") or None
-    if not remembered_refresh_token:
-        initialize_session_state()
+    if st.session_state.get("auth_restore_completed"):
         return
 
-    host = resolve_host()
-    restored_payload = asyncio.run(restore_backend_session(host, remembered_refresh_token))
-    if not restored_payload or not restored_payload.get("success"):
-        cookie_controller.set("refresh_token", "", max_age=0)
-        initialize_session_state()
+    if not st.session_state.get("auth_bridge_request"):
+        start_auth_bridge_request("restore")
+
+    bridge_response = consume_auth_bridge_response(host, component_key="auth_restore_bridge")
+    if bridge_response is None:
+        st.caption("Restoring your session...")
+        st.stop()
+
+    st.session_state.auth_restore_completed = True
+    payload = bridge_response.get("payload", {})
+    if not bridge_response.get("ok") or not payload.get("success"):
+        clear_auth_state()
         return
 
-    st.session_state.logged_in = True
-    st.session_state.role = restored_payload.get("role")
-    st.session_state._user_id = restored_payload.get("user_id")
-    st.session_state.access_token = restored_payload.get("access_token")
-    st.session_state.refresh_token = restored_payload.get("refresh_token")
-    st.session_state.session_id = restored_payload.get("session_id")
-    sync_refresh_cookie(host, restored_payload.get("refresh_token"))
+    apply_auth_payload(payload)
     st.session_state.page = st.session_state.get("page", "home")

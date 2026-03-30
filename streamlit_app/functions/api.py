@@ -5,13 +5,15 @@ from __future__ import annotations
 import logging
 
 import httpx
+import streamlit as st
 from requests.exceptions import ConnectionError, HTTPError, RequestException, Timeout
 
 from streamlit_app.functions.runtime import (
-    cookie_controller,
+    clear_auth_state,
     get_access_token,
     refresh_backend_tokens,
-    sync_refresh_cookie,
+    start_auth_bridge_request,
+    consume_auth_bridge_response,
 )
 
 
@@ -31,16 +33,10 @@ async def fetch_data(st, host, uri, params=None, method: str = "GET", json_paylo
                 params=params,
                 json=json_payload,
             )
-            if response.status_code == 401 and st.session_state.get("refresh_token"):
-                refreshed_payload = await refresh_backend_tokens(
-                    host=host,
-                    refresh_token=st.session_state["refresh_token"],
-                )
+            if response.status_code == 401:
+                refreshed_payload = await refresh_backend_tokens(host=host)
                 if refreshed_payload and refreshed_payload.get("success"):
                     st.session_state.access_token = refreshed_payload.get("access_token")
-                    st.session_state.refresh_token = refreshed_payload.get("refresh_token")
-                    st.session_state.session_id = refreshed_payload.get("session_id", st.session_state.get("session_id"))
-                    sync_refresh_cookie(host, st.session_state.refresh_token)
                     headers["Authorization"] = f"Bearer {st.session_state.access_token}"
                     response = await client.request(
                         method=method.upper(),
@@ -49,6 +45,8 @@ async def fetch_data(st, host, uri, params=None, method: str = "GET", json_paylo
                         params=params,
                         json=json_payload,
                     )
+                else:
+                    clear_auth_state()
             response.raise_for_status()
             return response.json()
     except HTTPError as http_error:
@@ -68,36 +66,26 @@ async def fetch_data(st, host, uri, params=None, method: str = "GET", json_paylo
 async def logout(st, host):
     """Handle logout button action and clear client/session state."""
     if st.button("Log Out", type="secondary", width="stretch"):
-        with st.spinner("Logging out..."):
-            try:
-                access_token = get_access_token()
-                if not access_token:
-                    st.error("Session invalid. Please log in again.")
-                    return
-                async with httpx.AsyncClient(timeout=120) as client:
-                    response = await client.post(
-                        f"{host}/api/logout",
-                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {access_token}"},
-                    )
-                    response.raise_for_status()
-                    data = response.json()
+        start_auth_bridge_request(
+            "logout",
+            {"access_token": get_access_token()},
+        )
+        st.rerun()
 
-                if data.get("success"):
-                    cookie_controller.set("refresh_token", "", max_age=0)
-                    del st.session_state.logged_in
-                    del st.session_state.page
-                    del st.session_state._user_id
-                    del st.session_state.role
-                    if "access_token" in st.session_state:
-                        del st.session_state.access_token
-                    if "refresh_token" in st.session_state:
-                        del st.session_state.refresh_token
-                    if "session_id" in st.session_state:
-                        del st.session_state.session_id
+    pending_request = st.session_state.get("auth_bridge_request")
+    if not pending_request or pending_request.get("action") != "logout":
+        return
 
-                    st.success("Logged out successfully!")
-                    st.rerun()
-                else:
-                    st.error(data.get("message", "Logout failed"))
-            except RequestException as error:
-                st.error(f"An error occurred during logout: {error}. Please try again later.")
+    bridge_response = consume_auth_bridge_response(host, component_key="auth_logout_bridge")
+    if bridge_response is None:
+        st.caption("Logging out...")
+        return
+
+    payload = bridge_response.get("payload", {})
+    if bridge_response.get("ok") and payload.get("success"):
+        clear_auth_state()
+        st.session_state.auth_restore_completed = True
+        st.success("Logged out successfully!")
+        st.rerun()
+
+    st.error(payload.get("message") or bridge_response.get("error") or "Logout failed")

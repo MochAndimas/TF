@@ -77,8 +77,8 @@ def main() -> None:
     """
     inject_navigation_style()
     initialize_session_state()
-    restore_login_state_from_cookie()
     host = resolve_host()
+    restore_login_state_from_cookie(host)
     footer(st)
 
     public_page = resolve_public_page_from_query_params()

@@ -20,7 +20,7 @@ from typing import Any, Awaitable, Callable
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -34,7 +34,7 @@ from app.api.v1.endpoint.google_ads_oauth import router as google_ads_oauth_rout
 from app.api.v1.endpoint.meta_ads_token import router as meta_ads_token_router
 from app.api.v1.endpoint.overview import router as overview_router
 from app.core.config import settings
-from app.core.security import pwd_context
+from app.core.security import pwd_context, validate_password_policy
 from app.db.base import SqliteBase
 import app.db.models  # noqa: F401
 from app.db.models.user import LogData, TfUser
@@ -132,6 +132,7 @@ class FastApiApp:
         try:
             async with sqlite_engine.begin() as connection:
                 await connection.run_sync(SqliteBase.metadata.create_all)
+                await self._ensure_auth_schema(connection)
         except OperationalError as error:
             # SQLite + multi-worker startup can race on DDL and raise "table already exists".
             if "already exists" in str(error).lower():
@@ -140,6 +141,7 @@ class FastApiApp:
                 )
                 async with sqlite_engine.begin() as connection:
                     await connection.run_sync(SqliteBase.metadata.create_all)
+                    await self._ensure_auth_schema(connection)
             else:
                 raise
         await self._bootstrap_superadmin_if_enabled()
@@ -163,6 +165,7 @@ class FastApiApp:
             return
 
         bootstrap_email = str(settings.INITIAL_SUPERADMIN_EMAIL).lower().strip()
+        validate_password_policy(str(settings.INITIAL_SUPERADMIN_PASSWORD))
         now = datetime.now()
 
         async with sqlite_async_session() as session:
@@ -208,6 +211,36 @@ class FastApiApp:
             "Bootstrap superadmin created for %s. Set BOOTSTRAP_SUPERADMIN=false after first deploy.",
             bootstrap_email,
         )
+
+    async def _ensure_auth_schema(self, connection) -> None:
+        """Apply lightweight auth-schema maintenance for existing SQLite tables."""
+        user_token_columns = {
+            row[1]
+            for row in (await connection.execute(text("PRAGMA table_info('user_token')"))).fetchall()
+        }
+        desired_columns = {
+            "created_ip": "TEXT",
+            "last_seen_ip": "TEXT",
+            "last_seen_user_agent": "TEXT",
+            "last_rotated_at": "DATETIME",
+        }
+        for column_name, column_type in desired_columns.items():
+            if column_name not in user_token_columns:
+                await connection.execute(
+                    text(f"ALTER TABLE user_token ADD COLUMN {column_name} {column_type}")
+                )
+
+        auth_indexes = (
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_tf_user_email ON tf_user(email)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_session_id ON user_token(session_id)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_access_token ON user_token(access_token)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_refresh_token ON user_token(refresh_token)",
+            "CREATE INDEX IF NOT EXISTS ix_user_token_user_id ON user_token(user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_created_at ON auth_audit_event(created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_event_type ON auth_audit_event(event_type)",
+        )
+        for ddl in auth_indexes:
+            await connection.execute(text(ddl))
 
     def _add_middlewares(self) -> None:
         """Register HTTP middleware stack for the API service.

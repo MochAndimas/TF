@@ -12,5 +12,4 @@ from app.db.models.external_api import (  # noqa: F401
     StgAdsRaw,
     TikTokAds,
 )
-from app.db.models.user import LogData, TfUser, UserToken  # noqa: F401
-
+from app.db.models.user import AuthAuditEvent, LogData, LoginThrottle, TfUser, UserToken  # noqa: F401
