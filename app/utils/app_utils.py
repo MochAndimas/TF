@@ -18,10 +18,10 @@ from time import perf_counter
 from typing import Any, Awaitable, Callable
 
 from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from sqlalchemy import select, text
-from sqlalchemy.exc import OperationalError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
@@ -35,8 +35,7 @@ from app.api.v1.endpoint.meta_ads_token import router as meta_ads_token_router
 from app.api.v1.endpoint.overview import router as overview_router
 from app.core.config import settings
 from app.core.security import pwd_context, validate_password_policy
-from app.db.base import SqliteBase
-import app.db.models  # noqa: F401
+from app.db.bootstrap import initialize_database_schema, verify_database_ready
 from app.db.models.user import LogData, TfUser
 from app.db.session import sqlite_async_session, sqlite_engine
 
@@ -89,6 +88,7 @@ class FastApiApp:
         self.app_version = version
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logging()
+        settings.validate_runtime_constraints()
 
         self.app = FastAPI(
             title="Traders Family Campaign Data API",
@@ -100,6 +100,7 @@ class FastApiApp:
         )
 
         self._add_middlewares()
+        self._add_builtin_routes()
         self._include_routers_v1()
 
     @staticmethod
@@ -128,22 +129,15 @@ class FastApiApp:
         Returns:
             None: Disposes database engine after shutdown sequence.
         """
-        self.logger.info("Application startup: preparing database schema")
-        try:
-            async with sqlite_engine.begin() as connection:
-                await connection.run_sync(SqliteBase.metadata.create_all)
-                await self._ensure_auth_schema(connection)
-        except OperationalError as error:
-            # SQLite + multi-worker startup can race on DDL and raise "table already exists".
-            if "already exists" in str(error).lower():
-                self.logger.warning(
-                    "Schema bootstrap race detected during startup; retrying schema bootstrap."
-                )
-                async with sqlite_engine.begin() as connection:
-                    await connection.run_sync(SqliteBase.metadata.create_all)
-                    await self._ensure_auth_schema(connection)
-            else:
-                raise
+        if settings.AUTO_INIT_DB_ON_STARTUP:
+            self.logger.warning(
+                "AUTO_INIT_DB_ON_STARTUP is enabled. Prefer `python init_db.py` "
+                "or the dedicated db-init service for controlled schema bootstrap."
+            )
+            await initialize_database_schema()
+        else:
+            self.logger.info("Application startup: verifying database readiness")
+            await verify_database_ready()
         await self._bootstrap_superadmin_if_enabled()
         yield
         self.logger.info("Application shutdown: disposing database engine")
@@ -212,35 +206,22 @@ class FastApiApp:
             bootstrap_email,
         )
 
-    async def _ensure_auth_schema(self, connection) -> None:
-        """Apply lightweight auth-schema maintenance for existing SQLite tables."""
-        user_token_columns = {
-            row[1]
-            for row in (await connection.execute(text("PRAGMA table_info('user_token')"))).fetchall()
-        }
-        desired_columns = {
-            "created_ip": "TEXT",
-            "last_seen_ip": "TEXT",
-            "last_seen_user_agent": "TEXT",
-            "last_rotated_at": "DATETIME",
-        }
-        for column_name, column_type in desired_columns.items():
-            if column_name not in user_token_columns:
-                await connection.execute(
-                    text(f"ALTER TABLE user_token ADD COLUMN {column_name} {column_type}")
-                )
+    def _add_builtin_routes(self) -> None:
+        """Register lightweight operational routes that do not belong to API v1."""
 
-        auth_indexes = (
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_tf_user_email ON tf_user(email)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_session_id ON user_token(session_id)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_access_token ON user_token(access_token)",
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_refresh_token ON user_token(refresh_token)",
-            "CREATE INDEX IF NOT EXISTS ix_user_token_user_id ON user_token(user_id)",
-            "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_created_at ON auth_audit_event(created_at)",
-            "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_event_type ON auth_audit_event(event_type)",
-        )
-        for ddl in auth_indexes:
-            await connection.execute(text(ddl))
+        @self.app.get("/health")
+        async def healthcheck() -> JSONResponse:
+            async with sqlite_async_session() as session:
+                await session.execute(text("SELECT 1"))
+
+            return JSONResponse(
+                content={
+                    "status": "ok",
+                    "database": "ready",
+                    "db_backend": settings.db_backend_name,
+                    "worker_mode": "single-worker" if settings.WORKERS == 1 else "multi-worker",
+                }
+            )
 
     def _add_middlewares(self) -> None:
         """Register HTTP middleware stack for the API service.

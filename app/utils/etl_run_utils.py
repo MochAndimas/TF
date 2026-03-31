@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.models.etl_run import EtlRun
 
 STATUS_QUEUED = "queued"
@@ -40,6 +41,22 @@ async def _ensure_not_running_conflict(
     Raises:
         HTTPException: ``409`` when a matching running ETL run already exists.
     """
+    if not settings.ALLOW_CONCURRENT_ETL_RUNS:
+        active_run = await session.execute(
+            select(EtlRun.run_id, EtlRun.source, EtlRun.mode)
+            .where(EtlRun.status == STATUS_RUNNING)
+            .limit(1)
+        )
+        active_job = active_run.first()
+        if active_job:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Another ETL run is already in progress. "
+                    f"Active run_id: {active_job.run_id} source: {active_job.source} mode: {active_job.mode}"
+                ),
+            )
+
     existing = await session.execute(
         select(EtlRun.run_id)
         .where(

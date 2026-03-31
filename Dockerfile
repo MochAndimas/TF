@@ -22,7 +22,7 @@ RUN pip install --upgrade pip \
 COPY . .
 
 RUN chmod +x /app/scripts/run_scheduled_etl.sh \
-    && mkdir -p /app/logs /app/run /app/app/db
+    && mkdir -p /app/logs /app/run /app/app/db /app/backups/sqlite
 
 EXPOSE 8000 5504
 

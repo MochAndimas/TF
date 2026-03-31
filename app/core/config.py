@@ -11,6 +11,7 @@ from typing import Literal
 
 from decouple import config as env
 from pydantic import BaseModel
+from sqlalchemy.engine import make_url
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,9 @@ class Settings(BaseModel):
     INITIAL_SUPERADMIN_NAME: str | None = None
     INITIAL_SUPERADMIN_EMAIL: str | None = None
     INITIAL_SUPERADMIN_PASSWORD: str | None = None
+    AUTO_INIT_DB_ON_STARTUP: bool = False
+    SQLITE_BUSY_TIMEOUT_MS: int = 30000
+    ALLOW_CONCURRENT_ETL_RUNS: bool = False
 
     @staticmethod
     def _split_origins(raw_value: str | None) -> list[str]:
@@ -135,6 +139,16 @@ class Settings(BaseModel):
     def auth_cookie_max_age(self) -> int:
         """Return persistent auth cookie lifetime in seconds."""
         return self.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+
+    @property
+    def db_backend_name(self) -> str:
+        """Return normalized SQLAlchemy backend name for the configured DB URL."""
+        return make_url(self.DB_URL).get_backend_name()
+
+    @property
+    def is_sqlite(self) -> bool:
+        """Whether the configured database backend is SQLite."""
+        return self.db_backend_name == "sqlite"
 
     @property
     def cors_origins(self) -> list[str]:
@@ -195,6 +209,14 @@ class Settings(BaseModel):
                 "Missing bootstrap env vars: " + ", ".join(missing_fields)
             )
 
+    def validate_runtime_constraints(self) -> None:
+        """Fail fast when runtime settings violate SQLite deployment rules."""
+        if self.is_sqlite and self.WORKERS != 1:
+            raise ValueError(
+                "SQLite deployments must run with WORKERS=1. "
+                "Use a single backend worker to avoid file-lock contention."
+            )
+
 
 class DevelopmentSettings(Settings):
     """Settings profile tuned for local development, debugging, and localhost."""
@@ -226,6 +248,9 @@ class DevelopmentSettings(Settings):
         cast=str,
         secret=True,
     )
+    AUTO_INIT_DB_ON_STARTUP: bool = env("AUTO_INIT_DB_ON_STARTUP", default=False, cast=bool)
+    SQLITE_BUSY_TIMEOUT_MS: int = env("SQLITE_BUSY_TIMEOUT_MS", default=30000, cast=int)
+    ALLOW_CONCURRENT_ETL_RUNS: bool = env("ALLOW_CONCURRENT_ETL_RUNS", default=False, cast=bool)
 
 
 class ProductionSettings(Settings):
@@ -258,6 +283,9 @@ class ProductionSettings(Settings):
         cast=str,
         secret=True,
     )
+    AUTO_INIT_DB_ON_STARTUP: bool = env("AUTO_INIT_DB_ON_STARTUP", default=False, cast=bool)
+    SQLITE_BUSY_TIMEOUT_MS: int = env("SQLITE_BUSY_TIMEOUT_MS", default=30000, cast=int)
+    ALLOW_CONCURRENT_ETL_RUNS: bool = env("ALLOW_CONCURRENT_ETL_RUNS", default=False, cast=bool)
 
 
 @lru_cache

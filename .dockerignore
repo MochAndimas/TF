@@ -19,6 +19,7 @@ etc/
 pyvenv.cfg
 logs/
 run/
+backups/
 app/db/*.db
 .env
 .streamlit/secrets.toml
