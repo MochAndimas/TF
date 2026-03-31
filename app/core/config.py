@@ -50,6 +50,13 @@ def _read_setting(name: str, *, default=None, cast=str, secret: bool = False):
     return value
 
 
+def _split_csv(raw_value: str | None) -> list[str]:
+    """Split a comma-separated string into trimmed non-empty items."""
+    if not raw_value:
+        return []
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
 class Settings(BaseModel):
     """Base application settings shared across all environments.
 
@@ -108,9 +115,7 @@ class Settings(BaseModel):
         Returns:
             list[str]: Trimmed non-empty origins with trailing slashes removed.
         """
-        if not raw_value:
-            return []
-        return [item.strip().rstrip("/") for item in raw_value.split(",") if item.strip()]
+        return [item.rstrip("/") for item in _split_csv(raw_value)]
 
     @property
     def cookie_secure(self) -> bool:
@@ -119,7 +124,18 @@ class Settings(BaseModel):
         Returns:
             bool: ``True`` in production, ``False`` during development.
         """
-        return not self.DEBUG
+        public_urls = []
+        if self.FRONTEND_URL:
+            public_urls.extend(self._split_origins(self.FRONTEND_URL))
+        backend_public_url = env("BACKEND_PUBLIC_URL", default="", cast=str).strip()
+        if backend_public_url:
+            public_urls.append(backend_public_url.rstrip("/"))
+
+        for url in public_urls:
+            parsed = urlparse(url)
+            if parsed.scheme == "https":
+                return True
+        return False
 
     @property
     def cookie_samesite(self) -> str:
@@ -180,9 +196,17 @@ class Settings(BaseModel):
         if self.HOST not in {"0.0.0.0", "::"}:
             hosts.add(self.HOST)
         if self.FRONTEND_URL:
-            parsed = urlparse(self.FRONTEND_URL.split(",")[0].strip())
+            for origin in self._split_origins(self.FRONTEND_URL):
+                parsed = urlparse(origin)
+                if parsed.hostname:
+                    hosts.add(parsed.hostname)
+        backend_public_url = env("BACKEND_PUBLIC_URL", default="", cast=str).strip()
+        if backend_public_url:
+            parsed = urlparse(backend_public_url)
             if parsed.hostname:
                 hosts.add(parsed.hostname)
+        internal_hosts = _split_csv(env("INTERNAL_TRUSTED_HOSTS", default="", cast=str))
+        hosts.update(internal_hosts)
         return sorted(hosts)
 
     def validate_bootstrap_config(self) -> None:

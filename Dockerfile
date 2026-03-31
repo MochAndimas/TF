@@ -24,6 +24,6 @@ COPY . .
 RUN chmod +x /app/scripts/run_scheduled_etl.sh \
     && mkdir -p /app/logs /app/run /app/app/db /app/backups/sqlite
 
-EXPOSE 8000 5504
+EXPOSE 5505 5504
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "main.py"]
