@@ -37,6 +37,7 @@ httpcore==1.0.9
 httplib2==0.31.2
 httpx==0.28.1
 idna==3.11
+iniconfig==2.3.0
 isort==7.0.0
 itsdangerous==2.2.0
 Jinja2==3.1.6
@@ -53,6 +54,7 @@ passlib==1.7.4
 pillow==12.1.0
 platformdirs==4.5.1
 plotly==6.5.2
+pluggy==1.6.0
 proto-plus==1.27.1
 protobuf==6.33.5
 pyarrow==23.0.0
@@ -64,8 +66,10 @@ pydantic==2.12.5
 pydantic-settings==2.12.0
 pydantic_core==2.41.5
 pydeck==0.9.1
+Pygments==2.20.0
 pylint==4.0.4
 pyparsing==3.3.2
+pytest==9.0.2
 python-dateutil==2.9.0.post0
 python-decouple==3.8
 python-dotenv==1.2.1
