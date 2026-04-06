@@ -39,6 +39,8 @@ public-key.pem
 # MYSQl file
 app_data.db
 app/db/*.db
+app/db/*.db-wal
+app/db/*.db-shm
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
