@@ -82,8 +82,8 @@ async def show_google_ads_token_page(host: str) -> None:
     ).strip()
 
     st.info(
-        "Flow yang stabil pakai callback backend, misalnya "
-        "`http://localhost:8000/api/google-ads/oauth/callback`."
+        "Flow yang stabil pakai callback backend sesuai konfigurasi env saat ini, yaitu "
+        f"`{default_redirect_uri}`."
     )
     st.caption(f"Active redirect URI: `{redirect_uri}`")
 

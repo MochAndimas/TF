@@ -171,6 +171,62 @@ def build_ga4_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     return rows
 
 
+def _infer_ad_type_from_campaign_name(campaign_name: str) -> str:
+    """Infer campaign objective label from naming convention when available."""
+    normalized_name = str(campaign_name or "").upper()
+    if "- UA -" in normalized_name:
+        return "user_acquisition"
+    if "- BA -" in normalized_name:
+        return "brand_awareness"
+    return "unknown"
+
+
+async def _ensure_campaign_rows_for_ads(
+    session: AsyncSession,
+    model_cls,
+    rows: list[dict],
+) -> None:
+    """Create missing campaign dimension rows before ads facts are inserted."""
+    if not rows:
+        return
+
+    campaign_payloads: dict[str, dict] = {}
+    source_name = getattr(model_cls, "__tablename__", "unknown")
+    now = datetime.now()
+
+    for row in rows:
+        campaign_id = str(row.get("campaign_id") or "").strip()
+        if not campaign_id:
+            continue
+        campaign_name = str(row.get("campaign_name") or "").strip() or f"Unknown Campaign {campaign_id}"
+        campaign_payloads[campaign_id] = {
+            "campaign_id": campaign_id,
+            "campaign_name": campaign_name,
+            "ad_source": source_name,
+            "ad_type": _infer_ad_type_from_campaign_name(campaign_name),
+            "created_at": now,
+        }
+
+    if not campaign_payloads:
+        return
+
+    campaign_ids = set(campaign_payloads)
+    existing = await session.execute(
+        select(Campaign.campaign_id).where(Campaign.campaign_id.in_(campaign_ids))
+    )
+    existing_ids = set(existing.scalars().all())
+    missing_rows = [
+        campaign_payloads[campaign_id]
+        for campaign_id in sorted(campaign_ids - existing_ids)
+    ]
+    if not missing_rows:
+        return
+
+    insert_stmt = sqlite_insert(Campaign).values(missing_rows)
+    upsert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["campaign_id"])
+    await session.execute(upsert_stmt)
+
+
 async def upsert_ads_rows(session: AsyncSession, model_cls, rows: list[dict]) -> None:
     """Upsert rows into ads fact table using ads business key.
 
@@ -184,6 +240,7 @@ async def upsert_ads_rows(session: AsyncSession, model_cls, rows: list[dict]) ->
     """
     if not rows:
         return
+    await _ensure_campaign_rows_for_ads(session=session, model_cls=model_cls, rows=rows)
     columns_per_row = len(rows[0])
     for chunk in _iter_row_chunks(rows, columns_per_row):
         insert_stmt = sqlite_insert(model_cls).values(chunk)
