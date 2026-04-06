@@ -183,7 +183,6 @@ Akses halaman Streamlit saat ini:
 |- streamlit_run.py             # Streamlit entrypoint
 |- Dockerfile
 |- docker-compose.yml
-|- Makefile
 ```
 
 ## Requirements
@@ -398,16 +397,26 @@ Volume penting yang dipersist:
 - `./run`
 - `./backups/sqlite`
 
-## Makefile Shortcut
+## Command Shortcut
 
-Shortcut yang tersedia:
+Local command yang relevan:
 
 ```bash
-make init-db
-make backend
-make frontend
-make test
-make sqlite-backup
+python3 init_db.py
+python3 main.py
+streamlit run streamlit_run.py --server.port 5504
+python3 -m pytest -q
+python3 scripts/backup_sqlite.py
+```
+
+Docker command yang umum dipakai:
+
+```bash
+docker compose up -d --build
+docker compose ps
+docker logs tf-backend --tail 100
+docker logs tf-frontend --tail 100
+docker compose down
 ```
 
 ## Catatan Operasional Penting
@@ -454,7 +463,7 @@ Berikut poin penting dari hasil pengecekan repo saat ini:
 
 - rotate semua secret yang pernah tersimpan di `.env` repo ini
 - sediakan `.env.example` yang steril dari secret riil
-- kembalikan file test sumber ke `tests/` agar `make test` punya coverage nyata
+- kembalikan file test sumber ke `tests/` agar `python3 -m pytest -q` punya coverage nyata
 - pertimbangkan migrasi ke PostgreSQL jika concurrency dan deployment mulai berkembang
 
 ## Entry Point Penting
@@ -464,4 +473,3 @@ Berikut poin penting dari hasil pengecekan repo saat ini:
 - DB init: `init_db.py`
 - Scheduled ETL: `run_scheduled_etl.py`
 - Docker scheduler entrypoint: `docker/scheduler-entrypoint.sh`
-
