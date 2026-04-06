@@ -71,9 +71,9 @@ services:
       TZ: Asia/Jakarta
       BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL}
       STREAMLIT_API_HOST: http://backend:${PORT}
-    command: streamlit run streamlit_run.py --server.port 5504 --server.address 0.0.0.0
+    command: streamlit run streamlit_run.py --server.port ${FRONTEND_PORT} --server.address 0.0.0.0
     ports:
-      - "5504:5504"
+      - "${FRONTEND_PORT}:${FRONTEND_PORT}"
     depends_on:
       backend:
         condition: service_healthy
@@ -83,7 +83,7 @@ services:
       - ./logs:/app/logs
       - ./backups/sqlite:/app/backups/sqlite
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:5504/_stcore/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${FRONTEND_PORT}/_stcore/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

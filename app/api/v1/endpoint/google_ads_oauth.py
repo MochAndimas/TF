@@ -71,6 +71,14 @@ def _callback_redirect_uri() -> str:
     return f"http://{backend_host}:{backend_port}/api/google-ads/oauth/callback"
 
 
+def _dashboard_return_url() -> str:
+    """Resolve dashboard URL used in OAuth completion pages."""
+    frontend_url = env("FRONTEND_URL", default="", cast=str).strip()
+    if frontend_url:
+        return frontend_url.rstrip("/")
+    return "http://localhost:5504"
+
+
 def _build_flow(state: str | None = None) -> Flow:
     """Build a configured Google OAuth flow object for redirects and callbacks.
 
@@ -296,7 +304,7 @@ async def google_ads_oauth_callback(
         (
             "<p>OAuth berhasil. Refresh token sudah disimpan aman di backend storage.</p>"
             "<p>UI ini sengaja tidak menampilkan token mentah.</p>"
-            '<p><a href="http://localhost:5504">Back to dashboard</a></p>'
+            f'<p><a href="{html.escape(_dashboard_return_url())}">Back to dashboard</a></p>'
         ),
     )
 
