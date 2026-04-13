@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, update
@@ -16,6 +16,7 @@ STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
+STALE_RUN_TIMEOUT = timedelta(hours=6)
 
 
 async def _ensure_not_running_conflict(
@@ -44,7 +45,7 @@ async def _ensure_not_running_conflict(
     if not settings.ALLOW_CONCURRENT_ETL_RUNS:
         active_run = await session.execute(
             select(EtlRun.run_id, EtlRun.source, EtlRun.mode)
-            .where(EtlRun.status == STATUS_RUNNING)
+            .where(EtlRun.status.in_((STATUS_QUEUED, STATUS_RUNNING)))
             .limit(1)
         )
         active_job = active_run.first()
@@ -60,7 +61,7 @@ async def _ensure_not_running_conflict(
     existing = await session.execute(
         select(EtlRun.run_id)
         .where(
-            EtlRun.status == STATUS_RUNNING,
+            EtlRun.status.in_((STATUS_QUEUED, STATUS_RUNNING)),
             EtlRun.source == source,
             EtlRun.mode == mode,
             EtlRun.window_start == window_start,
@@ -89,7 +90,7 @@ async def start_run(
     window_end: date | None,
     triggered_by: str | None,
 ) -> str:
-    """Create and persist a new ETL run in ``running`` status.
+    """Create and persist a new ETL run in ``queued`` status.
 
     Args:
         session (AsyncSession): Active database session.
@@ -121,13 +122,35 @@ async def start_run(
             mode=mode,
             window_start=window_start,
             window_end=window_end,
-            status=STATUS_RUNNING,
+            status=STATUS_QUEUED,
+            message="ETL run queued and waiting to start.",
             started_at=datetime.now(),
             triggered_by=triggered_by,
         )
     )
     await session.commit()
     return run_id
+
+
+async def mark_run_running(session: AsyncSession, run_id: str) -> None:
+    """Transition an ETL run into ``running`` status when execution starts."""
+    result = await session.execute(
+        update(EtlRun)
+        .where(EtlRun.run_id == run_id)
+        .values(
+            status=STATUS_RUNNING,
+            message="ETL run is in progress.",
+            error_detail=None,
+            ended_at=None,
+            started_at=datetime.now(),
+        )
+    )
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ETL run not found while starting run_id: {run_id}",
+        )
+    await session.commit()
 
 
 async def finish_run(session: AsyncSession, run_id: str, message: str | None = None) -> None:
@@ -186,3 +209,30 @@ async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> Non
             detail=f"ETL run not found while failing run_id: {run_id}",
         )
     await session.commit()
+
+
+async def cleanup_stale_runs(
+    session: AsyncSession,
+    *,
+    timeout: timedelta = STALE_RUN_TIMEOUT,
+) -> int:
+    """Fail old queued/running runs that were likely interrupted mid-process."""
+    stale_before = datetime.now() - timeout
+    result = await session.execute(
+        update(EtlRun)
+        .where(
+            EtlRun.status.in_((STATUS_QUEUED, STATUS_RUNNING)),
+            EtlRun.started_at < stale_before,
+        )
+        .values(
+            status=STATUS_FAILED,
+            message="ETL run marked failed after exceeding stale timeout.",
+            error_detail=(
+                "ETL run was interrupted or stalled and was auto-recovered "
+                "before a new run started."
+            ),
+            ended_at=datetime.now(),
+        )
+    )
+    await session.commit()
+    return int(result.rowcount or 0)

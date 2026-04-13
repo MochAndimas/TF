@@ -30,11 +30,14 @@ class UpdateDataResponse(BaseModel):
         message (str): Human-readable acceptance or status message.
         run_id (str): Unique ETL run identifier used for polling progress.
         status (str): Initial run status returned to the frontend.
+        recovered_stale_runs (int): Number of stale runs auto-failed before the
+            new job was accepted.
     """
 
     message: str
     run_id: str
     status: str
+    recovered_stale_runs: int = 0
 
 
 class UpdateDataStatusResponse(BaseModel):
@@ -45,7 +48,7 @@ class UpdateDataStatusResponse(BaseModel):
         pipeline (str): Logical pipeline family, for example external API sync.
         source (str): Source selected by the user for this run.
         mode (str): Trigger mode such as ``auto`` or ``manual``.
-        status (str): Current lifecycle state (`running`, `success`, `failed`).
+        status (str): Current lifecycle state (`queued`, `running`, `success`, `failed`).
         message (str | None): Success/status message persisted by the ETL job.
         error_detail (str | None): Failure detail stored when the job fails.
         window_start (date | None): Inclusive ETL window start.

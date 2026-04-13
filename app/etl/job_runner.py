@@ -13,7 +13,13 @@ from app.db.session import sqlite_async_session
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
 from app.etl.transform import resolve_date_window
-from app.utils.etl_run_utils import fail_run, finish_run, start_run
+from app.utils.etl_run_utils import (
+    cleanup_stale_runs,
+    fail_run,
+    finish_run,
+    mark_run_running,
+    start_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +92,13 @@ async def execute_update_job(
         async with sqlite_async_session() as status_session:
             await fail_run(session=status_session, run_id=run_id, error_detail=error_detail)
 
+    async def _mark_running() -> None:
+        async with sqlite_async_session() as status_session:
+            await mark_run_running(session=status_session, run_id=run_id)
+
     async with sqlite_async_session() as session:
         try:
+            await _mark_running()
             gsheet = GoogleSheetApi()
             if data == "unique_campaign":
                 message = await rebuild_unique_campaign(session=session)
@@ -207,6 +218,7 @@ async def trigger_and_wait_update_job(
         end_date=end_date,
     )
     async with sqlite_async_session() as session:
+        await cleanup_stale_runs(session=session)
         run_id = await start_run(
             session=session,
             source=data,

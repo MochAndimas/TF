@@ -74,6 +74,11 @@ async def show_update_page(host):
                 return
 
             status_url = f"{host}/api/feature-data/update-external-api/{run_id}"
+            recovered_stale_runs = data.get("recovered_stale_runs", 0)
+            if recovered_stale_runs:
+                st.warning(
+                    f"Recovered {recovered_stale_runs} stale ETL run(s) before starting this job."
+                )
             st.info(f"Job accepted. Run ID: `{run_id}`")
             poll_result = await poll_update_job(host, access_token, run_id)
             if poll_result.get("error"):
@@ -97,7 +102,7 @@ async def show_update_page(host):
                 st.error(final_error or final_message or "Update failed.")
                 return
 
-            status_placeholder.warning("Current status: `running`")
+            status_placeholder.warning(f"Current status: `{final_status or 'queued'}`")
             progress_placeholder.progress(1.0)
             st.warning(f"Update still running. Please check again later using this run_id: `{run_id}`")
         except httpx.RequestError as error:

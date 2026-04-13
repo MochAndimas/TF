@@ -16,7 +16,7 @@ from app.utils.user_utils import get_current_user, require_roles
 from app.db.models.user import TfUser
 from app.schemas.feature import UpdateData, UpdateDataResponse, UpdateDataStatusResponse
 from app.etl.job_runner import execute_update_job, resolve_run_window
-from app.utils.etl_run_utils import fail_run, start_run
+from app.utils.etl_run_utils import cleanup_stale_runs, fail_run, start_run
 from app.db.models.etl_run import EtlRun
 
 
@@ -52,6 +52,7 @@ async def update_data(
         start_date = response.start_date
         end_date = response.end_date
         types = response.types
+        cleaned_runs = await cleanup_stale_runs(session=session)
         window_start, window_end = resolve_run_window(
             data=response.data,
             types=types,
@@ -77,9 +78,13 @@ async def update_data(
         )
         return JSONResponse(
             content={
-                "message": "Update job accepted. Track progress via status endpoint.",
+                "message": (
+                    "Update job accepted and queued. "
+                    "Track progress via status endpoint."
+                ),
                 "run_id": run_id,
-                "status": "running",
+                "status": "queued",
+                "recovered_stale_runs": cleaned_runs,
             }
         )
     except HTTPException as error:

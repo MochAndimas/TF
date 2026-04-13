@@ -21,7 +21,8 @@ RUN pip install --upgrade pip \
 
 COPY . .
 
-RUN chmod +x /app/scripts/run_scheduled_etl.sh \
+RUN find /app -type f -name "*.sh" -exec sed -i 's/\r$//' {} + \
+    && chmod +x /app/scripts/run_scheduled_etl.sh \
     && mkdir -p /app/logs /app/run /app/app/db /app/backups/sqlite
 
 # EXPOSE {PORT_BACKEND} {PORT_FRONTEND} -> Di ganti jika perlu di sesuaikan
