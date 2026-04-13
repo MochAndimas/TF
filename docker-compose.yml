@@ -1,3 +1,9 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db-init:
     build:
@@ -22,6 +28,7 @@ services:
       - ./logs:/app/logs
       - ./run:/app/run
       - ./backups/sqlite:/app/backups/sqlite
+    logging: *default-logging
     restart: "no"
 
   backend:
@@ -58,6 +65,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging: *default-logging
     restart: unless-stopped
 
   frontend:
@@ -88,6 +96,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    logging: *default-logging
     restart: unless-stopped
 
   scheduler:
@@ -124,4 +133,5 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging: *default-logging
     restart: unless-stopped
