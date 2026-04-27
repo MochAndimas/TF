@@ -39,15 +39,26 @@ class ExternalApiExtractor:
                 scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
             )
             self.service = build("sheets", version="v4", credentials=creds, cache_discovery=False)
-        self.first_deposit_url = config(
-            "FIRST_DEPOSIT_API_URL",
-            default=(
-                "https://script.googleusercontent.com/macros/echo?"
-                "user_content_key=AY5xjrTjdihXxTA5m1lfYwe5_8C9SGIK6Z95X4LtG9s5KT5tF_5-6iY1zwHLI16hdXFCudT2CueRQ2OccG7qM_a5wHVEAGAMXpIClsE1jpruGO8l0GwHFHdDcAFUyRws2G4E_ChFM62UL_bGfkUsWK0wyIBVZMb7eIu5oNR20HhxEYLLwlPp8WD4gpXF3mYnC9LchGTvoeKfR_KiBhq78s8_dgKUvw4S_Rr0h0bqgXz7EsbwZ-JYsmPGNPt_HxLTKGLRIAEf9lzrlEcThO6L8b2HSBzhB7yG7g"
-                "&lib=M2A7k1cML9_qiTb3aF9ZIZKiUcBrFPiXa"
-            ),
+        self.first_deposit_sheet_id = config(
+            "FIRST_DEPOSIT_SHEET_ID",
+            default="1avonZ9znYOExrqPUMpQJsRC8LA2MjbVPFTfmCoapA4g",
             cast=str,
-        )
+        ).strip()
+        self.first_deposit_sheet_range = config(
+            "FIRST_DEPOSIT_SHEET_RANGE",
+            default="'RAW Regis'!A:T",
+            cast=str,
+        ).strip()
+        self.daily_regis_sheet_id = config(
+            "DAILY_REGIS_SHEET_ID",
+            default="1FwFSa_S9kKA9KdRCxklvpBVG3XaHmNj5ybgKu8jP4Hw",
+            cast=str,
+        ).strip()
+        self.daily_regis_sheet_range = config(
+            "DAILY_REGIS_SHEET_RANGE",
+            default="Data!A:C",
+            cast=str,
+        ).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
         raw_ga4_sa_creds = config("GA4_SA_CREDS", default="", cast=str).strip()
         self.ga4_service = None
@@ -442,12 +453,71 @@ class ExternalApiExtractor:
         return parsed_rows
 
     async def fetch_first_deposit_records(self) -> list[dict]:
-        """Fetch raw first-deposit rows from the configured JSON endpoint."""
-        async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
-            response = await client.get(self.first_deposit_url)
-            response.raise_for_status()
-            payload = response.json()
+        """Fetch raw first-deposit rows from the configured Google Sheet."""
+        if self.service is None or not self.first_deposit_sheet_id:
+            raise ValueError(
+                "First deposit Google Sheet credentials are not fully configured. "
+                "Required env vars: GSHEET_SA_CREDS and FIRST_DEPOSIT_SHEET_ID."
+            )
 
-        if not isinstance(payload, list):
-            raise ValueError("First deposit API returned unexpected payload shape.")
-        return payload
+        def _request():
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=self.first_deposit_sheet_id,
+                range=self.first_deposit_sheet_range,
+            ).execute()
+            return result.get("values", [])
+
+        values = await asyncio.to_thread(_request)
+        if not values:
+            return []
+
+        headers = [str(header).strip() for header in values[0]]
+        source_columns = {
+            "id",
+            "email",
+            "phone",
+            "fullname",
+            "tgl_regis",
+            "tag",
+            "campaignid",
+            "protection",
+            "Status\nNew / Existing",
+            "Assign Date",
+            "Analyst",
+            "First Depo Date",
+            "First Depo $",
+            "Time To Closing",
+            "NMI",
+            "Lot",
+            "Cabang",
+            "Pool",
+        }
+        records: list[dict] = []
+        for row in values[1:]:
+            padded_row = list(row) + [""] * (len(headers) - len(row))
+            record = {
+                header: padded_row[index]
+                for index, header in enumerate(headers)
+                if header in source_columns
+            }
+            if any(str(value).strip() for value in record.values()):
+                records.append(record)
+
+        return records
+
+    async def fetch_daily_register_rows(self) -> list:
+        """Fetch raw daily registration rows from the configured Google Sheet."""
+        if self.service is None or not self.daily_regis_sheet_id:
+            raise ValueError(
+                "Daily register Google Sheet credentials are not fully configured. "
+                "Required env vars: GSHEET_SA_CREDS and DAILY_REGIS_SHEET_ID."
+            )
+
+        def _request():
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=self.daily_regis_sheet_id,
+                range=self.daily_regis_sheet_range,
+            ).execute()
+            return result.get("values", [])
+
+        return await asyncio.to_thread(_request)

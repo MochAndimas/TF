@@ -11,21 +11,29 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import DataDepo, Ga4DailyMetrics
+from app.db.models.external_api import DailyRegister, DataDepo, Ga4DailyMetrics
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
     build_ads_rows,
+    build_daily_register_rows,
     build_first_deposit_rows,
     build_ga4_rows,
     upsert_ads_rows,
+    upsert_daily_register_rows,
     upsert_first_deposit_rows,
     upsert_ga4_rows,
 )
-from app.etl.quality import validate_ads_dataframe, validate_first_deposit_dataframe, validate_ga4_dataframe
+from app.etl.quality import (
+    validate_ads_dataframe,
+    validate_daily_register_dataframe,
+    validate_first_deposit_dataframe,
+    validate_ga4_dataframe,
+)
 from app.etl.staging import stage_ads_raw, stage_first_deposit_raw, stage_ga4_raw
 from app.etl.transform import (
     dedupe_ads_dataframe,
     parse_ads_dataframe,
+    parse_daily_register_dataframe,
     parse_first_deposit_dataframe,
     parse_ga4_dataframe,
     resolve_date_window,
@@ -106,6 +114,10 @@ class GoogleSheetApi:
         """
         return await self.extractor.fetch_first_deposit_records()
 
+    async def _fetch_daily_register_rows(self) -> list:
+        """Fetch raw daily registration rows from the configured Google Sheet."""
+        return await self.extractor.fetch_daily_register_rows()
+
     @staticmethod
     def _parse_ads_dataframe(raw_rows: list):
         """Parse raw ads payload rows into a normalized dataframe.
@@ -142,6 +154,11 @@ class GoogleSheetApi:
             upsert into ``data_depo``.
         """
         return parse_first_deposit_dataframe(raw_rows)
+
+    @staticmethod
+    def _parse_daily_register_dataframe(raw_rows: list):
+        """Parse raw daily register rows into a normalized dataframe."""
+        return parse_daily_register_dataframe(raw_rows)
 
     @staticmethod
     def _build_ads_models(df, model_cls, pull_date):
@@ -184,6 +201,11 @@ class GoogleSheetApi:
             list[dict]: ``data_depo`` payload rows for idempotent upsert.
         """
         return build_first_deposit_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_daily_register_models(df, pull_date):
+        """Convert validated daily register dataframe into load payload rows."""
+        return build_daily_register_rows(df=df, pull_date=pull_date)
 
     async def campaign_ads(
         self,
@@ -429,6 +451,102 @@ class GoogleSheetApi:
                 duration_sec=round(perf_counter() - started_at, 3),
             )
             raise HTTPException(500, f"GA4 error: {str(error)}")
+
+    async def daily_register(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run daily registration ETL flow into ``daily_register``."""
+        started_at = perf_counter()
+        try:
+            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
+            self._log_event(
+                "etl_daily_register_started",
+                run_id=run_id,
+                types=types,
+                target_start=target_start,
+                target_end=target_end,
+            )
+
+            if types == "auto":
+                existing_rows = await session.execute(
+                    select(DailyRegister.id).where(DailyRegister.date.between(target_start, target_end))
+                )
+                if existing_rows.first():
+                    self._log_event(
+                        "etl_daily_register_skipped",
+                        run_id=run_id,
+                        reason="already_updated",
+                        duration_sec=round(perf_counter() - started_at, 3),
+                    )
+                    return "Data is already updated!"
+
+            raw_rows = await self._fetch_daily_register_rows()
+            staged_count = await stage_ads_raw(
+                session=session,
+                raw_rows=raw_rows,
+                run_id=run_id,
+                source="daily_register",
+                range_name=self.extractor.daily_regis_sheet_range,
+            )
+            await session.commit()
+            df = self._parse_daily_register_dataframe(raw_rows)
+            if df.empty:
+                return "No data found from source."
+
+            df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
+            filtered_count = len(df)
+            if df.empty:
+                self._log_event(
+                    "etl_daily_register_no_rows_in_window",
+                    run_id=run_id,
+                    raw_count=max(len(raw_rows) - 1, 0),
+                    staged_count=staged_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
+                return "No data found for selected date range."
+
+            validate_daily_register_dataframe(df)
+            rows = self._build_daily_register_models(df=df, pull_date=datetime.now().date())
+            await upsert_daily_register_rows(session=session, rows=rows)
+            await session.commit()
+            self._log_event(
+                "etl_daily_register_completed",
+                run_id=run_id,
+                raw_count=max(len(raw_rows) - 1, 0),
+                staged_count=staged_count,
+                filtered_count=filtered_count,
+                loaded_count=len(rows),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            return "Data is being updated!"
+        except HTTPException:
+            self._log_event(
+                "etl_daily_register_failed_http",
+                run_id=run_id,
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise
+        except ValueError as error:
+            self._log_event(
+                "etl_daily_register_failed_dq",
+                run_id=run_id,
+                error=str(error),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise HTTPException(422, str(error))
+        except Exception as error:
+            self._log_event(
+                "etl_daily_register_failed",
+                run_id=run_id,
+                error=str(error),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise HTTPException(500, f"Daily register error: {str(error)}")
 
     async def first_deposit(
         self,

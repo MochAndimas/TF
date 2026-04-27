@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.external_api import (
     Campaign,
     DataDepo,
+    DailyRegister,
     FacebookAds,
     Ga4DailyMetrics,
     GoogleAds,
@@ -171,6 +172,21 @@ def build_ga4_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     return rows
 
 
+def build_daily_register_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized daily register rows into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "date": row["date"],
+                "campaign_id": row["campaign_id"],
+                "total_regis": int(row["total_regis"]),
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
 def _infer_ad_type_from_campaign_name(campaign_name: str) -> str:
     """Infer campaign objective label from naming convention when available."""
     normalized_name = str(campaign_name or "").upper()
@@ -279,6 +295,28 @@ async def upsert_ga4_rows(session: AsyncSession, rows: list[dict]) -> None:
                 "daily_active_users": insert_stmt.excluded.daily_active_users,
                 "monthly_active_users": insert_stmt.excluded.monthly_active_users,
                 "active_users": insert_stmt.excluded.active_users,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_daily_register_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``daily_register`` using date and campaign key."""
+    if not rows:
+        return
+
+    await _ensure_campaign_rows_for_deposits(
+        session=session,
+        campaign_ids={str(row["campaign_id"]).strip() or "-" for row in rows},
+    )
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(DailyRegister).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date", "campaign_id"],
+            set_={
+                "total_regis": insert_stmt.excluded.total_regis,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

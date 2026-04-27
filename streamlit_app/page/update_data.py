@@ -22,7 +22,7 @@ async def show_update_page(host):
         None: UI side effects only.
     """
     st.markdown("""<h1 align="center">Update Data</h1>""", unsafe_allow_html=True)
-    st.caption("Trigger manual or automatic synchronization for campaign and GA4 datasets.")
+    st.caption("Trigger manual or automatic synchronization for campaign, GA4, register, and deposit datasets.")
 
     form_state = render_update_form()
     submitted = form_state["submitted"]

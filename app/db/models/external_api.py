@@ -58,6 +58,13 @@ class Campaign(SqliteBase):
         viewonly=True
     )
 
+    daily_register = relationship(
+        'DailyRegister',
+        lazy=True,
+        back_populates='campaign',
+        viewonly=True
+    )
+
 class DataDepo(SqliteBase):
     """Model for imported deposit/user records tied to campaigns.
 
@@ -294,6 +301,36 @@ class Ga4DailyMetrics(SqliteBase):
     monthly_active_users = Column("monthly_active_users", Integer, nullable=False, default=0)
     active_users = Column("active_users", Integer, nullable=False, default=0)
     pull_date = Column("pull_date", Date, nullable=False)
+
+
+class DailyRegister(SqliteBase):
+    """Store daily registration totals by campaign from Google Sheets."""
+
+    __tablename__ = "daily_register"
+    __table_args__ = (
+        ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "date",
+            "campaign_id",
+            name="uq_daily_register_date_campaign",
+        ),
+        Index("ix_daily_register_date", "date"),
+        Index("ix_daily_register_campaign_id", "campaign_id"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    campaign_id = Column("campaign_id", String, nullable=False, default=ForeignKey("campaign.campaign_id"))
+    total_regis = Column("total_regis", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+    campaign = relationship(
+        'Campaign',
+        lazy=True,
+        back_populates='daily_register',
+        viewonly=True
+    )
 
 
 class StgAdsRaw(SqliteBase):

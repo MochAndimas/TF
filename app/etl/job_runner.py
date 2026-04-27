@@ -29,6 +29,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "tiktok_ads",
     "unique_campaign",
     "ga4_daily_metrics",
+    "daily_register",
     "first_deposit",
 )
 
@@ -134,6 +135,14 @@ async def execute_update_job(
                 )
             elif data == "ga4_daily_metrics":
                 message = await gsheet.ga4_daily_metrics(
+                    types=types,
+                    start_date=start_date,
+                    end_date=end_date,
+                    session=session,
+                    run_id=run_id,
+                )
+            elif data == "daily_register":
+                message = await gsheet.daily_register(
                     types=types,
                     start_date=start_date,
                     end_date=end_date,

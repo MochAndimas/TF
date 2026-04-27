@@ -203,6 +203,38 @@ def parse_ga4_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     return df
 
 
+def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
+    """Parse daily registration sheet rows into a normalized dataframe."""
+    if not raw_rows:
+        return pd.DataFrame()
+    if len(raw_rows) < 2:
+        return pd.DataFrame()
+
+    headers = normalize_columns(raw_rows[0])
+    df = pd.DataFrame(raw_rows[1:], columns=headers)
+    required_columns = ["period", "campaignid", "total_regis"]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in daily register sheet: {missing_columns}")
+
+    parsed = pd.DataFrame(
+        {
+            "date": pd.to_datetime(df["period"], errors="coerce").dt.date,
+            "campaign_id": df["campaignid"].fillna("").astype(str).str.strip(),
+            "total_regis": pd.to_numeric(df["total_regis"], errors="coerce").fillna(0),
+        }
+    )
+    parsed["campaign_id"] = parsed["campaign_id"].replace({"": "-", "0": "-"})
+    parsed["total_regis"] = parsed["total_regis"].astype(int)
+    parsed = parsed[parsed["date"].notna()].copy()
+    parsed = (
+        parsed.groupby(["date", "campaign_id"], as_index=False)["total_regis"]
+        .sum()
+        .sort_values(["date", "campaign_id"])
+    )
+    return parsed
+
+
 def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse raw first-deposit API payload into a load-ready dataframe.
 

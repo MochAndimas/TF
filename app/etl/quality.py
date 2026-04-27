@@ -97,6 +97,34 @@ def validate_ga4_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: ga4 duplicate key ratio {dup_ratio:.2%}.")
 
 
+def validate_daily_register_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed daily registration data before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date", "campaign_id"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: daily register data has {int(missing_key)} rows with missing business keys."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: daily register data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    negative_metric = (pd.to_numeric(df["total_regis"], errors="coerce").fillna(0) < 0).sum()
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: daily register data has {int(negative_metric)} rows with negative total_regis."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["date", "campaign_id"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: daily register duplicate key ratio {dup_ratio:.2%}.")
+
+
 def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed first-deposit data before the load step.
 
