@@ -256,7 +256,7 @@ def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, obj
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
     primary_cards = [("Cost", "cost"), ("Impressions", "impressions"), ("Clicks", "clicks"), ("Leads", "leads"), ("Cost/Leads", "cost_leads")]
-    secondary_cards = [("First Deposit", "first_deposit"), ("Cost to First Deposit", "cost_to_first_deposit")]
+    secondary_cards = [("Total Deposit", "first_deposit"), ("Cost to Total Deposit", "cost_to_first_deposit")]
 
     for column, (label, key) in zip(st_module.columns(5, gap="small"), primary_cards):
         with column:

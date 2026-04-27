@@ -77,8 +77,8 @@ def apply_currency_to_ua_figure(figure: go.Figure, chart_type: str, currency_uni
         cost_trace.y = [convert_idr_to_usd(value) for value in (cost_trace.y or [])]
         deposit_trace.y = [convert_idr_to_usd(value) for value in (deposit_trace.y or [])]
         cost_trace.name = "Cost (USD)"
-        deposit_trace.name = "First Deposit (USD)"
+        deposit_trace.name = "Total Deposit (USD)"
         cost_trace.hovertemplate = "<b>%{x}</b><br>Cost: $ %{y:,.2f}<extra></extra>"
-        deposit_trace.hovertemplate = "<b>%{x}</b><br>First Deposit: $ %{y:,.2f}<extra></extra>"
-        figure.update_layout(yaxis=dict(title="Cost (USD)"), yaxis2=dict(title="First Deposit (USD)"))
+        deposit_trace.hovertemplate = "<b>%{x}</b><br>Total Deposit: $ %{y:,.2f}<extra></extra>"
+        figure.update_layout(yaxis=dict(title="Cost (USD)"), yaxis2=dict(title="Total Deposit (USD)"))
     return figure
