@@ -12,7 +12,7 @@ import plotly.utils
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import Campaign, DataDepo, FacebookAds, GoogleAds, TikTokAds
+from app.db.models.external_api import Campaign, DailyRegister, DataDepo, FacebookAds, GoogleAds, TikTokAds
 from app.utils.overview.shared import USD_TO_IDR_RATE
 
 
@@ -49,10 +49,16 @@ class OverviewLeadsAcquisitionData:
 
     async def _read_one_source_ads_ua(self, model, source_key: str, from_date: date, to_date: date) -> pd.DataFrame:
         query = (
-            select(model.date.label("date"), func.sum(model.cost).label("cost"), func.sum(model.impressions).label("impressions"), func.sum(model.clicks).label("clicks"), func.sum(model.leads).label("leads"))
+            select(
+                model.date.label("date"),
+                model.campaign_id.label("campaign_id"),
+                func.sum(model.cost).label("cost"),
+                func.sum(model.impressions).label("impressions"),
+                func.sum(model.clicks).label("clicks"),
+            )
             .join(model.campaign)
             .where(func.date(model.date).between(from_date, to_date), Campaign.ad_type == "user_acquisition")
-            .group_by(model.date)
+            .group_by(model.date, model.campaign_id)
             .order_by(model.date.asc())
         )
         result = await self.session.execute(query)
@@ -61,9 +67,43 @@ class OverviewLeadsAcquisitionData:
             return pd.DataFrame(columns=["date", "cost", "impressions", "clicks", "leads", "source"])
         dataframe = pd.DataFrame(rows)
         dataframe["date"] = pd.to_datetime(dataframe["date"]).dt.date
+        dataframe = await self._attach_register_leads(dataframe, from_date, to_date)
+        grouped = dataframe.groupby("date", as_index=False)[["cost", "impressions", "clicks", "leads"]].sum()
         for column in ("cost", "impressions", "clicks", "leads"):
+            grouped[column] = pd.to_numeric(grouped[column], errors="coerce").fillna(0)
+        grouped["source"] = source_key
+        return grouped
+
+    async def _read_daily_register_db(self, from_date: date, to_date: date) -> pd.DataFrame:
+        query = (
+            select(
+                DailyRegister.date.label("date"),
+                DailyRegister.campaign_id.label("campaign_id"),
+                func.sum(DailyRegister.total_regis).label("leads"),
+            )
+            .where(DailyRegister.date.between(from_date, to_date))
+            .group_by(DailyRegister.date, DailyRegister.campaign_id)
+        )
+        result = await self.session.execute(query)
+        rows = result.fetchall()
+        if not rows:
+            return pd.DataFrame(columns=["date", "campaign_id", "leads"])
+        dataframe = pd.DataFrame(rows)
+        dataframe["date"] = pd.to_datetime(dataframe["date"]).dt.date
+        dataframe["campaign_id"] = dataframe["campaign_id"].astype(str)
+        dataframe["leads"] = pd.to_numeric(dataframe["leads"], errors="coerce").fillna(0)
+        return dataframe
+
+    async def _attach_register_leads(self, dataframe: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
+        regis_df = await self._read_daily_register_db(from_date=from_date, to_date=to_date)
+        if regis_df.empty:
+            dataframe["leads"] = 0.0
+            return dataframe
+        dataframe["campaign_id"] = dataframe["campaign_id"].astype(str)
+        dataframe = dataframe.merge(regis_df, on=["date", "campaign_id"], how="left")
+        dataframe["leads"] = pd.to_numeric(dataframe["leads"], errors="coerce").fillna(0)
+        for column in ("cost", "impressions", "clicks"):
             dataframe[column] = pd.to_numeric(dataframe[column], errors="coerce").fillna(0)
-        dataframe["source"] = source_key
         return dataframe
 
     async def _read_ads_ua_with_range(self, from_date: date, to_date: date) -> pd.DataFrame:

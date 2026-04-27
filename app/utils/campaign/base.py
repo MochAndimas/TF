@@ -12,7 +12,7 @@ import plotly.utils
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import Campaign, DataDepo, FacebookAds, GoogleAds, TikTokAds
+from app.db.models.external_api import Campaign, DailyRegister, DataDepo, FacebookAds, GoogleAds, TikTokAds
 
 AdsModel = GoogleAds | FacebookAds | TikTokAds
 
@@ -57,7 +57,6 @@ class CampaignDataBase:
                 func.sum(model.cost).label("cost"),
                 func.sum(model.impressions).label("impressions"),
                 func.sum(model.clicks).label("clicks"),
-                func.sum(model.leads).label("leads"),
             )
             .join(model.campaign)
             .filter(func.date(model.date).between(from_date, to_date))
@@ -78,7 +77,54 @@ class CampaignDataBase:
 
         df = pd.DataFrame(rows)
         df["date"] = pd.to_datetime(df["date"]).dt.date
+        df = await self._attach_register_leads(df=df, from_date=from_date, to_date=to_date)
         return df
+
+    async def _read_daily_register_db(self, from_date: date, to_date: date) -> pd.DataFrame:
+        query = (
+            select(
+                DailyRegister.date.label("date"),
+                DailyRegister.campaign_id.label("campaign_id"),
+                func.sum(DailyRegister.total_regis).label("leads"),
+            )
+            .where(DailyRegister.date.between(from_date, to_date))
+            .group_by(DailyRegister.date, DailyRegister.campaign_id)
+        )
+        result = await self.session.execute(query)
+        rows = result.fetchall()
+        if not rows:
+            return pd.DataFrame(columns=["date", "campaign_id", "leads"])
+        df = pd.DataFrame(rows)
+        df["date"] = pd.to_datetime(df["date"]).dt.date
+        df["campaign_id"] = df["campaign_id"].astype(str)
+        df["leads"] = pd.to_numeric(df["leads"], errors="coerce").fillna(0.0)
+        return df
+
+    async def _attach_register_leads(self, df: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
+        if df.empty:
+            df["leads"] = 0.0
+            return df
+
+        regis_df = await self._read_daily_register_db(from_date=from_date, to_date=to_date)
+        if regis_df.empty:
+            df["leads"] = 0.0
+            return df
+
+        merged = df.merge(regis_df, on=["date", "campaign_id"], how="left")
+        merged["leads"] = pd.to_numeric(merged["leads"], errors="coerce").fillna(0.0)
+        merged["cost"] = pd.to_numeric(merged["cost"], errors="coerce").fillna(0.0)
+        group_keys = ["date", "campaign_id"]
+        merged["_row_count"] = merged.groupby(group_keys)["campaign_id"].transform("size")
+        merged["_cost_total"] = merged.groupby(group_keys)["cost"].transform("sum")
+        merged["leads"] = merged.apply(
+            lambda row: (
+                float(row["leads"]) * (float(row["cost"]) / float(row["_cost_total"]))
+                if float(row["_cost_total"]) > 0
+                else float(row["leads"]) / float(row["_row_count"])
+            ),
+            axis=1,
+        )
+        return merged.drop(columns=["_row_count", "_cost_total"])
 
     async def _read_depo_db(self) -> pd.DataFrame:
         query = (
