@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import HTTPException
@@ -32,6 +33,138 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "daily_register",
     "first_deposit",
 )
+
+PipelineExecutor = Callable[[GoogleSheetApi, Any, str, Any, Any, str], Awaitable[str]]
+
+
+async def _run_unique_campaign(
+    _gsheet: GoogleSheetApi,
+    session,
+    _types: str,
+    _start_date,
+    _end_date,
+    _run_id: str,
+) -> str:
+    return await rebuild_unique_campaign(session=session)
+
+
+async def _run_google_ads(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.campaign_ads(
+        types=types,
+        range_name="'Google Ads Campaign'!A:I",
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        classes=GoogleAds,
+        run_id=run_id,
+    )
+
+
+async def _run_facebook_ads(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.campaign_ads(
+        types=types,
+        range_name="'Meta Ads Campaign'!A:I",
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        classes=FacebookAds,
+        run_id=run_id,
+    )
+
+
+async def _run_tiktok_ads(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.campaign_ads(
+        types=types,
+        range_name="'TikTok Ads Campaign'!A:I",
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        classes=TikTokAds,
+        run_id=run_id,
+    )
+
+
+async def _run_ga4_daily_metrics(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.ga4_daily_metrics(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
+async def _run_daily_register(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.daily_register(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
+async def _run_first_deposit(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.first_deposit(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
+PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
+    "unique_campaign": _run_unique_campaign,
+    "google_ads": _run_google_ads,
+    "facebook_ads": _run_facebook_ads,
+    "tiktok_ads": _run_tiktok_ads,
+    "ga4_daily_metrics": _run_ga4_daily_metrics,
+    "daily_register": _run_daily_register,
+    "first_deposit": _run_first_deposit,
+}
 
 
 def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any, Any]:
@@ -101,64 +234,10 @@ async def execute_update_job(
         try:
             await _mark_running()
             gsheet = GoogleSheetApi()
-            if data == "unique_campaign":
-                message = await rebuild_unique_campaign(session=session)
-            elif data == "google_ads":
-                message = await gsheet.campaign_ads(
-                    types=types,
-                    range_name="'Google Ads Campaign'!A:I",
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    classes=GoogleAds,
-                    run_id=run_id,
-                )
-            elif data == "facebook_ads":
-                message = await gsheet.campaign_ads(
-                    types=types,
-                    range_name="'Meta Ads Campaign'!A:I",
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    classes=FacebookAds,
-                    run_id=run_id,
-                )
-            elif data == "tiktok_ads":
-                message = await gsheet.campaign_ads(
-                    types=types,
-                    range_name="'TikTok Ads Campaign'!A:I",
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    classes=TikTokAds,
-                    run_id=run_id,
-                )
-            elif data == "ga4_daily_metrics":
-                message = await gsheet.ga4_daily_metrics(
-                    types=types,
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    run_id=run_id,
-                )
-            elif data == "daily_register":
-                message = await gsheet.daily_register(
-                    types=types,
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    run_id=run_id,
-                )
-            elif data == "first_deposit":
-                message = await gsheet.first_deposit(
-                    types=types,
-                    start_date=start_date,
-                    end_date=end_date,
-                    session=session,
-                    run_id=run_id,
-                )
-            else:
+            executor = PIPELINE_EXECUTORS.get(data)
+            if executor is None:
                 raise HTTPException(status_code=404, detail="Please chose one data to update!")
+            message = await executor(gsheet, session, types, start_date, end_date, run_id)
 
             if not message:
                 raise HTTPException(status_code=404, detail="Something is error, data update is failed!")
