@@ -18,6 +18,8 @@ from app.etl.load import (
     build_daily_register_rows,
     build_first_deposit_rows,
     build_ga4_rows,
+    delete_first_deposit_rows_in_window,
+    delete_rows_in_date_window,
     upsert_ads_rows,
     upsert_daily_register_rows,
     upsert_first_deposit_rows,
@@ -281,6 +283,22 @@ class GoogleSheetApi:
             await session.commit()
             df = self._parse_ads_dataframe(raw_rows)
             if df.empty:
+                deleted_count = await delete_rows_in_date_window(
+                    session=session,
+                    model_cls=classes,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_campaign_ads_source_empty_window_replaced",
+                    run_id=run_id,
+                    source=classes.__tablename__,
+                    raw_count=len(raw_rows),
+                    staged_count=staged_count,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found from source."
 
             df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
@@ -297,12 +315,32 @@ class GoogleSheetApi:
                     dedupe_dropped_count=0,
                     duration_sec=round(perf_counter() - started_at, 3),
                 )
+                deleted_count = await delete_rows_in_date_window(
+                    session=session,
+                    model_cls=classes,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_campaign_ads_window_replaced_empty",
+                    run_id=run_id,
+                    source=classes.__tablename__,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found for selected date range."
 
             df, dedupe_dropped_count = dedupe_ads_dataframe(df)
             dedupe_applied = dedupe_dropped_count > 0
             validate_ads_dataframe(df)
             rows = self._build_ads_models(df=df, model_cls=classes, pull_date=datetime.now().date())
+            deleted_count = await delete_rows_in_date_window(
+                session=session,
+                model_cls=classes,
+                window_start=target_start,
+                window_end=target_end,
+            )
             await upsert_ads_rows(session=session, model_cls=classes, rows=rows)
             await session.commit()
             self._log_event(
@@ -314,6 +352,7 @@ class GoogleSheetApi:
                 dedupe_applied=dedupe_applied,
                 dedupe_dropped_count=dedupe_dropped_count,
                 staged_count=staged_count,
+                deleted_count=deleted_count,
                 loaded_count=len(rows),
                 duration_sec=round(perf_counter() - started_at, 3),
             )
@@ -402,6 +441,21 @@ class GoogleSheetApi:
             await session.commit()
             df = self._parse_ga4_dataframe(raw_rows)
             if df.empty:
+                deleted_count = await delete_rows_in_date_window(
+                    session=session,
+                    model_cls=Ga4DailyMetrics,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_ga4_source_empty_window_replaced",
+                    run_id=run_id,
+                    raw_count=len(raw_rows),
+                    staged_count=staged_count,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found from source."
 
             df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
@@ -413,10 +467,29 @@ class GoogleSheetApi:
                     staged_count=staged_count,
                     duration_sec=round(perf_counter() - started_at, 3),
                 )
+                deleted_count = await delete_rows_in_date_window(
+                    session=session,
+                    model_cls=Ga4DailyMetrics,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_ga4_window_replaced_empty",
+                    run_id=run_id,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found for selected date range."
 
             validate_ga4_dataframe(df)
             rows = self._build_ga4_models(df=df, pull_date=datetime.now().date())
+            deleted_count = await delete_rows_in_date_window(
+                session=session,
+                model_cls=Ga4DailyMetrics,
+                window_start=target_start,
+                window_end=target_end,
+            )
             await upsert_ga4_rows(session=session, rows=rows)
             await session.commit()
             self._log_event(
@@ -424,6 +497,7 @@ class GoogleSheetApi:
                 run_id=run_id,
                 raw_count=len(raw_rows),
                 staged_count=staged_count,
+                deleted_count=deleted_count,
                 loaded_count=len(rows),
                 duration_sec=round(perf_counter() - started_at, 3),
             )
@@ -496,6 +570,21 @@ class GoogleSheetApi:
             await session.commit()
             df = self._parse_daily_register_dataframe(raw_rows)
             if df.empty:
+                deleted_count = await delete_rows_in_date_window(
+                    session=session,
+                    model_cls=DailyRegister,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_daily_register_source_empty_window_replaced",
+                    run_id=run_id,
+                    raw_count=max(len(raw_rows) - 1, 0),
+                    staged_count=staged_count,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found from source."
 
             df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
@@ -508,10 +597,29 @@ class GoogleSheetApi:
                     staged_count=staged_count,
                     duration_sec=round(perf_counter() - started_at, 3),
                 )
+                deleted_count = await delete_rows_in_date_window(
+                    session=session,
+                    model_cls=DailyRegister,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_daily_register_window_replaced_empty",
+                    run_id=run_id,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found for selected date range."
 
             validate_daily_register_dataframe(df)
             rows = self._build_daily_register_models(df=df, pull_date=datetime.now().date())
+            deleted_count = await delete_rows_in_date_window(
+                session=session,
+                model_cls=DailyRegister,
+                window_start=target_start,
+                window_end=target_end,
+            )
             await upsert_daily_register_rows(session=session, rows=rows)
             await session.commit()
             self._log_event(
@@ -520,6 +628,7 @@ class GoogleSheetApi:
                 raw_count=max(len(raw_rows) - 1, 0),
                 staged_count=staged_count,
                 filtered_count=filtered_count,
+                deleted_count=deleted_count,
                 loaded_count=len(rows),
                 duration_sec=round(perf_counter() - started_at, 3),
             )
@@ -609,6 +718,20 @@ class GoogleSheetApi:
             await session.commit()
             df = self._parse_first_deposit_dataframe(raw_rows)
             if df.empty:
+                deleted_count = await delete_first_deposit_rows_in_window(
+                    session=session,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_first_deposit_source_empty_window_replaced",
+                    run_id=run_id,
+                    raw_count=len(raw_rows),
+                    staged_count=staged_count,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found from source."
 
             df = df[(df["tanggal_regis"] >= target_start) & (df["tanggal_regis"] <= target_end)]
@@ -621,10 +744,27 @@ class GoogleSheetApi:
                     staged_count=staged_count,
                     duration_sec=round(perf_counter() - started_at, 3),
                 )
+                deleted_count = await delete_first_deposit_rows_in_window(
+                    session=session,
+                    window_start=target_start,
+                    window_end=target_end,
+                )
+                await session.commit()
+                self._log_event(
+                    "etl_first_deposit_window_replaced_empty",
+                    run_id=run_id,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
                 return "No data found for selected date range."
 
             validate_first_deposit_dataframe(df)
             rows = self._build_first_deposit_models(df=df, pull_date=datetime.now().date())
+            deleted_count = await delete_first_deposit_rows_in_window(
+                session=session,
+                window_start=target_start,
+                window_end=target_end,
+            )
             await upsert_first_deposit_rows(session=session, rows=rows)
             await session.commit()
             self._log_event(
@@ -633,6 +773,7 @@ class GoogleSheetApi:
                 raw_count=len(raw_rows),
                 staged_count=staged_count,
                 filtered_count=filtered_count,
+                deleted_count=deleted_count,
                 loaded_count=len(rows),
                 duration_sec=round(perf_counter() - started_at, 3),
             )

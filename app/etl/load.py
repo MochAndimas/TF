@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 import pandas as pd
-from sqlalchemy import case, literal, select, union_all
+from sqlalchemy import case, delete, literal, select, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,6 +92,7 @@ async def rebuild_unique_campaign(session: AsyncSession) -> str:
         case(
             (campaign_union.c.campaign_name.like("%- UA -%"), "user_acquisition"),
             (campaign_union.c.campaign_name.like("%- BA -%"), "brand_awareness"),
+            (campaign_union.c.campaign_name.like("%- RM -%"), "remarketing"),
             else_="unknown",
         ).label("ad_type"),
         literal(datetime.now()).label("created_at"),
@@ -194,6 +195,8 @@ def _infer_ad_type_from_campaign_name(campaign_name: str) -> str:
         return "user_acquisition"
     if "- BA -" in normalized_name:
         return "brand_awareness"
+    if "- RM -" in normalized_name:
+        return "remarketing"
     return "unknown"
 
 
@@ -272,6 +275,20 @@ async def upsert_ads_rows(session: AsyncSession, model_cls, rows: list[dict]) ->
             },
         )
         await session.execute(upsert_stmt)
+
+
+async def delete_rows_in_date_window(
+    session: AsyncSession,
+    model_cls,
+    *,
+    window_start: date,
+    window_end: date,
+) -> int:
+    """Delete rows from a date-grained fact table inside a selected window."""
+    result = await session.execute(
+        delete(model_cls).where(model_cls.date.between(window_start, window_end))
+    )
+    return int(result.rowcount or 0)
 
 
 async def upsert_ga4_rows(session: AsyncSession, rows: list[dict]) -> None:
@@ -453,3 +470,16 @@ async def upsert_first_deposit_rows(session: AsyncSession, rows: list[dict]) -> 
             },
         )
         await session.execute(upsert_stmt)
+
+
+async def delete_first_deposit_rows_in_window(
+    session: AsyncSession,
+    *,
+    window_start: date,
+    window_end: date,
+) -> int:
+    """Delete first-deposit rows whose registration date falls in a window."""
+    result = await session.execute(
+        delete(DataDepo).where(DataDepo.tanggal_regis.between(window_start, window_end))
+    )
+    return int(result.rowcount or 0)
