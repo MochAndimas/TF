@@ -106,6 +106,7 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
     "overview": {"kicker": "Overall", "title": "Overview", "description": "High-level campaign performance across active users, ad cost, leads, and brand awareness."},
     "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, lead efficiency, source mix, and daily performance charts."},
     "brand_awareness": {"kicker": "Campaign", "title": "Brand Awareness", "description": "Track reach, impressions, CTR, CPM, CPC, and spend performance by source platform."},
+    "internal_register": {"kicker": "Campaign", "title": "Internal Register", "description": "Analyze daily register trends, campaign contribution, pacing, and source mix from internal register data."},
     "deposit_report": {"kicker": "Revenue", "title": "Deposit", "description": "View daily deposit reports, new vs existing user volume, and average order value."},
     "update_data": {"kicker": "Settings", "title": "Update Data", "description": "Trigger ETL synchronization for campaign, GA4, or deposit data from external sources."},
     "register": {"kicker": "Settings", "title": "Create Account", "description": "Manage new user onboarding and assign dashboard access roles."},
@@ -138,7 +139,7 @@ def render_hero(fullname: str) -> None:
 def render_quick_access() -> None:
     """Render quick access cards for allowed pages."""
     st.markdown('<div class="tf-home-section-title">Quick Access</div>', unsafe_allow_html=True)
-    available_pages = [page_key for page_key in ("overview", "user_acquisition", "brand_awareness", "deposit_report", "update_data", "register") if page_key in st.session_state.get("allowed_pages", [])]
+    available_pages = [page_key for page_key in ("overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "update_data", "register") if page_key in st.session_state.get("allowed_pages", [])]
     if not available_pages:
         return
     shortcut_columns = st.columns(min(len(available_pages), 3), gap="small")
