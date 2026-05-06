@@ -9,6 +9,7 @@ from streamlit_app.page import (
     deposit,
     google_ads_token,
     home,
+    internal_register,
     login,
     meta_ads_token,
     overview,
@@ -24,6 +25,7 @@ PAGE_LABELS: dict[str, str] = {
     "overview": "Overview",
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
+    "internal_register": "Internal Register",
     "deposit_report": "Deposit",
     "register": "Create Account",
     "update_data": "Update Data",
@@ -36,6 +38,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "overview": "tertiary",
     "user_acquisition": "tertiary",
     "brand_awareness": "tertiary",
+    "internal_register": "tertiary",
     "deposit_report": "tertiary",
     "register": "tertiary",
     "update_data": "tertiary",
@@ -47,14 +50,14 @@ NAV_GROUPS: dict[str, list[str]] = {
     "Portal": ["home"],
     "Overall": ["overview"],
     "Revenue": ["deposit_report"],
-    "Campaign": ["user_acquisition", "brand_awareness"],
+    "Campaign": ["user_acquisition", "brand_awareness", "internal_register"],
     "Settings": ["register", "update_data", "google_ads_token", "meta_ads_token"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "register", "update_data", "google_ads_token", "meta_ads_token"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report"],
-    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness"],
+    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "register", "update_data", "google_ads_token", "meta_ads_token"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report"],
+    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register"],
 }
 
 PAGE_HANDLERS: dict[str, PageHandler] = {
@@ -62,6 +65,7 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "overview": overview.show_overview_page,
     "user_acquisition": user_acquisition.show_user_acquisition_page,
     "brand_awareness": brand_awareness.show_brand_awareness_page,
+    "internal_register": internal_register.show_internal_register_page,
     "deposit_report": deposit.show_deposit_page,
     "register": register.create_account,
     "update_data": update_data.show_update_page,
