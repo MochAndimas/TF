@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
 from time import perf_counter
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -40,6 +43,28 @@ from app.etl.transform import (
     parse_ga4_dataframe,
     resolve_date_window,
 )
+
+
+@dataclass(frozen=True)
+class DateWindowPipelineSpec:
+    """Configuration for one extract-stage-transform-load date-window pipeline."""
+
+    label: str
+    source: str
+    empty_metric_name: str
+    date_column: str
+    auto_skip_model: type
+    extract: Callable[[Any, Any], Awaitable[list]]
+    stage: Callable[[AsyncSession, list, str | None], Awaitable[int]]
+    parse: Callable[[list], Any]
+    validate: Callable[[Any], None]
+    build_rows: Callable[[Any, Any], list[dict]]
+    delete_window: Callable[[AsyncSession, Any, Any], Awaitable[int]]
+    load_rows: Callable[[AsyncSession, list[dict]], Awaitable[None]]
+    user_empty_message: str = "No data found from source."
+    user_window_empty_message: str = "No data found for selected date range."
+    user_success_message: str = "Data is being updated!"
+    user_already_updated_message: str = "Data is already updated!"
 
 
 class GoogleSheetApi:
@@ -209,6 +234,209 @@ class GoogleSheetApi:
         """Convert validated daily register dataframe into load payload rows."""
         return build_daily_register_rows(df=df, pull_date=pull_date)
 
+    async def _run_date_window_pipeline(
+        self,
+        *,
+        spec: DateWindowPipelineSpec,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Execute the shared date-window ETL orchestration.
+
+        The raw staging commit remains intentionally separate from the final
+        table replacement. Final delete/load work is handled by one explicit
+        transaction helper so a failed load does not persist a half-replaced
+        reporting window.
+        """
+        started_at = perf_counter()
+        target_start, target_end = self._resolve_date_window(types, start_date, end_date)
+        self._log_event(
+            f"etl_{spec.label}_started",
+            run_id=run_id,
+            source=spec.source,
+            types=types,
+            target_start=target_start,
+            target_end=target_end,
+        )
+
+        try:
+            if types == "auto":
+                existing_rows = await session.execute(
+                    select(spec.auto_skip_model.id).where(
+                        getattr(spec.auto_skip_model, spec.date_column).between(
+                            target_start,
+                            target_end,
+                        )
+                    )
+                )
+                if existing_rows.first():
+                    self._log_event(
+                        f"etl_{spec.label}_skipped",
+                        run_id=run_id,
+                        source=spec.source,
+                        reason="already_updated",
+                        duration_sec=round(perf_counter() - started_at, 3),
+                    )
+                    return spec.user_already_updated_message
+
+            raw_rows = await spec.extract(target_start, target_end)
+            staged_count = await spec.stage(session, raw_rows, run_id)
+            await session.commit()
+
+            df = spec.parse(raw_rows)
+            raw_count = self._raw_count(raw_rows)
+            if df.empty:
+                deleted_count = await self._replace_window_with_rows(
+                    session=session,
+                    delete_window=spec.delete_window,
+                    load_rows=spec.load_rows,
+                    rows=[],
+                    target_start=target_start,
+                    target_end=target_end,
+                )
+                self._log_event(
+                    f"etl_{spec.label}_source_empty_window_replaced",
+                    run_id=run_id,
+                    source=spec.source,
+                    raw_count=raw_count,
+                    staged_count=staged_count,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
+                return spec.user_empty_message
+
+            df = df[(df[spec.date_column] >= target_start) & (df[spec.date_column] <= target_end)]
+            filtered_count = len(df)
+            if df.empty:
+                empty_window_fields = {
+                    "run_id": run_id,
+                    "source": spec.source,
+                    "raw_count": raw_count,
+                    "staged_count": staged_count,
+                    "duration_sec": round(perf_counter() - started_at, 3),
+                }
+                if spec.label == "campaign_ads":
+                    empty_window_fields.update(
+                        {
+                            "dedupe_applied": False,
+                            "dedupe_dropped_count": 0,
+                        }
+                    )
+                self._log_event(
+                    f"etl_{spec.label}_no_rows_in_window",
+                    **empty_window_fields,
+                )
+                deleted_count = await self._replace_window_with_rows(
+                    session=session,
+                    delete_window=spec.delete_window,
+                    load_rows=spec.load_rows,
+                    rows=[],
+                    target_start=target_start,
+                    target_end=target_end,
+                )
+                self._log_event(
+                    f"etl_{spec.label}_window_replaced_empty",
+                    run_id=run_id,
+                    source=spec.source,
+                    deleted_count=deleted_count,
+                    duration_sec=round(perf_counter() - started_at, 3),
+                )
+                return spec.user_window_empty_message
+
+            dedupe_applied = False
+            dedupe_dropped_count = 0
+            if spec.label == "campaign_ads":
+                df, dedupe_dropped_count = dedupe_ads_dataframe(df)
+                dedupe_applied = dedupe_dropped_count > 0
+
+            spec.validate(df)
+            rows = spec.build_rows(df, datetime.now().date())
+            deleted_count = await self._replace_window_with_rows(
+                session=session,
+                delete_window=spec.delete_window,
+                load_rows=spec.load_rows,
+                rows=rows,
+                target_start=target_start,
+                target_end=target_end,
+            )
+            completed_fields = {
+                "run_id": run_id,
+                "source": spec.source,
+                "raw_count": raw_count,
+                "filtered_count": filtered_count,
+                "staged_count": staged_count,
+                "deleted_count": deleted_count,
+                "loaded_count": len(rows),
+                "duration_sec": round(perf_counter() - started_at, 3),
+            }
+            if spec.label == "campaign_ads":
+                completed_fields.update(
+                    {
+                        "dedupe_applied": dedupe_applied,
+                        "dedupe_dropped_count": dedupe_dropped_count,
+                    }
+                )
+            self._log_event(f"etl_{spec.label}_completed", **completed_fields)
+            return spec.user_success_message
+        except HTTPException:
+            self._log_event(
+                f"etl_{spec.label}_failed_http",
+                run_id=run_id,
+                source=spec.source,
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise
+        except ValueError as error:
+            self._log_event(
+                f"etl_{spec.label}_failed_dq",
+                run_id=run_id,
+                source=spec.source,
+                error=str(error),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise HTTPException(422, str(error)) from error
+        except Exception as error:
+            self._log_event(
+                f"etl_{spec.label}_failed",
+                run_id=run_id,
+                source=spec.source,
+                error=str(error),
+                duration_sec=round(perf_counter() - started_at, 3),
+            )
+            raise HTTPException(500, f"{spec.empty_metric_name} error: {str(error)}") from error
+
+    @staticmethod
+    def _raw_count(raw_rows: list) -> int:
+        """Count source rows the same way existing ETL completion logs did."""
+        if not raw_rows:
+            return 0
+        if isinstance(raw_rows[0], dict):
+            return len(raw_rows)
+        return max(len(raw_rows) - 1, 0)
+
+    @staticmethod
+    async def _replace_window_with_rows(
+        *,
+        session: AsyncSession,
+        delete_window: Callable[[AsyncSession, Any, Any], Awaitable[int]],
+        load_rows: Callable[[AsyncSession, list[dict]], Awaitable[None]],
+        rows: list[dict],
+        target_start,
+        target_end,
+    ) -> int:
+        """Replace one reporting window in a single final-load transaction."""
+        try:
+            deleted_count = await delete_window(session, target_start, target_end)
+            await load_rows(session, rows)
+            await session.commit()
+            return deleted_count
+        except Exception:
+            await session.rollback()
+            raise
+
     async def campaign_ads(
         self,
         range_name: str,
@@ -236,153 +464,65 @@ class GoogleSheetApi:
         Raises:
             fastapi.HTTPException: Raised when extraction, validation, or load fails.
         """
-        started_at = perf_counter()
-        try:
-            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
-            self._log_event(
-                "etl_campaign_ads_started",
-                run_id=run_id,
-                source=classes.__tablename__,
-                types=types,
-                target_start=target_start,
-                target_end=target_end,
-            )
+        source_name = classes.__tablename__
+        api_range_name_map = {
+            "google_ads": "google_ads_api",
+            "facebook_ads": "meta_ads_api",
+        }
 
-            if types == "auto":
-                existing_rows = await session.execute(
-                    select(classes.id).where(classes.date.between(target_start, target_end))
-                )
-                if existing_rows.first():
-                    self._log_event(
-                        "etl_campaign_ads_skipped",
-                        run_id=run_id,
-                        source=classes.__tablename__,
-                        reason="already_updated",
-                        duration_sec=round(perf_counter() - started_at, 3),
-                    )
-                    return "Data is already updated!"
-
-            source_name = classes.__tablename__
-            api_range_name_map = {
-                "google_ads": "google_ads_api",
-                "facebook_ads": "meta_ads_api",
-            }
+        async def extract(target_start, target_end):
             if source_name == "google_ads":
-                raw_rows = await self._fetch_google_ads_metrics(start_date=target_start, end_date=target_end)
-            elif source_name == "facebook_ads":
-                raw_rows = await self._fetch_facebook_ads_metrics(start_date=target_start, end_date=target_end)
-            else:
-                raw_rows = await self._fetch_sheet_values(range_name)
-            staged_count = await stage_ads_raw(
-                session=session,
+                return await self._fetch_google_ads_metrics(start_date=target_start, end_date=target_end)
+            if source_name == "facebook_ads":
+                return await self._fetch_facebook_ads_metrics(start_date=target_start, end_date=target_end)
+            return await self._fetch_sheet_values(range_name)
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_ads_raw(
+                session=session_,
                 raw_rows=raw_rows,
-                run_id=run_id,
+                run_id=run_id_,
                 source=source_name,
                 range_name=api_range_name_map.get(source_name, range_name),
             )
-            await session.commit()
-            df = self._parse_ads_dataframe(raw_rows)
-            if df.empty:
-                deleted_count = await delete_rows_in_date_window(
-                    session=session,
-                    model_cls=classes,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_campaign_ads_source_empty_window_replaced",
-                    run_id=run_id,
-                    source=classes.__tablename__,
-                    raw_count=len(raw_rows),
-                    staged_count=staged_count,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found from source."
 
-            df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
-            filtered_count = len(df)
-
-            if df.empty:
-                self._log_event(
-                    "etl_campaign_ads_no_rows_in_window",
-                    run_id=run_id,
-                    source=classes.__tablename__,
-                    raw_count=len(raw_rows) if isinstance(raw_rows[0], dict) else max(len(raw_rows) - 1, 0),
-                    staged_count=staged_count,
-                    dedupe_applied=False,
-                    dedupe_dropped_count=0,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                deleted_count = await delete_rows_in_date_window(
-                    session=session,
-                    model_cls=classes,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_campaign_ads_window_replaced_empty",
-                    run_id=run_id,
-                    source=classes.__tablename__,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found for selected date range."
-
-            df, dedupe_dropped_count = dedupe_ads_dataframe(df)
-            dedupe_applied = dedupe_dropped_count > 0
-            validate_ads_dataframe(df)
-            rows = self._build_ads_models(df=df, model_cls=classes, pull_date=datetime.now().date())
-            deleted_count = await delete_rows_in_date_window(
-                session=session,
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
                 model_cls=classes,
                 window_start=target_start,
                 window_end=target_end,
             )
-            await upsert_ads_rows(session=session, model_cls=classes, rows=rows)
-            await session.commit()
-            self._log_event(
-                "etl_campaign_ads_completed",
-                run_id=run_id,
-                source=classes.__tablename__,
-                raw_count=len(raw_rows) if isinstance(raw_rows[0], dict) else max(len(raw_rows) - 1, 0),
-                filtered_count=filtered_count,
-                dedupe_applied=dedupe_applied,
-                dedupe_dropped_count=dedupe_dropped_count,
-                staged_count=staged_count,
-                deleted_count=deleted_count,
-                loaded_count=len(rows),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            return "Data is being updated!"
-        except HTTPException:
-            self._log_event(
-                "etl_campaign_ads_failed_http",
-                run_id=run_id,
-                source=classes.__tablename__,
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise
-        except ValueError as error:
-            self._log_event(
-                "etl_campaign_ads_failed_dq",
-                run_id=run_id,
-                source=classes.__tablename__,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(422, str(error))
-        except Exception as error:
-            self._log_event(
-                "etl_campaign_ads_failed",
-                run_id=run_id,
-                source=classes.__tablename__,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(500, f"Ads source error: {str(error)}")
+
+        async def load_rows(session_: AsyncSession, rows: list[dict]) -> None:
+            await upsert_ads_rows(session=session_, model_cls=classes, rows=rows)
+
+        spec = DateWindowPipelineSpec(
+            label="campaign_ads",
+            source=source_name,
+            empty_metric_name="Ads source",
+            date_column="date",
+            auto_skip_model=classes,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_ads_dataframe,
+            validate=validate_ads_dataframe,
+            build_rows=lambda df, pull_date: self._build_ads_models(
+                df=df,
+                model_cls=classes,
+                pull_date=pull_date,
+            ),
+            delete_window=delete_window,
+            load_rows=load_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
 
     async def ga4_daily_metrics(
         self,
@@ -407,124 +547,47 @@ class GoogleSheetApi:
         Raises:
             fastapi.HTTPException: Raised when extraction, validation, or load fails.
         """
-        started_at = perf_counter()
-        try:
-            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
-            self._log_event(
-                "etl_ga4_started",
-                run_id=run_id,
-                types=types,
-                target_start=target_start,
-                target_end=target_end,
-            )
+        async def extract(target_start, target_end):
+            return await self._fetch_ga4_daily_metrics(start_date=target_start, end_date=target_end)
 
-            if types == "auto":
-                existing_rows = await session.execute(
-                    select(Ga4DailyMetrics.id).where(Ga4DailyMetrics.date.between(target_start, target_end))
-                )
-                if existing_rows.first():
-                    self._log_event(
-                        "etl_ga4_skipped",
-                        run_id=run_id,
-                        reason="already_updated",
-                        duration_sec=round(perf_counter() - started_at, 3),
-                    )
-                    return "Data is already updated!"
-
-            raw_rows = await self._fetch_ga4_daily_metrics(start_date=target_start, end_date=target_end)
-            staged_count = await stage_ga4_raw(
-                session=session,
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_ga4_raw(
+                session=session_,
                 raw_rows=raw_rows,
-                run_id=run_id,
+                run_id=run_id_,
                 source="ga4_daily_metrics",
             )
-            await session.commit()
-            df = self._parse_ga4_dataframe(raw_rows)
-            if df.empty:
-                deleted_count = await delete_rows_in_date_window(
-                    session=session,
-                    model_cls=Ga4DailyMetrics,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_ga4_source_empty_window_replaced",
-                    run_id=run_id,
-                    raw_count=len(raw_rows),
-                    staged_count=staged_count,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found from source."
 
-            df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
-            if df.empty:
-                self._log_event(
-                    "etl_ga4_no_rows_in_window",
-                    run_id=run_id,
-                    raw_count=len(raw_rows),
-                    staged_count=staged_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                deleted_count = await delete_rows_in_date_window(
-                    session=session,
-                    model_cls=Ga4DailyMetrics,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_ga4_window_replaced_empty",
-                    run_id=run_id,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found for selected date range."
-
-            validate_ga4_dataframe(df)
-            rows = self._build_ga4_models(df=df, pull_date=datetime.now().date())
-            deleted_count = await delete_rows_in_date_window(
-                session=session,
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
                 model_cls=Ga4DailyMetrics,
                 window_start=target_start,
                 window_end=target_end,
             )
-            await upsert_ga4_rows(session=session, rows=rows)
-            await session.commit()
-            self._log_event(
-                "etl_ga4_completed",
-                run_id=run_id,
-                raw_count=len(raw_rows),
-                staged_count=staged_count,
-                deleted_count=deleted_count,
-                loaded_count=len(rows),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            return "Data is being updated!"
-        except HTTPException:
-            self._log_event(
-                "etl_ga4_failed_http",
-                run_id=run_id,
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise
-        except ValueError as error:
-            self._log_event(
-                "etl_ga4_failed_dq",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(422, str(error))
-        except Exception as error:
-            self._log_event(
-                "etl_ga4_failed",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(500, f"GA4 error: {str(error)}")
+
+        spec = DateWindowPipelineSpec(
+            label="ga4",
+            source="ga4_daily_metrics",
+            empty_metric_name="GA4",
+            date_column="date",
+            auto_skip_model=Ga4DailyMetrics,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_ga4_dataframe,
+            validate=validate_ga4_dataframe,
+            build_rows=self._build_ga4_models,
+            delete_window=delete_window,
+            load_rows=upsert_ga4_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
 
     async def daily_register(
         self,
@@ -535,127 +598,48 @@ class GoogleSheetApi:
         run_id: str | None = None,
     ) -> str:
         """Run daily registration ETL flow into ``daily_register``."""
-        started_at = perf_counter()
-        try:
-            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
-            self._log_event(
-                "etl_daily_register_started",
-                run_id=run_id,
-                types=types,
-                target_start=target_start,
-                target_end=target_end,
-            )
+        async def extract(_target_start, _target_end):
+            return await self._fetch_daily_register_rows()
 
-            if types == "auto":
-                existing_rows = await session.execute(
-                    select(DailyRegister.id).where(DailyRegister.date.between(target_start, target_end))
-                )
-                if existing_rows.first():
-                    self._log_event(
-                        "etl_daily_register_skipped",
-                        run_id=run_id,
-                        reason="already_updated",
-                        duration_sec=round(perf_counter() - started_at, 3),
-                    )
-                    return "Data is already updated!"
-
-            raw_rows = await self._fetch_daily_register_rows()
-            staged_count = await stage_ads_raw(
-                session=session,
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_ads_raw(
+                session=session_,
                 raw_rows=raw_rows,
-                run_id=run_id,
+                run_id=run_id_,
                 source="daily_register",
                 range_name=self.extractor.daily_regis_sheet_range,
             )
-            await session.commit()
-            df = self._parse_daily_register_dataframe(raw_rows)
-            if df.empty:
-                deleted_count = await delete_rows_in_date_window(
-                    session=session,
-                    model_cls=DailyRegister,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_daily_register_source_empty_window_replaced",
-                    run_id=run_id,
-                    raw_count=max(len(raw_rows) - 1, 0),
-                    staged_count=staged_count,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found from source."
 
-            df = df[(df["date"] >= target_start) & (df["date"] <= target_end)]
-            filtered_count = len(df)
-            if df.empty:
-                self._log_event(
-                    "etl_daily_register_no_rows_in_window",
-                    run_id=run_id,
-                    raw_count=max(len(raw_rows) - 1, 0),
-                    staged_count=staged_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                deleted_count = await delete_rows_in_date_window(
-                    session=session,
-                    model_cls=DailyRegister,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_daily_register_window_replaced_empty",
-                    run_id=run_id,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found for selected date range."
-
-            validate_daily_register_dataframe(df)
-            rows = self._build_daily_register_models(df=df, pull_date=datetime.now().date())
-            deleted_count = await delete_rows_in_date_window(
-                session=session,
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
                 model_cls=DailyRegister,
                 window_start=target_start,
                 window_end=target_end,
             )
-            await upsert_daily_register_rows(session=session, rows=rows)
-            await session.commit()
-            self._log_event(
-                "etl_daily_register_completed",
-                run_id=run_id,
-                raw_count=max(len(raw_rows) - 1, 0),
-                staged_count=staged_count,
-                filtered_count=filtered_count,
-                deleted_count=deleted_count,
-                loaded_count=len(rows),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            return "Data is being updated!"
-        except HTTPException:
-            self._log_event(
-                "etl_daily_register_failed_http",
-                run_id=run_id,
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise
-        except ValueError as error:
-            self._log_event(
-                "etl_daily_register_failed_dq",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(422, str(error))
-        except Exception as error:
-            self._log_event(
-                "etl_daily_register_failed",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(500, f"Daily register error: {str(error)}")
+
+        spec = DateWindowPipelineSpec(
+            label="daily_register",
+            source="daily_register",
+            empty_metric_name="Daily register",
+            date_column="date",
+            auto_skip_model=DailyRegister,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_daily_register_dataframe,
+            validate=validate_daily_register_dataframe,
+            build_rows=self._build_daily_register_models,
+            delete_window=delete_window,
+            load_rows=upsert_daily_register_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
 
     async def first_deposit(
         self,
@@ -684,120 +668,43 @@ class GoogleSheetApi:
         Raises:
             fastapi.HTTPException: Raised when extraction, DQ, or load fails.
         """
-        started_at = perf_counter()
-        try:
-            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
-            self._log_event(
-                "etl_first_deposit_started",
-                run_id=run_id,
-                types=types,
-                target_start=target_start,
-                target_end=target_end,
-            )
+        async def extract(_target_start, _target_end):
+            return await self._fetch_first_deposit_records()
 
-            if types == "auto":
-                existing_rows = await session.execute(
-                    select(DataDepo.id).where(DataDepo.tanggal_regis.between(target_start, target_end))
-                )
-                if existing_rows.first():
-                    self._log_event(
-                        "etl_first_deposit_skipped",
-                        run_id=run_id,
-                        reason="already_updated",
-                        duration_sec=round(perf_counter() - started_at, 3),
-                    )
-                    return "Data is already updated!"
-
-            raw_rows = await self._fetch_first_deposit_records()
-            staged_count = await stage_first_deposit_raw(
-                session=session,
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_first_deposit_raw(
+                session=session_,
                 raw_rows=raw_rows,
-                run_id=run_id,
+                run_id=run_id_,
                 source="first_deposit",
             )
-            await session.commit()
-            df = self._parse_first_deposit_dataframe(raw_rows)
-            if df.empty:
-                deleted_count = await delete_first_deposit_rows_in_window(
-                    session=session,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_first_deposit_source_empty_window_replaced",
-                    run_id=run_id,
-                    raw_count=len(raw_rows),
-                    staged_count=staged_count,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found from source."
 
-            df = df[(df["tanggal_regis"] >= target_start) & (df["tanggal_regis"] <= target_end)]
-            filtered_count = len(df)
-            if df.empty:
-                self._log_event(
-                    "etl_first_deposit_no_rows_in_window",
-                    run_id=run_id,
-                    raw_count=len(raw_rows),
-                    staged_count=staged_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                deleted_count = await delete_first_deposit_rows_in_window(
-                    session=session,
-                    window_start=target_start,
-                    window_end=target_end,
-                )
-                await session.commit()
-                self._log_event(
-                    "etl_first_deposit_window_replaced_empty",
-                    run_id=run_id,
-                    deleted_count=deleted_count,
-                    duration_sec=round(perf_counter() - started_at, 3),
-                )
-                return "No data found for selected date range."
-
-            validate_first_deposit_dataframe(df)
-            rows = self._build_first_deposit_models(df=df, pull_date=datetime.now().date())
-            deleted_count = await delete_first_deposit_rows_in_window(
-                session=session,
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_first_deposit_rows_in_window(
+                session=session_,
                 window_start=target_start,
                 window_end=target_end,
             )
-            await upsert_first_deposit_rows(session=session, rows=rows)
-            await session.commit()
-            self._log_event(
-                "etl_first_deposit_completed",
-                run_id=run_id,
-                raw_count=len(raw_rows),
-                staged_count=staged_count,
-                filtered_count=filtered_count,
-                deleted_count=deleted_count,
-                loaded_count=len(rows),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            return "Data is being updated!"
-        except HTTPException:
-            self._log_event(
-                "etl_first_deposit_failed_http",
-                run_id=run_id,
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise
-        except ValueError as error:
-            self._log_event(
-                "etl_first_deposit_failed_dq",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(422, str(error))
-        except Exception as error:
-            self._log_event(
-                "etl_first_deposit_failed",
-                run_id=run_id,
-                error=str(error),
-                duration_sec=round(perf_counter() - started_at, 3),
-            )
-            raise HTTPException(500, f"First deposit error: {str(error)}")
+
+        spec = DateWindowPipelineSpec(
+            label="first_deposit",
+            source="first_deposit",
+            empty_metric_name="First deposit",
+            date_column="tanggal_regis",
+            auto_skip_model=DataDepo,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_first_deposit_dataframe,
+            validate=validate_first_deposit_dataframe,
+            build_rows=self._build_first_deposit_models,
+            delete_window=delete_window,
+            load_rows=upsert_first_deposit_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
