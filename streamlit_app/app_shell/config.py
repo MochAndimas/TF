@@ -24,7 +24,7 @@ PAGE_LABELS: dict[str, str] = {
     "overview": "Overview",
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
-    "deposit_report": "First Deposit",
+    "deposit_report": "Deposit",
     "register": "Create Account",
     "update_data": "Update Data",
     "google_ads_token": "Google Ads Token",

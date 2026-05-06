@@ -19,7 +19,7 @@ from streamlit_app.page.deposit_components.formatting import (
 
 def render_status_cards(title: str, totals: dict[str, float], growth: dict[str, float], currency_unit: str) -> None:
     st.markdown(f'<div class="deposit-group-title">{title}</div>', unsafe_allow_html=True)
-    card_specs = [(f"Depo Amount ({currency_label(currency_unit)})", "depo_amount", format_amount), ("Total Deposit (Qty)", "qty", format_qty), (f"AOV ({currency_label(currency_unit)})", "aov", format_aov)]
+    card_specs = [(f"Depo Amount ({currency_label(currency_unit)})", "depo_amount", format_amount), ("Deposit (Qty)", "qty", format_qty), (f"AOV ({currency_label(currency_unit)})", "aov", format_aov)]
     for column, (label, key, formatter) in zip(st.columns(3, gap="small"), card_specs):
         with column:
             with st.container(border=True):

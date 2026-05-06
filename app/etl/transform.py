@@ -285,6 +285,11 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         parsed_dates = parsed_dates.where(parsed_dates >= pd.Timestamp("1900-01-01"))
         return parsed_dates.dt.date
 
+    def _clean_decimal(series: pd.Series) -> pd.Series:
+        normalized = series.fillna("").astype(str).str.strip()
+        normalized = normalized.str.replace(",", ".", regex=False)
+        return pd.to_numeric(normalized, errors="coerce")
+
     parsed = pd.DataFrame(
         {
             "user_id": pd.to_numeric(df["id"], errors="coerce"),
@@ -299,7 +304,7 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
             "assign_date": _clean_date(_optional_series("Assign Date")),
             "analyst": pd.to_numeric(_optional_series("Analyst"), errors="coerce"),
             "first_depo_date": _clean_date(_optional_series("First Depo Date")),
-            "first_depo": pd.to_numeric(df["First Depo $"], errors="coerce"),
+            "first_depo": _clean_decimal(df["First Depo $"]),
             "time_to_closing": _clean_string(_optional_series("Time To Closing")),
             "nmi": pd.to_numeric(_optional_series("NMI"), errors="coerce"),
             "lot": pd.to_numeric(_optional_series("Lot"), errors="coerce"),

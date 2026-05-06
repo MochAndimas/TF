@@ -45,7 +45,9 @@ def _campaign_format_compact_number(value: float | int, suffix: str = "") -> str
 
     integer_digits = len(str(int(abs(scaled)))) if scaled else 1
     decimal_places = max(0, 3 - integer_digits)
-    compact_value = f"{scaled:.{decimal_places}f}".rstrip("0").rstrip(".")
+    compact_value = f"{scaled:.{decimal_places}f}"
+    if decimal_places > 0:
+        compact_value = compact_value.rstrip("0").rstrip(".")
     return f"{compact_value}{unit}{suffix}"
 
 
@@ -256,7 +258,7 @@ def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, obj
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
     primary_cards = [("Cost", "cost"), ("Impressions", "impressions"), ("Clicks", "clicks"), ("Leads", "leads"), ("Cost/Leads", "cost_leads")]
-    secondary_cards = [("Total Deposit", "first_deposit"), ("Cost to Total Deposit", "cost_to_first_deposit")]
+    secondary_cards = [("Deposit", "first_deposit"), ("Cost to Deposit", "cost_to_first_deposit")]
 
     for column, (label, key) in zip(st_module.columns(5, gap="small"), primary_cards):
         with column:

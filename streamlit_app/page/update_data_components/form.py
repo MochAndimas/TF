@@ -15,7 +15,7 @@ DATA_SOURCE_OPTIONS = {
     "TikTok Ads (GSheet)": "tiktok_ads",
     "GA4 Daily Users (App/Web)": "ga4_daily_metrics",
     "Daily Register (GSheet)": "daily_register",
-    "First Deposit (GSheet)": "first_deposit",
+    "Deposit (GSheet)": "first_deposit",
 }
 
 
