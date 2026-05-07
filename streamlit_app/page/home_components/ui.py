@@ -107,8 +107,8 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
     "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, lead efficiency, source mix, and daily performance charts."},
     "brand_awareness": {"kicker": "Campaign", "title": "Brand Awareness", "description": "Track reach, impressions, CTR, CPM, CPC, and spend performance by source platform."},
     "internal_register": {"kicker": "Campaign", "title": "Internal Register", "description": "Analyze daily register trends, campaign contribution, pacing, and source mix from internal register data."},
-    "deposit_report": {"kicker": "Revenue", "title": "Deposit", "description": "View daily deposit reports, new vs existing user volume, and average order value."},
-    "update_data": {"kicker": "Settings", "title": "Update Data", "description": "Trigger ETL synchronization for campaign, GA4, or deposit data from external sources."},
+    "deposit_report": {"kicker": "Revenue", "title": "First Deposit", "description": "View daily first deposit reports, new vs existing user volume, and average order value."},
+    "update_data": {"kicker": "Settings", "title": "Update Data", "description": "Trigger ETL synchronization for campaign, GA4, or first deposit data from external sources."},
     "register": {"kicker": "Settings", "title": "Create Account", "description": "Manage new user onboarding and assign dashboard access roles."},
 }
 
@@ -128,7 +128,7 @@ def render_hero(fullname: str) -> None:
             <h1 class="tf-home-title">Welcome back, {fullname}</h1>
             <div class="tf-home-subtitle">
                 This dashboard includes active users, ad cost, lead acquisition,
-                brand awareness, and deposit.
+                brand awareness, and first deposit.
             </div>
         </div>
         """,

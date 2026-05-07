@@ -319,7 +319,11 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     parsed["nmi"] = pd.to_numeric(parsed["nmi"], errors="coerce")
     parsed["lot"] = pd.to_numeric(parsed["lot"], errors="coerce")
     parsed["pool"] = parsed["pool"].where(parsed["pool"].notna(), None)
-    parsed = parsed.loc[parsed["tanggal_regis"].notna() & (parsed["first_depo"] > 0)].copy()
+    parsed = parsed.loc[
+        parsed["tanggal_regis"].notna()
+        & (parsed["first_depo"] > 0)
+        & parsed["tag"].fillna("").str.contains("CP1", case=False, na=False)
+    ].copy()
     parsed = parsed.loc[parsed["user_id"].notna()].copy()
     if parsed.empty:
         return parsed

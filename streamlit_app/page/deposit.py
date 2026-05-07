@@ -105,7 +105,7 @@ div[data-testid="stMetricDelta"] > div {
 
 async def show_deposit_page(host: str) -> None:
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
-    st.markdown('<div class="deposit-title">Deposit Report</div>', unsafe_allow_html=True)
+    st.markdown('<div class="deposit-title">First Deposit Report</div>', unsafe_allow_html=True)
 
     presets = campaign_preset_ranges(dt.date.today())
     type_options = {"All": "all", "User Acquisition": "user_acquisition", "Brand Awareness": "brand_awareness"}
@@ -142,16 +142,16 @@ async def show_deposit_page(host: str) -> None:
         if not st.session_state.get("access_token"):
             st.error("Session invalid. Please log in again.")
             return
-        with st.spinner("Fetching deposit report..."):
+        with st.spinner("Fetching first deposit report..."):
             response = await fetch_data(st=st, host=host, uri="deposit/daily-report", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "campaign_type": selected_type})
         if not isinstance(response, dict) or not response.get("success", False):
-            st.error((response or {}).get("detail") or (response or {}).get("message") or "Failed to fetch deposit report.")
+            st.error((response or {}).get("detail") or (response or {}).get("message") or "Failed to fetch first deposit report.")
             return
         st.session_state["deposit_daily_payload"] = response
         st.session_state["deposit_daily_range"] = selected_range
 
     report = st.session_state.get("deposit_daily_payload", {}).get("data", {}).get("report", {})
-    st.markdown('<div class="metric-section-title">Deposit Summary</div>', unsafe_allow_html=True)
+    st.markdown('<div class="metric-section-title">First Deposit Summary</div>', unsafe_allow_html=True)
     currency_wrap_left, currency_wrap_mid, currency_wrap_right = st.columns([2.2, 2.6, 2.2], gap="small")
     with currency_wrap_mid:
         label_col, control_col = st.columns([1.1, 2.2], gap="small")
