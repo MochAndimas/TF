@@ -8,12 +8,12 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.functions.fetch_deposit import fetch_deposit_daily_overview_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
+from app.schemas.responses import AnalyticsResponse
 from app.utils.deposit_utils import DepositData
 from app.utils.user_utils import get_current_user
 
@@ -50,7 +50,7 @@ async def _build_deposit_data(
     )
 
 
-@router.get("/api/deposit/daily-report")
+@router.get("/api/deposit/daily-report", response_model=AnalyticsResponse)
 async def deposit_daily_report(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -89,12 +89,10 @@ async def deposit_daily_report(
             end_date=end_date,
             campaign_type=selected_type,
         )
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Deposit daily report generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Deposit daily report generated.",
+            data=data,
         )
     except HTTPException:
         raise

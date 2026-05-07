@@ -53,6 +53,7 @@ async def apply_schema_maintenance(connection) -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_access_token ON user_token(access_token)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_refresh_token ON user_token(refresh_token)",
         "CREATE INDEX IF NOT EXISTS ix_user_token_user_id ON user_token(user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_log_data_created_at ON log_data(created_at)",
         "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_created_at ON auth_audit_event(created_at)",
         "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_event_type ON auth_audit_event(event_type)",
     )

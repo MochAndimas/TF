@@ -8,7 +8,6 @@ import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.functions.fetch_campaign import (
@@ -18,6 +17,7 @@ from app.api.v1.functions.fetch_campaign import (
 from app.api.v1.functions.fetch_internal_register import fetch_internal_register_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
+from app.schemas.responses import AnalyticsResponse
 from app.utils.campaign import CampaignData
 from app.utils.user_utils import get_current_user
 
@@ -55,7 +55,7 @@ async def _build_campaign_data(
     )
 
 
-@router.get("/api/campaign/user-acquisition")
+@router.get("/api/campaign/user-acquisition", response_model=AnalyticsResponse)
 async def user_acquisition_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -93,12 +93,10 @@ async def user_acquisition_overview(
             end_date=end_date,
         )
 
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "User acquisition overview generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="User acquisition overview generated.",
+            data=data,
         )
     except HTTPException:
         raise
@@ -115,7 +113,7 @@ async def user_acquisition_overview(
         )
 
 
-@router.get("/api/campaign/brand-awareness")
+@router.get("/api/campaign/brand-awareness", response_model=AnalyticsResponse)
 async def brand_awareness_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -150,12 +148,10 @@ async def brand_awareness_overview(
             end_date=end_date,
         )
 
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Brand awareness overview generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Brand awareness overview generated.",
+            data=data,
         )
     except HTTPException:
         raise
@@ -172,7 +168,7 @@ async def brand_awareness_overview(
         )
 
 
-@router.get("/api/campaign/internal-register")
+@router.get("/api/campaign/internal-register", response_model=AnalyticsResponse)
 async def internal_register_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -193,12 +189,10 @@ async def internal_register_overview(
             end_date=end_date,
             source=source,
         )
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Internal register overview generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Internal register overview generated.",
+            data=data,
         )
     except HTTPException:
         raise

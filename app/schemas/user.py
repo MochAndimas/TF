@@ -5,6 +5,8 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.schemas.responses import ApiResponseV1
+
 
 class RegisterBase(BaseModel):
     """Schema for account registration payload.
@@ -57,11 +59,9 @@ class AccountSummary(BaseModel):
     updated_at: datetime
 
 
-class AccountListResponse(BaseModel):
+class AccountListResponse(ApiResponseV1):
     """Response wrapper for account listing endpoints."""
 
-    success: bool
-    message: str
     data: list[AccountSummary]
 
 
@@ -73,11 +73,9 @@ class AccountUpdateRequest(BaseModel):
     role: str | None = None
 
 
-class AccountUpdateResponse(BaseModel):
+class AccountUpdateResponse(ApiResponseV1):
     """Response wrapper for account update operations."""
 
-    success: bool
-    message: str
     data: AccountSummary
 
 
@@ -114,15 +112,13 @@ class HomeContextData(BaseModel):
     latest_run: LatestEtlRunSummary | None = None
 
 
-class HomeContextResponse(BaseModel):
+class HomeContextResponse(ApiResponseV1):
     """Response wrapper for home-page context endpoint."""
 
-    success: bool
-    message: str
     data: HomeContextData
 
 
-class TokenBase(BaseModel):
+class TokenBase(ApiResponseV1):
     """Schema for login response payload.
 
     Attributes:
@@ -132,7 +128,7 @@ class TokenBase(BaseModel):
     """
     access_token: str
     token_type: str
-    success: bool
+    message: str = "Authentication successful."
 
 
 class LoginResponse(TokenBase):
@@ -150,19 +146,14 @@ class TokenRefreshResponse(LoginResponse):
     """Schema returned after successful refresh-token rotation."""
 
 
-class RegisterResponse(BaseModel):
+class RegisterResponse(ApiResponseV1):
     """Schema for account creation response payload."""
 
-    success: bool
-    message: str
     user_id: str
 
 
-class MessageResponse(BaseModel):
+class MessageResponse(ApiResponseV1):
     """Schema for generic response messages with success flag."""
-
-    success: bool
-    message: str
 
 
 class LogoutAllSessionsRequest(BaseModel):
@@ -175,6 +166,12 @@ class LogoutAllSessionsResponse(MessageResponse):
     """Response emitted after revoking one or more user sessions."""
 
     revoked_sessions: int
+
+
+class DeleteAccountResponse(MessageResponse):
+    """Response emitted after soft-deleting an account."""
+
+    deleted_user_id: str
 
 
 class TokenData(BaseModel):

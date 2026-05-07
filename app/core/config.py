@@ -103,6 +103,13 @@ class Settings(BaseModel):
     AUTO_INIT_DB_ON_STARTUP: bool = False
     SQLITE_BUSY_TIMEOUT_MS: int = 30000
     ALLOW_CONCURRENT_ETL_RUNS: bool = False
+    REQUEST_LOG_ENABLED: bool = True
+    REQUEST_LOG_SAMPLE_RATE: float = 1.0
+    REQUEST_LOG_RETENTION_DAYS: int = 30
+    REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE: float = 0.01
+    ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = True
+    ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS: int = 300
+    ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES: int = 64
 
     @staticmethod
     def _split_origins(raw_value: str | None) -> list[str]:
@@ -275,6 +282,29 @@ class DevelopmentSettings(Settings):
     AUTO_INIT_DB_ON_STARTUP: bool = env("AUTO_INIT_DB_ON_STARTUP", default=False, cast=bool)
     SQLITE_BUSY_TIMEOUT_MS: int = env("SQLITE_BUSY_TIMEOUT_MS", default=30000, cast=int)
     ALLOW_CONCURRENT_ETL_RUNS: bool = env("ALLOW_CONCURRENT_ETL_RUNS", default=False, cast=bool)
+    REQUEST_LOG_ENABLED: bool = env("REQUEST_LOG_ENABLED", default=True, cast=bool)
+    REQUEST_LOG_SAMPLE_RATE: float = env("REQUEST_LOG_SAMPLE_RATE", default=1.0, cast=float)
+    REQUEST_LOG_RETENTION_DAYS: int = env("REQUEST_LOG_RETENTION_DAYS", default=30, cast=int)
+    REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE: float = env(
+        "REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE",
+        default=0.01,
+        cast=float,
+    )
+    ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = env(
+        "ANALYTICS_DATAFRAME_CACHE_ENABLED",
+        default=True,
+        cast=bool,
+    )
+    ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS: int = env(
+        "ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS",
+        default=300,
+        cast=int,
+    )
+    ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES: int = env(
+        "ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES",
+        default=64,
+        cast=int,
+    )
 
 
 class ProductionSettings(Settings):
@@ -310,6 +340,29 @@ class ProductionSettings(Settings):
     AUTO_INIT_DB_ON_STARTUP: bool = env("AUTO_INIT_DB_ON_STARTUP", default=False, cast=bool)
     SQLITE_BUSY_TIMEOUT_MS: int = env("SQLITE_BUSY_TIMEOUT_MS", default=30000, cast=int)
     ALLOW_CONCURRENT_ETL_RUNS: bool = env("ALLOW_CONCURRENT_ETL_RUNS", default=False, cast=bool)
+    REQUEST_LOG_ENABLED: bool = env("REQUEST_LOG_ENABLED", default=True, cast=bool)
+    REQUEST_LOG_SAMPLE_RATE: float = env("REQUEST_LOG_SAMPLE_RATE", default=1.0, cast=float)
+    REQUEST_LOG_RETENTION_DAYS: int = env("REQUEST_LOG_RETENTION_DAYS", default=30, cast=int)
+    REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE: float = env(
+        "REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE",
+        default=0.01,
+        cast=float,
+    )
+    ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = env(
+        "ANALYTICS_DATAFRAME_CACHE_ENABLED",
+        default=True,
+        cast=bool,
+    )
+    ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS: int = env(
+        "ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS",
+        default=300,
+        cast=int,
+    )
+    ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES: int = env(
+        "ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES",
+        default=64,
+        cast=int,
+    )
 
 
 @lru_cache

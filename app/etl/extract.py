@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date
-from pathlib import Path
 
 from decouple import config
 from google.ads.googleads.client import GoogleAdsClient
@@ -17,6 +16,12 @@ import httpx
 from app.core.security import decrypt_secret
 from app.db.models.external_api import ManagedSecret
 from app.db.session import sqlite_async_session
+from app.etl.extract_helpers import (
+    extract_meta_leads,
+    load_service_account_info,
+    normalize_customer_id,
+    normalize_meta_ad_account_id,
+)
 
 
 class ExternalApiExtractor:
@@ -33,7 +38,7 @@ class ExternalApiExtractor:
         self.sheet_id = config("GSHEET_SHEET_ID", default="", cast=str).strip() or None
         raw_gsheet_creds = config("GSHEET_SA_CREDS", default="", cast=str).strip()
         if raw_gsheet_creds:
-            gsheet_sa_creds = self._load_service_account_info("GSHEET_SA_CREDS")
+            gsheet_sa_creds = load_service_account_info("GSHEET_SA_CREDS")
             creds = ServiceAccountCredentials.from_service_account_info(
                 gsheet_sa_creds,
                 scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"],
@@ -63,7 +68,7 @@ class ExternalApiExtractor:
         raw_ga4_sa_creds = config("GA4_SA_CREDS", default="", cast=str).strip()
         self.ga4_service = None
         if self.ga4_property_id and raw_ga4_sa_creds:
-            ga4_sa_creds = self._load_service_account_info("GA4_SA_CREDS")
+            ga4_sa_creds = load_service_account_info("GA4_SA_CREDS")
             ga4_creds = ServiceAccountCredentials.from_service_account_info(
                 ga4_sa_creds,
                 scopes=["https://www.googleapis.com/auth/analytics.readonly"],
@@ -74,10 +79,10 @@ class ExternalApiExtractor:
                 credentials=ga4_creds,
                 cache_discovery=False,
             )
-        self.google_ads_customer_id = self._normalize_customer_id(
+        self.google_ads_customer_id = normalize_customer_id(
             config("GOOGLE_ADS_CUSTOMER_ID", default="", cast=str)
         )
-        self.google_ads_login_customer_id = self._normalize_customer_id(
+        self.google_ads_login_customer_id = normalize_customer_id(
             config("GOOGLE_ADS_LOGIN_CUSTOMER_ID", default="", cast=str)
         )
         self.meta_app_id = config("META_APP_ID", default="", cast=str).strip() or None
@@ -85,68 +90,6 @@ class ExternalApiExtractor:
         self.meta_api_version = config("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
         self.meta_ad_id = config("META_AD_ID", default="", cast=str).strip() or None
         self.google_ads_client = None
-
-    @staticmethod
-    def _load_service_account_info(env_key: str) -> dict:
-        """Load service-account credentials from env.
-
-        Supported formats:
-        - full JSON string on a single line
-        - filesystem path to a service-account JSON file
-
-        Args:
-            env_key (str): Environment variable name containing the JSON string
-                or path to the service-account credentials file.
-
-        Returns:
-            dict: Parsed service-account credentials payload.
-
-        Raises:
-            ValueError: If the env value is missing or not a valid JSON/path.
-        """
-        raw_value = config(env_key, default="", cast=str).strip()
-        if not raw_value:
-            raise ValueError(f"{env_key} is required for service-account auth.")
-
-        normalized = raw_value.strip().strip("'").strip('"')
-        if normalized.startswith("{"):
-            try:
-                return json.loads(normalized)
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"{env_key} JSON string is invalid. Make sure it is valid single-line JSON."
-                ) from exc
-
-        path_candidate = Path(normalized)
-        try:
-            if path_candidate.exists():
-                return json.loads(path_candidate.read_text(encoding="utf-8"))
-        except OSError:
-            # Some OSes raise "file name too long" when a raw JSON blob is probed as a path.
-            pass
-
-        try:
-            return json.loads(normalized)
-        except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"{env_key} must be either a single-line JSON string or a path to a service-account JSON file."
-            ) from exc
-
-    @staticmethod
-    def _normalize_customer_id(value: str | None) -> str | None:
-        """Normalize a Google Ads customer identifier by removing separators."""
-        normalized = str(value or "").strip().replace("-", "")
-        return normalized or None
-
-    @staticmethod
-    def _normalize_meta_ad_account_id(value: str | None) -> str | None:
-        """Normalize Meta ad account ID into ``act_<id>`` form."""
-        normalized = str(value or "").strip()
-        if not normalized:
-            return None
-        if normalized.startswith("act_"):
-            return normalized
-        return f"act_{normalized}"
 
     async def _load_managed_secret(self, secret_key: str) -> str:
         """Load and decrypt a managed secret from backend storage when present."""
@@ -363,28 +306,9 @@ class ExternalApiExtractor:
 
         return await asyncio.to_thread(_request)
 
-    @staticmethod
-    def _extract_meta_leads(actions: list[dict] | None) -> int:
-        """Extract a best-effort lead total from Meta Insights actions payload."""
-        if not actions:
-            return 0
-
-        lead_total = 0.0
-        for action in actions:
-            if not isinstance(action, dict):
-                continue
-            action_type = str(action.get("action_type") or "").strip().lower()
-            if not action_type or "lead" not in action_type:
-                continue
-            try:
-                lead_total += float(action.get("value") or 0)
-            except (TypeError, ValueError):
-                continue
-        return int(round(lead_total))
-
     async def fetch_facebook_ads_metrics(self, start_date: date, end_date: date) -> list[dict]:
         """Fetch Meta Ads Insights metrics by ad for the requested date range."""
-        meta_ad_account_id = self._normalize_meta_ad_account_id(self.meta_ad_id)
+        meta_ad_account_id = normalize_meta_ad_account_id(self.meta_ad_id)
         access_token = await self._load_managed_secret("meta_ads_access_token")
         if not access_token:
             access_token = config("META_ACCESS_TOKEN", default="", cast=str).strip()
@@ -444,7 +368,7 @@ class ExternalApiExtractor:
                             "cost": float(row.get("spend") or 0),
                             "impressions": int(float(row.get("impressions") or 0)),
                             "clicks": int(float(row.get("clicks") or 0)),
-                            "leads": self._extract_meta_leads(row.get("actions")),
+                            "leads": extract_meta_leads(row.get("actions")),
                         }
                     )
                 request_url = payload.get("paging", {}).get("next")

@@ -14,6 +14,7 @@ from app.core.security import encrypt_secret
 from app.db.models.external_api import ManagedSecret
 from app.db.models.user import TfUser
 from app.db.session import get_db
+from app.schemas.responses import ApiResponseV1
 from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
@@ -25,13 +26,22 @@ class MetaAdsTokenExchangeRequest(BaseModel):
     short_lived_token: str
 
 
-class MetaAdsTokenStatusResponse(BaseModel):
+class MetaAdsTokenStatusResponse(ApiResponseV1):
     """Expose whether a Meta access token is already stored."""
 
     configured: bool
     secret_key: str
     description: str | None = None
     updated_at: datetime | None = None
+
+
+class MetaAdsTokenExchangeResponse(ApiResponseV1):
+    """Response returned after storing a long-lived Meta token."""
+
+    token_type: str | None = None
+    expires_in: int | None = None
+    stored_secret_key: str
+    updated_at: datetime
 
 
 def _meta_app_config() -> tuple[str, str]:
@@ -81,6 +91,8 @@ async def meta_ads_token_status(
 
     stored_secret = await session.get(ManagedSecret, "meta_ads_access_token")
     return MetaAdsTokenStatusResponse(
+        success=True,
+        message="Meta Ads token status loaded.",
         configured=stored_secret is not None,
         secret_key="meta_ads_access_token",
         description=stored_secret.description if stored_secret else None,
@@ -88,7 +100,7 @@ async def meta_ads_token_status(
     )
 
 
-@router.post("/api/meta-ads/token/exchange")
+@router.post("/api/meta-ads/token/exchange", response_model=MetaAdsTokenExchangeResponse)
 async def exchange_meta_ads_token(
     payload: MetaAdsTokenExchangeRequest,
     session: AsyncSession = Depends(get_db),
@@ -163,10 +175,11 @@ async def exchange_meta_ads_token(
         existing_secret.updated_at = now
     await session.commit()
 
-    return {
-        "message": "Meta long-lived access token berhasil ditukar dan disimpan di database.",
-        "token_type": token_type or None,
-        "expires_in": expires_in,
-        "stored_secret_key": "meta_ads_access_token",
-        "updated_at": now.isoformat(),
-    }
+    return MetaAdsTokenExchangeResponse(
+        success=True,
+        message="Meta long-lived access token berhasil ditukar dan disimpan di database.",
+        token_type=token_type or None,
+        expires_in=expires_in,
+        stored_secret_key="meta_ads_access_token",
+        updated_at=now,
+    )

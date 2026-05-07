@@ -82,7 +82,7 @@ class UserToken(SqliteBase):
 
 
 class LogData(SqliteBase):
-    """SQLAlchemy model for HTTP request/response logs.
+    """SQLAlchemy model for HTTP request/response metadata logs.
 
     Attributes:
         id (int): Primary key.
@@ -90,10 +90,13 @@ class LogData(SqliteBase):
         method (str): HTTP method.
         time (float): Request processing duration in seconds.
         status (int): HTTP response status code.
-        response (JSON): Response body snapshot.
+        response (JSON): Bounded request/response metadata snapshot.
         created_at (DateTime): Log creation timestamp.
     """
     __tablename__ = "log_data"
+    __table_args__ = (
+        Index("ix_log_data_created_at", "created_at"),
+    )
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     url = Column("url", String, nullable=False)

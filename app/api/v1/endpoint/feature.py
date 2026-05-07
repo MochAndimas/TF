@@ -7,7 +7,6 @@ Traders Family application.
 import asyncio
 import logging
 
-from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,16 +75,15 @@ async def update_data(
                 end_date=end_date,
             )
         )
-        return JSONResponse(
-            content={
-                "message": (
-                    "Update job accepted and queued. "
-                    "Track progress via status endpoint."
-                ),
-                "run_id": run_id,
-                "status": "queued",
-                "recovered_stale_runs": cleaned_runs,
-            }
+        return UpdateDataResponse(
+            success=True,
+            message=(
+                "Update job accepted and queued. "
+                "Track progress via status endpoint."
+            ),
+            run_id=run_id,
+            status="queued",
+            recovered_stale_runs=cleaned_runs,
         )
     except HTTPException as error:
         if "run_id" in locals():

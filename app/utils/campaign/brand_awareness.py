@@ -47,11 +47,18 @@ class BrandAwarenessCampaignMixin:
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
-        daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date)
-        if daily.empty:
-            return {"cost": 0.0, "impressions": 0, "clicks": 0, "ctr": 0.0, "cpm": 0.0, "cpc": 0.0}
+        source = data.strip().lower()
+        model_map = self._ads_model_map()
+        if source not in model_map:
+            supported_sources = ", ".join(sorted(model_map.keys()))
+            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
 
-        totals = daily[["cost", "impressions", "clicks"]].agg("sum")
+        totals = await self._ads_metrics_from_sql(
+            model=model_map[source],
+            from_date=start_date,
+            to_date=end_date,
+            ad_type="brand_awareness",
+        )
         cost_total = float(totals["cost"])
         impressions_total = float(totals["impressions"])
         clicks_total = float(totals["clicks"])

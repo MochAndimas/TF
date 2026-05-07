@@ -5,9 +5,6 @@ Traders Family application.
 """
 
 import secrets
-from collections import defaultdict, deque
-from datetime import datetime
-from threading import Lock
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -15,9 +12,15 @@ from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.db.models.etl_run import EtlRun
 from app.db.models.user import TfUser
 from app.db.session import get_db
+from app.api.v1.endpoint.auth_helpers import (
+    clear_auth_session_cookie,
+    enforce_rate_limit,
+    serialize_account,
+    serialize_latest_run,
+    set_auth_session_cookie,
+)
 from app.utils.user_utils import (
     authenticate_user,
     create_account,
@@ -41,13 +44,12 @@ from app.core.security import (
 )
 from app.schemas.user import (
     AccountListResponse,
-    AccountSummary,
     AccountUpdateRequest,
     AccountUpdateResponse,
+    DeleteAccountResponse,
     HomeContextResponse,
     HomeAccountSummary,
     LoginResponse,
-    LatestEtlRunSummary,
     LogoutAllSessionsRequest,
     LogoutAllSessionsResponse,
     MessageResponse,
@@ -59,123 +61,6 @@ from app.schemas.user import (
 
 
 router = APIRouter()
-_RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
-_RATE_LIMIT_LOCK = Lock()
-
-
-def _serialize_account(user: TfUser) -> AccountSummary:
-    """Convert one SQLAlchemy user model into a response-safe account payload."""
-    return AccountSummary(
-        user_id=user.user_id,
-        fullname=user.fullname,
-        email=user.email,
-        role=user.role,
-        created_at=user.created_at,
-        updated_at=user.updated_at,
-    )
-
-
-def _serialize_latest_run(run: EtlRun | None) -> LatestEtlRunSummary | None:
-    """Convert the latest ETL run model into a compact API payload."""
-    if run is None:
-        return None
-    return LatestEtlRunSummary(
-        run_id=run.run_id,
-        pipeline=run.pipeline,
-        source=run.source,
-        mode=run.mode,
-        status=run.status,
-        message=run.message,
-        error_detail=run.error_detail,
-        window_start=run.window_start,
-        window_end=run.window_end,
-        started_at=run.started_at,
-        ended_at=run.ended_at,
-        triggered_by=run.triggered_by,
-    )
-
-
-def _set_auth_session_cookie(response: JSONResponse, session_id: str) -> None:
-    """Persist the opaque session handle as an HttpOnly cookie."""
-    response.set_cookie(
-        key=settings.auth_cookie_name,
-        value=session_id,
-        max_age=settings.auth_cookie_max_age,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
-        path="/",
-    )
-
-
-def _clear_auth_session_cookie(response: JSONResponse) -> None:
-    """Expire the persistent auth cookie in the browser."""
-    response.delete_cookie(
-        key=settings.auth_cookie_name,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
-        path="/",
-    )
-
-
-def _client_identifier(request: Request, scope: str, extra: str | None = None) -> str:
-    """Build a stable in-memory rate-limit key for one client/scope pair.
-
-    Args:
-        request (Request): Incoming HTTP request used to extract client network
-            metadata.
-        scope (str): Logical limiter namespace such as ``login`` or
-            ``token_refresh``.
-        extra (str | None): Optional discriminator, typically a username/email,
-            that narrows the bucket when multiple identities may share one IP.
-
-    Returns:
-        str: Deterministic bucket identifier used by the in-process limiter to
-        track request timestamps for a specific client and auth scope.
-    """
-    client_host = request.client.host if request.client else "unknown"
-    suffix = f":{extra.strip().lower()}" if extra else ""
-    return f"{scope}:{client_host}{suffix}"
-
-
-def _enforce_rate_limit(
-    request: Request,
-    scope: str,
-    max_requests: int,
-    window_seconds: int,
-    extra: str | None = None,
-) -> None:
-    """Enforce a simple sliding-window rate limit for sensitive auth actions.
-
-    Args:
-        request (Request): Incoming request used to derive the limiter bucket.
-        scope (str): Logical limiter namespace for this endpoint family.
-        max_requests (int): Maximum allowed requests in the active window.
-        window_seconds (int): Sliding-window size in seconds.
-        extra (str | None): Optional identity discriminator appended to the
-            client bucket key.
-
-    Returns:
-        None: Records the current request timestamp when the budget has not been
-        exceeded.
-
-    Raises:
-        HTTPException: ``429`` when the client exceeds the configured request
-        budget for the window.
-    """
-    now = datetime.now().timestamp()
-    bucket_key = _client_identifier(request, scope, extra)
-    with _RATE_LIMIT_LOCK:
-        bucket = _RATE_LIMIT_BUCKETS[bucket_key]
-        while bucket and now - bucket[0] > window_seconds:
-            bucket.popleft()
-        if len(bucket) >= max_requests:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later.",
-            )
-        bucket.append(now)
 
 
 @router.post("/api/register", response_model=RegisterResponse)
@@ -245,12 +130,10 @@ async def register(
             detail="Email already registered",
         )
     
-    return JSONResponse(
-        content={
-            "success": True,
-            "message": "Account created successfully",
-            "user_id": user.user_id,
-        }
+    return RegisterResponse(
+        success=True,
+        message="Account created successfully",
+        user_id=user.user_id,
     )
 
 
@@ -272,7 +155,7 @@ async def get_accounts(
     return AccountListResponse(
         success=True,
         message="Accounts loaded successfully.",
-        data=[_serialize_account(user) for user in users],
+        data=[serialize_account(user) for user in users],
     )
 
 
@@ -313,7 +196,7 @@ async def patch_account(
     return AccountUpdateResponse(
         success=True,
         message="Account updated successfully.",
-        data=_serialize_account(user),
+        data=serialize_account(user),
     )
 
 
@@ -343,7 +226,7 @@ async def home_context(
                 email=account.email,
                 role=account.role,
             ),
-            "latest_run": _serialize_latest_run(latest_run),
+            "latest_run": serialize_latest_run(latest_run),
         },
     )
 
@@ -368,7 +251,7 @@ async def login_user(
     Raises:
         HTTPException: Raised when account is deleted or credentials are invalid.
     """
-    _enforce_rate_limit(
+    enforce_rate_limit(
         request=request,
         scope="login",
         max_requests=8,
@@ -400,19 +283,21 @@ async def login_user(
 
     # Return only the short-lived access token in JSON response. The persistent
     # session handle stays cookie-only so browser-side code never sees it.
+    payload = LoginResponse(
+        access_token=personal_token.get("access_token"),
+        token_type="Bearer",
+        role=user_role,
+        user_id=user.user_id,
+        success=True,
+        message="Authentication successful.",
+    )
     response = JSONResponse(
-        content={
-            "access_token": personal_token.get("access_token"),
-            "token_type": "Bearer",
-            "role": user_role,
-            "user_id": user.user_id,
-            "success": True,
-        }
+        content=payload.model_dump(mode="json")
     )
     if remember_me:
-        _set_auth_session_cookie(response, personal_token["session_id"])
+        set_auth_session_cookie(response, personal_token["session_id"])
     else:
-        _clear_auth_session_cookie(response)
+        clear_auth_session_cookie(response)
 
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
@@ -420,13 +305,13 @@ async def login_user(
     return response
 
 
-@router.post("/api/token/refresh", response_model=TokenRefreshResponse)
+@router.post("/api/token/refresh", response_model=TokenRefreshResponse | MessageResponse)
 async def refresh_user_token(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ):
     """Rotate bearer tokens using an active persisted session handle."""
-    _enforce_rate_limit(
+    enforce_rate_limit(
         request=request,
         scope="token_refresh",
         max_requests=15,
@@ -435,10 +320,7 @@ async def refresh_user_token(
     session_id = request.cookies.get(settings.auth_cookie_name)
 
     if not session_id:
-        return JSONResponse(
-            content={"success": False, "message": "No persisted session found."},
-            status_code=status.HTTP_200_OK,
-        )
+        return MessageResponse(success=False, message="No persisted session found.")
 
     try:
         access_token, role, user_id, refreshed_session_id = await rotate_session_handle(
@@ -449,22 +331,27 @@ async def refresh_user_token(
         )
     except Exception:
         response = JSONResponse(
-            content={"detail": "Refresh session is invalid or expired.", "success": False},
+            content=MessageResponse(
+                success=False,
+                message="Refresh session is invalid or expired.",
+            ).model_dump(mode="json"),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-        _clear_auth_session_cookie(response)
+        clear_auth_session_cookie(response)
         return response
 
-    response = JSONResponse(
-        content={
-            "access_token": access_token,
-            "token_type": "Bearer",
-            "role": role,
-            "user_id": user_id,
-            "success": True,
-        }
+    payload = TokenRefreshResponse(
+        access_token=access_token,
+        token_type="Bearer",
+        role=role,
+        user_id=user_id,
+        success=True,
+        message="Token refreshed successfully.",
     )
-    _set_auth_session_cookie(response, refreshed_session_id)
+    response = JSONResponse(
+        content=payload.model_dump(mode="json")
+    )
+    set_auth_session_cookie(response, refreshed_session_id)
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     return response
@@ -504,15 +391,21 @@ async def logout_user(
     await session.commit()
     if not result:
         return JSONResponse(
-            content={"message": "Session data not found", "success": False},
+            content=MessageResponse(
+                message="Session data not found",
+                success=False,
+            ).model_dump(mode="json"),
             status_code=status.HTTP_404_NOT_FOUND,
         )
 
     response = JSONResponse(
-        content={"message": "Successfully logged out", "success": True},
+        content=MessageResponse(
+            message="Successfully logged out",
+            success=True,
+        ).model_dump(mode="json"),
         status_code=status.HTTP_200_OK,
     )
-    _clear_auth_session_cookie(response)
+    clear_auth_session_cookie(response)
     return response
 
 
@@ -545,20 +438,25 @@ async def logout_all_user_sessions(
         user_agent=request.headers.get("user-agent"),
     )
     await session.commit()
+    payload = LogoutAllSessionsResponse(
+        success=True,
+        message="All matching sessions have been revoked.",
+        revoked_sessions=revoked_sessions,
+    )
     response = JSONResponse(
-        content={
-            "success": True,
-            "message": "All matching sessions have been revoked.",
-            "revoked_sessions": revoked_sessions,
-        },
+        content=payload.model_dump(mode="json"),
         status_code=status.HTTP_200_OK,
     )
     if target_user_id == current_user.user_id:
-        _clear_auth_session_cookie(response)
+        clear_auth_session_cookie(response)
     return response
 
 
-@router.delete("/api/delete_account/{user_id}", status_code=status.HTTP_200_OK)
+@router.delete(
+    "/api/delete_account/{user_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=DeleteAccountResponse,
+)
 async def delete_user(
     user_id: str,
     session: AsyncSession = Depends(get_db),
@@ -590,11 +488,11 @@ async def delete_user(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found!"
             )
-        return {
-            "message": "User Deleted Successfully!",
-            "deleted_user_id": user_id,
-            "success": True
-        }
+        return DeleteAccountResponse(
+            message="User Deleted Successfully!",
+            deleted_user_id=user_id,
+            success=True,
+        )
     except PermissionError:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

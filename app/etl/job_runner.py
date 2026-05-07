@@ -14,6 +14,7 @@ from app.db.session import sqlite_async_session
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
 from app.etl.transform import resolve_date_window
+from app.utils.analytics_cache import clear_campaign_analytics_cache
 from app.utils.etl_run_utils import (
     cleanup_stale_runs,
     fail_run,
@@ -243,6 +244,8 @@ async def execute_update_job(
                 raise HTTPException(status_code=404, detail="Something is error, data update is failed!")
 
             await _mark_success(message=message)
+            if data in {"google_ads", "facebook_ads", "tiktok_ads", "daily_register", "first_deposit", "unique_campaign"}:
+                clear_campaign_analytics_cache()
             logger.info(
                 json.dumps(
                     {

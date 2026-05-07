@@ -6,6 +6,9 @@ Traders Family application.
 
 from pydantic import BaseModel
 from datetime import date, datetime
+from typing import Literal
+
+from app.schemas.responses import API_RESPONSE_VERSION, ApiResponseV1
 
 
 class UpdateData(BaseModel):
@@ -23,7 +26,7 @@ class UpdateData(BaseModel):
     types: str = "auto"
 
 
-class UpdateDataResponse(BaseModel):
+class UpdateDataResponse(ApiResponseV1):
     """Response schema returned when an ETL update request is accepted.
 
     Attributes:
@@ -34,7 +37,6 @@ class UpdateDataResponse(BaseModel):
             new job was accepted.
     """
 
-    message: str
     run_id: str
     status: str
     recovered_stale_runs: int = 0
@@ -57,6 +59,7 @@ class UpdateDataStatusResponse(BaseModel):
         ended_at (datetime | None): Timestamp when the run finished, if any.
     """
 
+    api_version: Literal["v1"] = API_RESPONSE_VERSION
     run_id: str
     pipeline: str
     source: str

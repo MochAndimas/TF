@@ -9,19 +9,19 @@ This module encapsulates application startup concerns including:
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
+from random import random
 from time import perf_counter
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
@@ -58,22 +58,17 @@ class FastApiApp:
         app (FastAPI): Configured FastAPI application instance.
     """
 
-    SENSITIVE_LOG_PATHS = {
+    SKIPPED_LOG_PATHS = {
+        "/health",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
         "/api/login",
         "/api/register",
         "/api/token/refresh",
         "/api/google-ads/oauth/callback",
         "/api/google-ads/oauth/start",
         "/api/meta-ads/token/exchange",
-    }
-    SENSITIVE_RESPONSE_FIELDS = {
-        "access_token",
-        "refresh_token",
-        "password",
-        "confirm_password",
-        "csrf_token",
-        "client_secret",
-        "authorization",
     }
 
     def __init__(self, version: str = "1.0.0") -> None:
@@ -294,119 +289,102 @@ class FastApiApp:
             Response: Response object returned by downstream handler.
         """
         started_at = perf_counter()
-        original_response = await call_next(request)
-        replay_response, content = await self._clone_response(original_response)
+        response = await call_next(request)
 
         process_time = perf_counter() - started_at
-        response_body = self._parse_response_body(content)
-        await self._persist_request_log(
-            request=request,
-            status_code=replay_response.status_code,
-            response_body=response_body,
-            process_time=process_time,
-        )
-        return replay_response
-
-    async def _clone_response(self, response: Response) -> tuple[Response, bytes]:
-        """Clone streamed response body for safe logging and replay.
-
-        Args:
-            response (Response): Original downstream response object.
-
-        Returns:
-            tuple[Response, bytes]: Reconstructed response and raw buffered body bytes.
-        """
-        content = b""
-        async for chunk in response.body_iterator:
-            content += chunk
-
-        replay_response = Response(
-            content=content,
-            status_code=response.status_code,
-            headers=dict(response.headers),
-            media_type=response.media_type,
-            background=response.background,
-        )
-        return replay_response, content
-
-    @staticmethod
-    def _parse_response_body(content: bytes) -> Any:
-        """Parse response body bytes into JSON-like structure or text.
-
-        Args:
-            content (bytes): Raw response body bytes.
-
-        Returns:
-            Any: Decoded JSON object/list/dict, empty dict for blank body, or UTF-8 text.
-        """
-        if not content:
-            return {}
-        try:
-            return json.loads(content.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return content.decode("utf-8", errors="replace")
+        if self._should_persist_request_log(request):
+            await self._persist_request_log(
+                request=request,
+                response=response,
+                process_time=process_time,
+            )
+        return response
 
     async def _persist_request_log(
         self,
         request: Request,
-        status_code: int,
-        response_body: Any,
+        response: Response,
         process_time: float,
     ) -> None:
-        """Persist request/response audit record to database.
+        """Persist request/response metadata to database.
 
         Args:
             request (Request): Incoming HTTP request metadata source.
-            status_code (int): HTTP status code returned to client.
-            response_body (Any): Parsed response payload snapshot for auditing.
+            response (Response): Response metadata source.
             process_time (float): Request processing duration in seconds.
 
         Returns:
             None: Logging failures are swallowed and only written to application logger.
         """
-        if request.url.path in self.SENSITIVE_LOG_PATHS:
-            return
-
         try:
             async with sqlite_async_session() as session:
                 session.add(
                     LogData(
-                        url=str(request.url),
+                        url=self._safe_log_url(request),
                         method=request.method,
                         time=process_time,
-                        status=status_code,
-                        response=self._sanitize_log_payload(response_body),
+                        status=response.status_code,
+                        response=self._request_log_metadata(request, response),
                         created_at=datetime.now(),
                     )
                 )
                 await session.commit()
+                await self._cleanup_old_request_logs(session)
         except Exception:
             self.logger.exception("Failed to persist request log")
 
     @classmethod
-    def _sanitize_log_payload(cls, value: Any) -> Any:
-        """Recursively redact sensitive fields before request logs are stored.
+    def _should_persist_request_log(cls, request: Request) -> bool:
+        """Return whether this request should be sampled into DB logs."""
+        if not settings.REQUEST_LOG_ENABLED:
+            return False
+        if request.method.upper() == "OPTIONS":
+            return False
+        if request.url.path in cls.SKIPPED_LOG_PATHS:
+            return False
+        return random() < cls._clamped_rate(settings.REQUEST_LOG_SAMPLE_RATE)
 
-        Args:
-            value (Any): Arbitrary structured payload extracted from request or
-                response bodies.
+    @staticmethod
+    def _clamped_rate(value: float) -> float:
+        """Clamp a configured sampling rate into the inclusive 0..1 range."""
+        return max(0.0, min(1.0, float(value)))
 
-        Returns:
-            Any: Copy of the payload where known secret-bearing keys are
-            replaced with ``[REDACTED]`` while preserving the surrounding data
-            structure for observability.
-        """
-        if isinstance(value, dict):
-            sanitized: dict[str, Any] = {}
-            for key, item in value.items():
-                if key.lower() in cls.SENSITIVE_RESPONSE_FIELDS:
-                    sanitized[key] = "[REDACTED]"
-                else:
-                    sanitized[key] = cls._sanitize_log_payload(item)
-            return sanitized
-        if isinstance(value, list):
-            return [cls._sanitize_log_payload(item) for item in value]
-        return value
+    @staticmethod
+    def _safe_log_url(request: Request) -> str:
+        """Store path plus query key names, never raw query values."""
+        query_keys = sorted(set(request.query_params.keys()))
+        if not query_keys:
+            return request.url.path
+        return f"{request.url.path}?query_keys={','.join(query_keys)}"
+
+    @staticmethod
+    def _request_log_metadata(request: Request, response: Response) -> dict[str, object]:
+        """Build a bounded metadata payload without request/response bodies."""
+        user_agent = request.headers.get("user-agent")
+        return {
+            "log_type": "http_metadata_v1",
+            "path": request.url.path,
+            "query_keys": sorted(set(request.query_params.keys())),
+            "client_host": request.client.host if request.client else None,
+            "user_agent": user_agent[:200] if user_agent else None,
+            "content_type": response.headers.get("content-type"),
+            "content_length": response.headers.get("content-length"),
+            "referer_present": "referer" in request.headers,
+            "body_logged": False,
+        }
+
+    async def _cleanup_old_request_logs(self, session) -> None:
+        """Probabilistically delete request logs older than configured retention."""
+        retention_days = settings.REQUEST_LOG_RETENTION_DAYS
+        if retention_days <= 0:
+            return
+        cleanup_rate = self._clamped_rate(settings.REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE)
+        if random() >= cleanup_rate:
+            return
+
+        cutoff = datetime.now() - timedelta(days=retention_days)
+        await session.execute(delete(LogData).where(LogData.created_at < cutoff))
+        await session.commit()
 
     @staticmethod
     async def _security_headers_middleware(request: Request, call_next: NextHandler) -> Response:

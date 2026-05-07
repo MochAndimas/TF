@@ -15,7 +15,6 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.functions.fetch_overview import fetch_overview_active_users_payload
@@ -24,6 +23,7 @@ from app.api.v1.functions.fetch_overview_campaign import fetch_overview_campaign
 from app.api.v1.functions.fetch_overview_leads import fetch_overview_leads_acquisition_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
+from app.schemas.responses import AnalyticsResponse
 from app.utils.overview import (
     OverviewBrandAwarenessData,
     OverviewCampaignCostData,
@@ -126,7 +126,7 @@ async def _build_overview_brand_data(
     )
 
 
-@router.get("/api/overview/active-users")
+@router.get("/api/overview/active-users", response_model=AnalyticsResponse)
 async def overview_active_users(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -153,12 +153,10 @@ async def overview_active_users(
             start_date=start_date,
             end_date=end_date,
         )
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Overview active users generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Overview active users generated.",
+            data=data,
         )
     except HTTPException:
         raise
@@ -175,7 +173,7 @@ async def overview_active_users(
         )
 
 
-@router.get("/api/overview/campaign-cost")
+@router.get("/api/overview/campaign-cost", response_model=AnalyticsResponse)
 async def overview_campaign_cost(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -198,12 +196,10 @@ async def overview_campaign_cost(
             start_date=start_date,
             end_date=end_date,
         )
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Overview campaign cost generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Overview campaign cost generated.",
+            data=data,
         )
     except HTTPException:
         raise
@@ -220,7 +216,7 @@ async def overview_campaign_cost(
         )
 
 
-@router.get("/api/overview/leads-acquisition")
+@router.get("/api/overview/leads-acquisition", response_model=AnalyticsResponse)
 async def overview_leads_acquisition(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -243,12 +239,10 @@ async def overview_leads_acquisition(
             start_date=start_date,
             end_date=end_date,
         )
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Overview leads acquisition generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Overview leads acquisition generated.",
+            data=data,
         )
     except HTTPException:
         raise
@@ -265,7 +259,7 @@ async def overview_leads_acquisition(
         )
 
 
-@router.get("/api/overview/brand-awareness")
+@router.get("/api/overview/brand-awareness", response_model=AnalyticsResponse)
 async def overview_brand_awareness(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -288,12 +282,10 @@ async def overview_brand_awareness(
             start_date=start_date,
             end_date=end_date,
         )
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": "Overview brand awareness generated.",
-                "data": data,
-            }
+        return AnalyticsResponse(
+            success=True,
+            message="Overview brand awareness generated.",
+            data=data,
         )
     except HTTPException:
         raise

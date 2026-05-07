@@ -19,6 +19,7 @@ from app.core.security import encrypt_secret
 from app.db.models.external_api import ManagedSecret
 from app.db.models.user import TfUser
 from app.db.session import sqlite_async_session
+from app.schemas.responses import ApiResponseV1
 from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/adwords"]
 GOOGLE_ADS_OAUTH_STATE_PURPOSE = "google_ads_oauth"
+
+
+class GoogleAdsOAuthStartResponse(ApiResponseV1):
+    """JSON response containing the Google Ads OAuth consent URL."""
+
+    authorization_url: str
 
 
 def _load_client_config() -> dict:
@@ -329,7 +336,7 @@ async def google_ads_oauth_start(
     return RedirectResponse(url=authorization_url, status_code=302)
 
 
-@router.post("/api/google-ads/oauth/start")
+@router.post("/api/google-ads/oauth/start", response_model=GoogleAdsOAuthStartResponse)
 async def google_ads_oauth_start_payload(
     request: Request,
     current_user: TfUser = Depends(get_current_user),
@@ -343,4 +350,8 @@ async def google_ads_oauth_start_payload(
         logger.exception("Failed to prepare Google Ads OAuth authorization URL")
         raise HTTPException(status_code=500, detail="Unable to start Google Ads OAuth flow.") from exc
 
-    return {"authorization_url": authorization_url, "success": True}
+    return GoogleAdsOAuthStartResponse(
+        success=True,
+        message="Google Ads OAuth authorization URL generated.",
+        authorization_url=authorization_url,
+    )
