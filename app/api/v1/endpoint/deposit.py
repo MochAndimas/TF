@@ -15,6 +15,7 @@ from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
 from app.utils.deposit_utils import DepositData
+from app.utils.remarketing_deposit_utils import RemarketingDepositData
 from app.utils.user_utils import get_current_user
 
 router = APIRouter()
@@ -44,6 +45,24 @@ async def _build_deposit_data(
             detail="start_date cannot be after end_date.",
         )
     return await DepositData.load_data(
+        session=session,
+        from_date=start_date,
+        to_date=end_date,
+    )
+
+
+async def _build_remarketing_deposit_data(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+) -> RemarketingDepositData:
+    """Validate date range then preload remarketing deposit data service."""
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be after end_date.",
+        )
+    return await RemarketingDepositData.load_data(
         session=session,
         from_date=start_date,
         to_date=end_date,
@@ -105,4 +124,44 @@ async def deposit_daily_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while generating deposit daily report: {error}",
+        )
+
+
+@router.get("/api/deposit/remarketing-report", response_model=AnalyticsResponse)
+async def remarketing_deposit_report(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    campaign_type: Literal["all", "user_acquisition", "brand_awareness", "remarketing"] = Query(default="all"),
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+):
+    """Generate remarketing deposit report payload from ``data_ms_deposit``."""
+    try:
+        deposit_data = await _build_remarketing_deposit_data(
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        selected_type = None if campaign_type == "all" else campaign_type
+        data = {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "report": await deposit_data.build_daily_report_payload(campaign_type=selected_type),
+        }
+        return AnalyticsResponse(
+            success=True,
+            message="Remarketing deposit report generated.",
+            data=data,
+        )
+    except HTTPException:
+        raise
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while generating remarketing deposit report: {error}",
         )

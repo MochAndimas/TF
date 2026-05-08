@@ -54,6 +54,11 @@ class ExternalApiExtractor:
             default="'RAW Regis'!A:T",
             cast=str,
         ).strip()
+        self.ms_deposit_sheet_range = config(
+            "MS_DEPOSIT_SHEET_RANGE",
+            default="'RAW Regis'!A:W",
+            cast=str,
+        ).strip()
         self.daily_regis_sheet_id = config(
             "DAILY_REGIS_SHEET_ID",
             default="1avonZ9znYOExrqPUMpQJsRC8LA2MjbVPFTfmCoapA4g",
@@ -415,6 +420,50 @@ class ExternalApiExtractor:
             "Lot",
             "Cabang",
             "Pool",
+        }
+        records: list[dict] = []
+        for row in values[1:]:
+            padded_row = list(row) + [""] * (len(headers) - len(row))
+            record = {
+                header: padded_row[index]
+                for index, header in enumerate(headers)
+                if header in source_columns
+            }
+            if any(str(value).strip() for value in record.values()):
+                records.append(record)
+
+        return records
+
+    async def fetch_ms_deposit_records(self) -> list[dict]:
+        """Fetch raw MS1 deposit/activity rows from the configured Google Sheet."""
+        if self.service is None or not self.first_deposit_sheet_id:
+            raise ValueError(
+                "MS deposit Google Sheet credentials are not fully configured. "
+                "Required env vars: GSHEET_SA_CREDS and FIRST_DEPOSIT_SHEET_ID."
+            )
+
+        def _request():
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=self.first_deposit_sheet_id,
+                range=self.ms_deposit_sheet_range,
+            ).execute()
+            return result.get("values", [])
+
+        values = await asyncio.to_thread(_request)
+        if not values:
+            return []
+
+        headers = [str(header).strip() for header in values[0]]
+        source_columns = {
+            "email",
+            "tag",
+            "campaignid",
+            "Status\nNew / Existing",
+            "First Depo $",
+            "Time To Closing",
+            "Last Depo",
+            "Last Depo Amount",
+            "Last Activity",
         }
         records: list[dict] = []
         for row in values[1:]:

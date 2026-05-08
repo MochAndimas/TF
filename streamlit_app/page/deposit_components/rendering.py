@@ -17,9 +17,15 @@ from streamlit_app.page.deposit_components.formatting import (
 )
 
 
-def render_status_cards(title: str, totals: dict[str, float], growth: dict[str, float], currency_unit: str) -> None:
+def render_status_cards(
+    title: str,
+    totals: dict[str, float],
+    growth: dict[str, float],
+    currency_unit: str,
+    deposit_label: str = "First Deposit",
+) -> None:
     st.markdown(f'<div class="deposit-group-title">{title}</div>', unsafe_allow_html=True)
-    card_specs = [(f"First Deposit Amount ({currency_label(currency_unit)})", "depo_amount", format_amount), ("First Deposit (Qty)", "qty", format_qty), (f"AOV ({currency_label(currency_unit)})", "aov", format_aov)]
+    card_specs = [(f"{deposit_label} Amount ({currency_label(currency_unit)})", "depo_amount", format_amount), (f"{deposit_label} (Qty)", "qty", format_qty), (f"AOV ({currency_label(currency_unit)})", "aov", format_aov)]
     for column, (label, key, formatter) in zip(st.columns(3, gap="small"), card_specs):
         with column:
             with st.container(border=True):
@@ -30,7 +36,7 @@ def render_status_cards(title: str, totals: dict[str, float], growth: dict[str, 
                     st.metric(label=label, value=formatter(totals.get(key, 0.0)), delta=f"{growth.get(key, 0.0):+.2f}% vs prev period")
 
 
-def render_metric_cards(report: dict[str, object], currency_unit: str) -> None:
+def render_metric_cards(report: dict[str, object], currency_unit: str, deposit_label: str = "First Deposit") -> None:
     summary = report.get("summary", {})
     if not summary:
         return
@@ -38,16 +44,16 @@ def render_metric_cards(report: dict[str, object], currency_unit: str) -> None:
     growth = summary.get("growth_percentage", {})
     left_col, right_col = st.columns(2, gap="small")
     with left_col:
-        render_status_cards("New User", totals.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit)
+        render_status_cards("New User", totals.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label)
     with right_col:
-        render_status_cards("Existing User", totals.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit)
+        render_status_cards("Existing User", totals.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label)
 
 
-def render_report_table(report: dict[str, object], currency_unit: str) -> None:
+def render_report_table(report: dict[str, object], currency_unit: str, deposit_label: str = "First Deposit") -> None:
     timeline = report.get("timeline", [])
     sections = report.get("sections", [])
     if not timeline or not sections:
-        st.info("No first deposit data for selected date range.")
+        st.info(f"No {deposit_label.lower()} data for selected date range.")
         return
     header_cells = ['<th class="sticky-col" rowspan="2">Metric</th>']
     for day in timeline:
@@ -65,9 +71,9 @@ def render_report_table(report: dict[str, object], currency_unit: str) -> None:
             metric_key = str(row.get("key", ""))
             values = row.get("values", {})
             if metric_key == "depo_amount":
-                metric_name = f"First Deposit Amount ({currency_label(currency_unit)})"
+                metric_name = f"{deposit_label} Amount ({currency_label(currency_unit)})"
             elif metric_key == "qty":
-                metric_name = "First Deposit (Qty)"
+                metric_name = f"{deposit_label} (Qty)"
             elif metric_key == "aov":
                 metric_name = f"AOV ({currency_label(currency_unit)})"
             metric_cells = [f'<td class="sticky-col metric-name">{metric_name}</td>']

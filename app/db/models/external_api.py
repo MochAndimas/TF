@@ -37,6 +37,13 @@ class Campaign(SqliteBase):
         viewonly=True
     )
 
+    data_ms_deposit = relationship(
+        'DataMsDeposit',
+        lazy=True,
+        back_populates='campaign',
+        viewonly=True
+    )
+
     google_ads = relationship(
         'GoogleAds', 
         lazy=True, 
@@ -118,6 +125,44 @@ class DataDepo(SqliteBase):
         'Campaign', 
         lazy=True, 
         back_populates='data_depo', 
+        viewonly=True
+    )
+
+
+class DataMsDeposit(SqliteBase):
+    """Model for MS1 deposit/activity records tied to campaigns."""
+
+    __tablename__ = "data_ms_deposit"
+    __table_args__ = (
+        ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "email",
+            "last_activity",
+            "campaign_id",
+            "tag",
+            name="uq_data_ms_deposit_email_activity_campaign_tag",
+        ),
+        Index("ix_data_ms_deposit_last_activity", "last_activity"),
+        Index("ix_data_ms_deposit_campaign_id", "campaign_id"),
+        {"schema": None}
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    email = Column("email", String, nullable=False)
+    tag = Column("tag", String, nullable=True)
+    campaign_id = Column("campaign_id", String, nullable=False, default=ForeignKey("campaign.campaign_id"))
+    user_status = Column("user_status", String, nullable=True)
+    first_depo = Column("first_depo", Float, nullable=True)
+    time_to_closing = Column("time_to_closing", String, nullable=True)
+    last_depo = Column("last_depo", Date, nullable=True)
+    last_depo_amount = Column("last_depo_amount", Float, nullable=True)
+    last_activity = Column("last_activity", Date, nullable=False)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+    campaign = relationship(
+        'Campaign',
+        lazy=True,
+        back_populates='data_ms_deposit',
         viewonly=True
     )
 

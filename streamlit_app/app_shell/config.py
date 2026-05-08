@@ -14,6 +14,7 @@ from streamlit_app.page import (
     meta_ads_token,
     overview,
     register,
+    remarketing_deposit,
     update_data,
     user_acquisition,
 )
@@ -27,6 +28,7 @@ PAGE_LABELS: dict[str, str] = {
     "brand_awareness": "Brand Awareness",
     "internal_register": "Internal Register",
     "deposit_report": "First Deposit",
+    "remarketing_deposit": "Remarketing Deposit",
     "register": "Create Account",
     "update_data": "Update Data",
     "google_ads_token": "Google Ads Token",
@@ -40,6 +42,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "brand_awareness": "tertiary",
     "internal_register": "tertiary",
     "deposit_report": "tertiary",
+    "remarketing_deposit": "tertiary",
     "register": "tertiary",
     "update_data": "tertiary",
     "google_ads_token": "tertiary",
@@ -49,14 +52,14 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
 NAV_GROUPS: dict[str, list[str]] = {
     "Portal": ["home"],
     "Overall": ["overview"],
-    "Revenue": ["deposit_report"],
+    "Revenue": ["deposit_report", "remarketing_deposit"],
     "Campaign": ["user_acquisition", "brand_awareness", "internal_register"],
     "Settings": ["register", "update_data", "google_ads_token", "meta_ads_token"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "register", "update_data", "google_ads_token", "meta_ads_token"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report"],
+    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit", "register", "update_data", "google_ads_token", "meta_ads_token"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit"],
     "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register"],
 }
 
@@ -67,6 +70,7 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "brand_awareness": brand_awareness.show_brand_awareness_page,
     "internal_register": internal_register.show_internal_register_page,
     "deposit_report": deposit.show_deposit_page,
+    "remarketing_deposit": remarketing_deposit.show_remarketing_deposit_page,
     "register": register.create_account,
     "update_data": update_data.show_update_page,
     "google_ads_token": google_ads_token.show_google_ads_token_page,

@@ -157,3 +157,30 @@ async def stage_first_deposit_raw(
     await session.execute(insert(StgAdsRaw), rows)
     return len(rows)
 
+
+async def stage_ms_deposit_raw(
+    session: AsyncSession,
+    raw_rows: list[dict],
+    *,
+    run_id: str | None,
+    source: str,
+) -> int:
+    """Persist raw MS1 deposit/activity rows into the shared staging table."""
+    if not raw_rows:
+        return 0
+
+    ingested_at = datetime.now()
+    rows = [
+        {
+            "run_id": run_id,
+            "source": source,
+            "range_name": "ms_deposit_sheet",
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
+        for item in raw_rows
+    ]
+    await session.execute(insert(StgAdsRaw), rows)
+    return len(rows)
+

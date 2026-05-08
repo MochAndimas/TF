@@ -343,3 +343,68 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     parsed["nmi"] = parsed["nmi"].where(parsed["nmi"].notna(), None)
     parsed["lot"] = parsed["lot"].where(parsed["lot"].notna(), None)
     return parsed
+
+
+def parse_ms_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse raw MS1 deposit/activity payload into a load-ready dataframe."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "email",
+        "tag",
+        "campaignid",
+        "Status\nNew / Existing",
+        "First Depo $",
+        "Time To Closing",
+        "Last Depo",
+        "Last Depo Amount",
+        "Last Activity",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in MS deposit payload: {missing_columns}")
+
+    def _clean_string(series: pd.Series, *, lowercase: bool = False) -> pd.Series:
+        cleaned = series.fillna("").astype(str).str.strip()
+        cleaned = cleaned.replace({"": None, "-": None, "nan": None, "None": None})
+        if lowercase:
+            cleaned = cleaned.str.lower()
+        return cleaned
+
+    def _clean_date(series: pd.Series) -> pd.Series:
+        parsed_dates = pd.to_datetime(series.replace({0: None, "0": None, "": None}), errors="coerce")
+        if getattr(parsed_dates.dt, "tz", None) is not None:
+            parsed_dates = parsed_dates.dt.tz_localize(None)
+        parsed_dates = parsed_dates.where(parsed_dates >= pd.Timestamp("1900-01-01"))
+        return parsed_dates.dt.date
+
+    def _clean_decimal(series: pd.Series) -> pd.Series:
+        normalized = series.fillna("").astype(str).str.strip()
+        normalized = normalized.str.replace(",", ".", regex=False)
+        return pd.to_numeric(normalized, errors="coerce")
+
+    parsed = pd.DataFrame(
+        {
+            "email": _clean_string(df["email"], lowercase=True),
+            "tag": _clean_string(df["tag"]),
+            "campaign_id": df["campaignid"].fillna("").astype(str).str.strip(),
+            "user_status": _clean_string(df["Status\nNew / Existing"]),
+            "first_depo": _clean_decimal(df["First Depo $"]),
+            "time_to_closing": _clean_string(df["Time To Closing"]),
+            "last_depo": _clean_date(df["Last Depo"]),
+            "last_depo_amount": _clean_decimal(df["Last Depo Amount"]),
+            "last_activity": _clean_date(df["Last Activity"]),
+        }
+    )
+    parsed["campaign_id"] = parsed["campaign_id"].replace({"": "-", "0": "-"})
+    parsed["first_depo"] = parsed["first_depo"].fillna(0.0).astype(float)
+    parsed["last_depo_amount"] = pd.to_numeric(parsed["last_depo_amount"], errors="coerce")
+    parsed = parsed.loc[
+        parsed["last_activity"].notna()
+        & (parsed["first_depo"] > 0)
+        & parsed["tag"].fillna("").str.contains("MS1", case=False, na=False)
+    ].copy()
+    parsed = parsed.loc[parsed["email"].notna()].copy()
+    return parsed

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.external_api import (
     Campaign,
     DataDepo,
+    DataMsDeposit,
     DailyRegister,
     FacebookAds,
     Ga4DailyMetrics,
@@ -481,5 +482,64 @@ async def delete_first_deposit_rows_in_window(
     """Delete first-deposit rows whose registration date falls in a window."""
     result = await session.execute(
         delete(DataDepo).where(DataDepo.tanggal_regis.between(window_start, window_end))
+    )
+    return int(result.rowcount or 0)
+
+
+def build_ms_deposit_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized MS1 deposit/activity rows into load payload dicts."""
+    rows = []
+    for _, row in df.iterrows():
+        payload = {
+            "email": row["email"],
+            "tag": row.get("tag") or None,
+            "campaign_id": row["campaign_id"],
+            "user_status": row["user_status"] or None,
+            "first_depo": float(row["first_depo"]),
+            "time_to_closing": row.get("time_to_closing") or None,
+            "last_depo": row.get("last_depo") or None,
+            "last_depo_amount": _optional_float(row.get("last_depo_amount")),
+            "last_activity": row["last_activity"],
+            "pull_date": pull_date,
+        }
+        rows.append({key: _normalize_sql_value(value) for key, value in payload.items()})
+    return rows
+
+
+async def upsert_ms_deposit_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert MS1 deposit/activity rows into ``data_ms_deposit``."""
+    if not rows:
+        return
+
+    await _ensure_campaign_rows_for_deposits(
+        session=session,
+        campaign_ids={str(row["campaign_id"]).strip() or "-" for row in rows},
+    )
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(DataMsDeposit).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["email", "last_activity", "campaign_id", "tag"],
+            set_={
+                "user_status": insert_stmt.excluded.user_status,
+                "first_depo": insert_stmt.excluded.first_depo,
+                "time_to_closing": insert_stmt.excluded.time_to_closing,
+                "last_depo": insert_stmt.excluded.last_depo,
+                "last_depo_amount": insert_stmt.excluded.last_depo_amount,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def delete_ms_deposit_rows_in_window(
+    session: AsyncSession,
+    *,
+    window_start: date,
+    window_end: date,
+) -> int:
+    """Delete MS1 deposit rows whose last activity date falls in a window."""
+    result = await session.execute(
+        delete(DataMsDeposit).where(DataMsDeposit.last_activity.between(window_start, window_end))
     )
     return int(result.rowcount or 0)

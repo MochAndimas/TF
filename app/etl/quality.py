@@ -167,3 +167,29 @@ def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(
             f"DQ failed: first deposit data has {int(invalid_metric)} rows with non-positive first deposit."
         )
+
+
+def validate_ms_deposit_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed MS1 deposit/activity data before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["email", "last_activity", "campaign_id", "tag"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: MS deposit data has {int(missing_key)} rows with missing business keys."
+        )
+
+    invalid_dates = (
+        (df["last_activity"].isna()) | (df["last_activity"] < pd.Timestamp("2022-01-01").date())
+    ).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: MS deposit data has {int(invalid_dates)} rows with invalid last activity dates."
+        )
+
+    invalid_metric = (pd.to_numeric(df["first_depo"], errors="coerce").fillna(0) <= 0).sum()
+    if invalid_metric:
+        raise ValueError(
+            f"DQ failed: MS deposit data has {int(invalid_metric)} rows with non-positive first deposit."
+        )
