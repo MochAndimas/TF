@@ -7,15 +7,23 @@ import datetime as dt
 import pandas as pd
 import plotly.graph_objects as go
 
-from streamlit_app.page.deposit_components.formatting import currency_label, currency_multiplier
+from streamlit_app.page.deposit_components.formatting import currency_label, currency_multiplier, format_amount_full
 
 
-def extract_section_metric_values(section: dict[str, object], metric_key: str, timeline: list[str]) -> dict[str, dict[str, float]]:
-    for row in section.get("rows", []):
-        if str(row.get("key")) == metric_key:
-            values = row.get("values", {})
-            return {day: {"new": float(values.get(day, {}).get("new", 0) or 0), "existing": float(values.get(day, {}).get("existing", 0) or 0)} for day in timeline}
-    return {day: {"new": 0.0, "existing": 0.0} for day in timeline}
+def extract_daily_metric_values(report: dict[str, object], metric_key: str, timeline: list[str]) -> dict[str, dict[str, float]]:
+    daily_metrics = {
+        str(row.get("date")): row
+        for row in report.get("daily_metrics", [])
+        if isinstance(row, dict)
+    }
+    values: dict[str, dict[str, float]] = {}
+    for day in timeline:
+        metric_values = daily_metrics.get(day, {}).get(metric_key, {})
+        values[day] = {
+            "new": float(metric_values.get("new", 0) or 0),
+            "existing": float(metric_values.get("existing", 0) or 0),
+        }
+    return values
 
 
 def build_daily_deposit_amount_figure(
@@ -24,12 +32,11 @@ def build_daily_deposit_amount_figure(
     deposit_label: str = "First Deposit",
 ) -> go.Figure:
     timeline = report.get("timeline", [])
-    total_section = next((section for section in report.get("sections", []) if str(section.get("campaign_id")) == "TOTAL"), None)
-    if not timeline or total_section is None:
+    if not timeline or not report.get("daily_metrics"):
         figure = go.Figure()
         figure.update_layout(title=f"Daily {deposit_label} Amount: New vs Existing", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         return figure
-    amount_map = extract_section_metric_values(total_section, "depo_amount", timeline)
+    amount_map = extract_daily_metric_values(report, "depo_amount", timeline)
     date_labels = [dt.date.fromisoformat(day).strftime("%b %d\n%Y") for day in timeline]
     multiplier = currency_multiplier(currency_unit)
     currency_symbol = currency_label(currency_unit)
@@ -47,13 +54,12 @@ def build_daily_deposit_qty_aov_figure(
     deposit_label: str = "First Deposit",
 ) -> go.Figure:
     timeline = report.get("timeline", [])
-    total_section = next((section for section in report.get("sections", []) if str(section.get("campaign_id")) == "TOTAL"), None)
-    if not timeline or total_section is None:
+    if not timeline or not report.get("daily_metrics"):
         figure = go.Figure()
         figure.update_layout(title=f"Daily {deposit_label} Qty + AOV", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         return figure
-    qty_map = extract_section_metric_values(total_section, "qty", timeline)
-    aov_map = extract_section_metric_values(total_section, "aov", timeline)
+    qty_map = extract_daily_metric_values(report, "qty", timeline)
+    aov_map = extract_daily_metric_values(report, "aov", timeline)
     date_labels = [dt.date.fromisoformat(day).strftime("%b %d\n%Y") for day in timeline]
     multiplier = currency_multiplier(currency_unit)
     currency_symbol = currency_label(currency_unit)
@@ -73,9 +79,8 @@ def build_top_campaign_deposit_figure(
     top_n: int = 10,
     deposit_label: str = "First Deposit",
 ) -> go.Figure:
-    timeline = report.get("timeline", [])
-    campaign_sections = [section for section in report.get("sections", []) if str(section.get("campaign_id")) != "TOTAL"]
-    if not timeline or not campaign_sections:
+    campaign_totals = report.get("campaign_totals", [])
+    if not campaign_totals:
         figure = go.Figure()
         figure.update_layout(title=f"Top Campaign by {deposit_label} Amount", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         return figure
@@ -83,14 +88,16 @@ def build_top_campaign_deposit_figure(
     multiplier = currency_multiplier(currency_unit)
     currency_symbol = currency_label(currency_unit)
     decimals = ".2f" if currency_unit == "USD" else ".0f"
-    for section in campaign_sections:
-        amount_map = extract_section_metric_values(section, "depo_amount", timeline)
-        new_total = sum(amount_map[day]["new"] for day in timeline)
-        existing_total = sum(amount_map[day]["existing"] for day in timeline)
+    for campaign in campaign_totals:
+        if not isinstance(campaign, dict):
+            continue
+        amount_map = campaign.get("depo_amount", {})
+        new_total = float(amount_map.get("new", 0) or 0)
+        existing_total = float(amount_map.get("existing", 0) or 0)
         total = new_total + existing_total
         if total <= 0:
             continue
-        label = str(section.get("title") or section.get("campaign_name") or "Unknown Campaign").strip()
+        label = str(campaign.get("campaign_name") or "Unknown Campaign").strip()
         rows.append({"label": label if len(label) <= 44 else f"{label[:41]}...", "new_total": new_total * multiplier, "existing_total": existing_total * multiplier, "total": total * multiplier})
     if not rows:
         figure = go.Figure()
@@ -101,4 +108,50 @@ def build_top_campaign_deposit_figure(
     figure.add_trace(go.Bar(x=ranked["new_total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="New User", marker_color="#6176ff", hovertemplate=f"<b>%{{y}}</b><br>New: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
     figure.add_trace(go.Bar(x=ranked["existing_total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="Existing User", marker_color="#ff7a59", hovertemplate=f"<b>%{{y}}</b><br>Existing: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
     figure.update_layout(title=f"Top Campaign by {deposit_label} Amount", barmode="stack", xaxis=dict(title=f"{deposit_label} Amount ({currency_symbol})"), yaxis=dict(title="Campaign"), legend=dict(orientation="h", y=1.08, x=0), margin=dict(l=24, r=24, t=60, b=24))
+    return figure
+
+
+def build_deposit_method_pie_figure(
+    report: dict[str, object],
+    currency_unit: str,
+) -> go.Figure:
+    rows = [row for row in report.get("deposit_method_summary", []) if isinstance(row, dict)]
+    rows = [row for row in rows if float(row.get("deposit_qty", 0) or 0) > 0]
+    if not rows:
+        figure = go.Figure()
+        figure.update_layout(title="Deposit Method Share", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+        return figure
+
+    multiplier = currency_multiplier(currency_unit)
+    labels = [str(row.get("method", "-")) for row in rows]
+    quantities = [float(row.get("deposit_qty", 0) or 0) for row in rows]
+    hovertext = []
+    for row in rows:
+        deposit_amount = float(row.get("deposit_amount", 0) or 0)
+        average_deposit = float(row.get("average_deposit", 0) or 0)
+        hovertext.append(
+            "<br>".join(
+                [
+                    f"<b>{row.get('method', '-')}</b>",
+                    f"Deposit Qty: {int(row.get('deposit_qty', 0) or 0):,}",
+                    f"Deposit Amount: {format_amount_full(deposit_amount, currency_unit=currency_unit)}",
+                    f"Average Deposit: {format_amount_full(average_deposit, currency_unit=currency_unit)}",
+                ]
+            )
+        )
+    figure = go.Figure(
+        data=[
+            go.Pie(
+                labels=labels,
+                values=quantities,
+                hole=0.42,
+                marker=dict(colors=["#6176ff", "#22c55e"]),
+                customdata=[[float(row.get("deposit_amount", 0) or 0) * multiplier] for row in rows],
+                hovertext=hovertext,
+                textinfo="label+percent",
+                hovertemplate="%{hovertext}<extra></extra>",
+            )
+        ]
+    )
+    figure.update_layout(title="Deposit Method Share", margin=dict(l=24, r=24, t=60, b=24), legend=dict(orientation="h", y=1.08, x=0))
     return figure

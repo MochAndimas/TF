@@ -49,10 +49,3 @@ def format_amount_full(value: float | int, currency_unit: str = "USD") -> str:
         return f"Rp{converted_value:,.0f}"
     return f"${converted_value:,.2f}"
 
-
-def metric_formatter(metric_key: str, value: float | int, currency_unit: str = "USD") -> str:
-    if metric_key == "depo_amount":
-        return format_amount(value, currency_unit=currency_unit)
-    if metric_key == "qty":
-        return format_qty(value)
-    return format_aov(value, currency_unit=currency_unit)

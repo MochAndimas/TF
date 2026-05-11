@@ -9,9 +9,10 @@ from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.page.deposit_components.charts import (
     build_daily_deposit_amount_figure,
     build_daily_deposit_qty_aov_figure,
+    build_deposit_method_pie_figure,
     build_top_campaign_deposit_figure,
 )
-from streamlit_app.page.deposit_components.rendering import render_metric_cards, render_report_table
+from streamlit_app.page.deposit_components.rendering import render_deposit_method_table, render_metric_cards
 
 PAGE_STYLE = """
 <style>
@@ -20,51 +21,6 @@ PAGE_STYLE = """
     font-size: 2.8rem;
     font-weight: 800;
     margin-bottom: 1rem;
-}
-.deposit-table-wrap {
-    width: 100%;
-    overflow-x: auto;
-    border: 1px solid rgba(120, 140, 170, 0.32);
-    border-radius: 10px;
-}
-.deposit-table {
-    border-collapse: collapse;
-    width: max-content;
-    min-width: 100%;
-    font-size: 0.96rem;
-}
-.deposit-table th,
-.deposit-table td {
-    border: 1px solid rgba(120, 140, 170, 0.28);
-    padding: 7px 10px;
-    white-space: nowrap;
-}
-.deposit-table thead th {
-    background: rgba(43, 63, 92, 0.32);
-    text-align: center;
-}
-.sticky-col {
-    position: sticky;
-    left: 0;
-    z-index: 2;
-    background: rgb(15, 23, 42);
-}
-.deposit-table tbody td.sticky-col {
-    background: #e8eefc;
-    color: #22304a;
-}
-.deposit-table thead .sticky-col {
-    background: rgba(43, 63, 92, 0.32);
-    color: #2f3747;
-}
-.section-head td {
-    background: rgba(37, 99, 235, 0.25);
-    font-weight: 700;
-    border-top: 2px solid rgba(96, 165, 250, 0.9);
-}
-.metric-name {
-    font-weight: 600;
-    color: #22304a;
 }
 .metric-section-title {
     text-align: center;
@@ -163,14 +119,21 @@ async def show_deposit_page(host: str) -> None:
     render_metric_cards(report, currency_unit=currency_unit)
     daily_amount_figure = build_daily_deposit_amount_figure(report, currency_unit=currency_unit)
     qty_aov_figure = build_daily_deposit_qty_aov_figure(report, currency_unit=currency_unit)
+    deposit_method_pie_figure = build_deposit_method_pie_figure(report, currency_unit=currency_unit)
     top_campaign_figure = build_top_campaign_deposit_figure(report, currency_unit=currency_unit)
-    for figure, height in [(daily_amount_figure, 420), (qty_aov_figure, 420), (top_campaign_figure, 480)]:
+    for figure, height in [(daily_amount_figure, 420), (qty_aov_figure, 420), (deposit_method_pie_figure, 320), (top_campaign_figure, 480)]:
         figure.update_layout(height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
     for column, figure in zip(st.columns(2, gap="small"), [daily_amount_figure, qty_aov_figure]):
         with column:
             with st.container(border=True):
                 st.plotly_chart(figure, width="stretch")
+    table_col, chart_col = st.columns(2, gap="small")
+    with table_col:
+        with st.container(border=True):
+            render_deposit_method_table(report, currency_unit=currency_unit, height=320)
+    with chart_col:
+        with st.container(border=True):
+            st.plotly_chart(deposit_method_pie_figure, width="stretch")
     with st.container(border=True):
         st.plotly_chart(top_campaign_figure, width="stretch")
-    render_report_table(report, currency_unit=currency_unit)

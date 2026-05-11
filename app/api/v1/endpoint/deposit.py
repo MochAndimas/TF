@@ -77,7 +77,7 @@ async def deposit_daily_report(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
-    """Generate daily deposit cross-tab report payload.
+    """Generate daily deposit report payload.
 
     Args:
         start_date (date): Inclusive start date from query parameters.
@@ -88,8 +88,8 @@ async def deposit_daily_report(
         current_user (TfUser): Authenticated user resolved from access token.
 
     Returns:
-        JSONResponse: Success payload containing report metadata and
-        aggregated daily deposit table structure.
+        JSONResponse: Success payload containing report metadata, summary
+        metrics, and chart-ready deposit aggregates.
 
     Raises:
         HTTPException: ``400`` for invalid input/date validation errors.

@@ -46,6 +46,7 @@ class RemarketingDepositData:
                 DataMsDeposit.user_status.label("user_status"),
                 DataMsDeposit.email.label("email"),
                 DataMsDeposit.last_depo_amount.label("deposit_amount"),
+                DataMsDeposit.time_to_closing.label("time_to_closing"),
             )
             .join(DataMsDeposit.campaign)
             .filter(
@@ -64,6 +65,7 @@ class RemarketingDepositData:
             "user_status",
             "email",
             "deposit_amount",
+            "time_to_closing",
         ]
         if not rows:
             return pd.DataFrame(columns=columns)
@@ -182,7 +184,9 @@ class RemarketingDepositData:
         if base_df.empty:
             return {
                 "timeline": timeline,
-                "sections": [],
+                "daily_metrics": [],
+                "campaign_totals": [],
+                "deposit_method_summary": self._build_deposit_method_summary(dataframe=base_df),
                 "campaign_type": campaign_type or "all",
                 "summary": await self._summary_with_growth(campaign_type=campaign_type),
             }
@@ -197,7 +201,9 @@ class RemarketingDepositData:
         if base_df.empty:
             return {
                 "timeline": timeline,
-                "sections": [],
+                "daily_metrics": [],
+                "campaign_totals": [],
+                "deposit_method_summary": self._build_deposit_method_summary(dataframe=base_df),
                 "campaign_type": campaign_type or "all",
                 "summary": await self._summary_with_growth(campaign_type=campaign_type),
             }
@@ -215,69 +221,20 @@ class RemarketingDepositData:
         )
         merged = amount_agg.merge(qty_agg, on=["tanggal_regis", "user_status"], how="outer").fillna(0)
 
-        sections: list[dict[str, object]] = [
-            self._build_section_payload(
-                title="TOTAL",
-                campaign_id="TOTAL",
-                campaign_name="TOTAL",
-                dates=dates,
-                dataframe=merged,
-            )
-        ]
-
-        campaign_meta = (
-            base_df[["campaign_id", "campaign_name"]]
-            .drop_duplicates()
-            .sort_values(["campaign_name", "campaign_id"])
-        )
-        for _, meta_row in campaign_meta.iterrows():
-            campaign_id = str(meta_row["campaign_id"])
-            campaign_name = str(meta_row["campaign_name"])
-            campaign_positive = positive_df.loc[positive_df["campaign_id"] == campaign_id].copy()
-            if campaign_positive.empty:
-                campaign_merged = pd.DataFrame(columns=["tanggal_regis", "user_status", "depo_amount", "qty"])
-            else:
-                campaign_amount = (
-                    campaign_positive.groupby(["report_date", "user_status"], as_index=False)["deposit_amount"]
-                    .sum()
-                    .rename(columns={"report_date": "tanggal_regis", "deposit_amount": "depo_amount"})
-                )
-                campaign_qty = (
-                    campaign_positive.groupby(["report_date", "user_status"], as_index=False)["email"]
-                    .nunique()
-                    .rename(columns={"report_date": "tanggal_regis", "email": "qty"})
-                )
-                campaign_merged = campaign_amount.merge(
-                    campaign_qty,
-                    on=["tanggal_regis", "user_status"],
-                    how="outer",
-                ).fillna(0)
-
-            sections.append(
-                self._build_section_payload(
-                    title=campaign_name,
-                    campaign_id=campaign_id,
-                    campaign_name=campaign_name,
-                    dates=dates,
-                    dataframe=campaign_merged,
-                )
-            )
-
         return {
             "timeline": timeline,
-            "sections": sections,
+            "daily_metrics": self._build_daily_metrics_payload(dates=dates, dataframe=merged),
+            "campaign_totals": self._build_campaign_totals_payload(dataframe=positive_df),
+            "deposit_method_summary": self._build_deposit_method_summary(dataframe=positive_df),
             "campaign_type": campaign_type or "all",
             "summary": await self._summary_with_growth(campaign_type=campaign_type),
         }
 
-    def _build_section_payload(
+    def _build_daily_metrics_payload(
         self,
-        title: str,
-        campaign_id: str,
-        campaign_name: str,
         dates: list[date],
         dataframe: pd.DataFrame,
-    ) -> dict[str, object]:
+    ) -> list[dict[str, object]]:
         metric_map = self._empty_metric_map(dates)
         if not dataframe.empty:
             for _, row in dataframe.iterrows():
@@ -291,13 +248,92 @@ class RemarketingDepositData:
                 metric_map["qty"][day_key][status_key] = int(qty)
                 metric_map["aov"][day_key][status_key] = round(amount / qty, 2) if qty else 0.0
 
-        return {
-            "title": title,
-            "campaign_id": campaign_id,
-            "campaign_name": campaign_name,
-            "rows": [
-                {"metric": "Remarketing Deposit Amount ($)", "key": "depo_amount", "values": metric_map["depo_amount"]},
-                {"metric": "Jumlah Depo (Qty)", "key": "qty", "values": metric_map["qty"]},
-                {"metric": "AOV ($)", "key": "aov", "values": metric_map["aov"]},
-            ],
+        return [
+            {
+                "date": day.isoformat(),
+                "depo_amount": metric_map["depo_amount"][day.isoformat()],
+                "qty": metric_map["qty"][day.isoformat()],
+                "aov": metric_map["aov"][day.isoformat()],
+            }
+            for day in dates
+        ]
+
+    def _build_campaign_totals_payload(self, dataframe: pd.DataFrame) -> list[dict[str, object]]:
+        if dataframe.empty:
+            return []
+
+        amount = (
+            dataframe.groupby(["campaign_id", "campaign_name", "user_status"], as_index=False)["deposit_amount"]
+            .sum()
+            .rename(columns={"deposit_amount": "depo_amount"})
+        )
+        qty = (
+            dataframe.groupby(["campaign_id", "campaign_name", "user_status"], as_index=False)["email"]
+            .nunique()
+            .rename(columns={"email": "qty"})
+        )
+        merged = amount.merge(qty, on=["campaign_id", "campaign_name", "user_status"], how="outer").fillna(0)
+        campaigns: dict[str, dict[str, object]] = {}
+        for _, row in merged.iterrows():
+            campaign_id = str(row["campaign_id"])
+            status_key = str(row["user_status"]).strip().lower()
+            if status_key not in {"new", "existing"}:
+                continue
+            campaign = campaigns.setdefault(
+                campaign_id,
+                {
+                    "campaign_id": campaign_id,
+                    "campaign_name": str(row["campaign_name"]),
+                    "depo_amount": {"new": 0.0, "existing": 0.0},
+                    "qty": {"new": 0, "existing": 0},
+                    "aov": {"new": 0.0, "existing": 0.0},
+                },
+            )
+            amount_value = float(row.get("depo_amount", 0) or 0)
+            qty_value = float(row.get("qty", 0) or 0)
+            campaign["depo_amount"][status_key] = round(amount_value, 2)
+            campaign["qty"][status_key] = int(qty_value)
+            campaign["aov"][status_key] = round(amount_value / qty_value, 2) if qty_value else 0.0
+        return sorted(campaigns.values(), key=lambda item: str(item["campaign_name"]))
+
+    def _build_deposit_method_summary(self, dataframe: pd.DataFrame) -> list[dict[str, object]]:
+        method_order = ["close_with_consultant", "straight_to_deposit"]
+        labels = {
+            "close_with_consultant": "Close with Consultant",
+            "straight_to_deposit": "Straight to Deposit",
         }
+        base = {
+            method: {
+                "method": labels[method],
+                "key": method,
+                "deposit_qty": 0,
+                "share_pct": 0.0,
+                "deposit_amount": 0.0,
+                "average_deposit": 0.0,
+            }
+            for method in method_order
+        }
+        if dataframe.empty:
+            return [base[method] for method in method_order]
+
+        grouped_df = dataframe.copy()
+        grouped_df["deposit_method"] = grouped_df["time_to_closing"].fillna("").astype(str).str.strip().apply(
+            lambda value: "straight_to_deposit" if value.startswith("-") else "close_with_consultant"
+        )
+        grouped_df["deposit_amount"] = pd.to_numeric(grouped_df["deposit_amount"], errors="coerce").fillna(0.0)
+        grouped = (
+            grouped_df.groupby("deposit_method", as_index=False)
+            .agg(deposit_qty=("email", "nunique"), deposit_amount=("deposit_amount", "sum"))
+        )
+        total_qty = int(grouped["deposit_qty"].sum()) if not grouped.empty else 0
+        for _, row in grouped.iterrows():
+            method = str(row["deposit_method"])
+            if method not in base:
+                continue
+            qty = int(row.get("deposit_qty", 0) or 0)
+            amount = float(row.get("deposit_amount", 0) or 0)
+            base[method]["deposit_qty"] = qty
+            base[method]["share_pct"] = round((qty / total_qty) * 100, 2) if total_qty else 0.0
+            base[method]["deposit_amount"] = round(amount, 2)
+            base[method]["average_deposit"] = round(amount / qty, 2) if qty else 0.0
+        return [base[method] for method in method_order]

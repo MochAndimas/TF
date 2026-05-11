@@ -26,7 +26,7 @@ async def fetch_deposit_daily_overview_payload(
 
     Returns:
         dict[str, object]: Response-ready payload containing normalized date
-        boundaries and fully aggregated report structure.
+        boundaries and chart-ready report aggregates.
     """
     return {
         "start_date": start_date.isoformat(),
