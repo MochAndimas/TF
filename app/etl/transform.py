@@ -204,7 +204,7 @@ def parse_ga4_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
 
 
 def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
-    """Parse daily registration sheet rows into a normalized dataframe."""
+    """Parse raw registration rows into daily campaign registration totals."""
     if not raw_rows:
         return pd.DataFrame()
     if len(raw_rows) < 2:
@@ -212,26 +212,36 @@ def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
 
     headers = normalize_columns(raw_rows[0])
     df = pd.DataFrame(raw_rows[1:], columns=headers)
-    required_columns = ["period", "campaignid", "total_regis"]
+    date_column = "tanggal_regis" if "tanggal_regis" in df.columns else "tgl_regis"
+    campaign_column = "campaign_id" if "campaign_id" in df.columns else "campaignid"
+    required_columns = [date_column, campaign_column, "id", "tag"]
     missing_columns = [column for column in required_columns if column not in df.columns]
     if missing_columns:
         raise ValueError(f"Missing columns in daily register sheet: {missing_columns}")
 
+    df = df[df["tag"].fillna("").astype(str).str.contains("CP1", case=False, na=False)].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["date", "campaign_id", "total_regis"])
+
     parsed = pd.DataFrame(
         {
-            "date": pd.to_datetime(df["period"], errors="coerce").dt.date,
-            "campaign_id": df["campaignid"].fillna("").astype(str).str.strip(),
-            "total_regis": pd.to_numeric(df["total_regis"], errors="coerce").fillna(0),
+            "date": pd.to_datetime(df[date_column], errors="coerce").dt.date,
+            "campaign_id": df[campaign_column].fillna("").astype(str).str.strip(),
+            "id": df["id"].fillna("").astype(str).str.strip(),
         }
     )
     parsed["campaign_id"] = parsed["campaign_id"].replace({"": "-", "0": "-"})
-    parsed["total_regis"] = parsed["total_regis"].astype(int)
-    parsed = parsed[parsed["date"].notna()].copy()
+    parsed = parsed[(parsed["date"].notna()) & (parsed["id"] != "")].copy()
+    if parsed.empty:
+        return pd.DataFrame(columns=["date", "campaign_id", "total_regis"])
+
     parsed = (
-        parsed.groupby(["date", "campaign_id"], as_index=False)["total_regis"]
-        .sum()
+        parsed.groupby(["date", "campaign_id"], as_index=False)["id"]
+        .nunique()
+        .rename(columns={"id": "total_regis"})
         .sort_values(["date", "campaign_id"])
     )
+    parsed["total_regis"] = parsed["total_regis"].astype(int)
     return parsed
 
 

@@ -56,12 +56,12 @@ class ExternalApiExtractor:
         ).strip()
         self.daily_regis_sheet_id = config(
             "DAILY_REGIS_SHEET_ID",
-            default="1FwFSa_S9kKA9KdRCxklvpBVG3XaHmNj5ybgKu8jP4Hw",
+            default="1avonZ9znYOExrqPUMpQJsRC8LA2MjbVPFTfmCoapA4g",
             cast=str,
         ).strip()
         self.daily_regis_sheet_range = config(
             "DAILY_REGIS_SHEET_RANGE",
-            default="Data!A:C",
+            default="'RAW Regis'!A:G",
             cast=str,
         ).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
