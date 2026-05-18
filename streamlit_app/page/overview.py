@@ -251,7 +251,6 @@ async def show_overview_page(host: str) -> None:
                 st.plotly_chart(figure, width="stretch")
 
     st.markdown('<div class="metric-section-title">Cost to Revenue</div>', unsafe_allow_html=True)
-    cost_to_revenue_currency_unit = render_currency_toggle("overview_cost_to_revenue_currency_unit")
     cost_to_revenue_options = {
         "User Acquisition": {
             "key": "user_acquisition",
@@ -269,8 +268,10 @@ async def show_overview_page(host: str) -> None:
             "revenue_label": "Overall Revenue",
         },
     }
-    selector_left, selector_mid, selector_right = st.columns([2, 2, 2], gap="small")
-    with selector_mid:
+    control_left, control_right = st.columns([1, 1], gap="small")
+    with control_left:
+        cost_to_revenue_currency_unit = render_currency_toggle("overview_cost_to_revenue_currency_unit")
+    with control_right:
         selected_cost_to_revenue_label = st.selectbox("Cost to Revenue Type", options=list(cost_to_revenue_options.keys()), index=0, key="overview_cost_to_revenue_type")
     selected_cost_to_revenue = cost_to_revenue_options[selected_cost_to_revenue_label]
     cost_to_revenue_modes = leads_data.get("cost_to_revenue_modes", {})
