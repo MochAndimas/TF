@@ -213,7 +213,7 @@ async def show_overview_page(host: str) -> None:
 
     leads_data = st.session_state.get("overview_leads_payload", {}).get("data", {})
     st.markdown('<div class="metric-section-title">Overall Performance Campaign User Acquisition</div>', unsafe_allow_html=True)
-    leads_currency_unit = render_currency_toggle("overview_leads_currency_unit")
+    leads_currency_unit = "IDR"
     render_overview_leads_metric_cards(st, leads_data.get("metrics_with_growth", {}), currency_unit=leads_currency_unit)
 
     leads_by_source = leads_data.get("leads_by_source", {})
@@ -251,6 +251,7 @@ async def show_overview_page(host: str) -> None:
                 st.plotly_chart(figure, width="stretch")
 
     st.markdown('<div class="metric-section-title">Cost to Revenue</div>', unsafe_allow_html=True)
+    cost_to_revenue_currency_unit = render_currency_toggle("overview_cost_to_revenue_currency_unit")
     cost_to_revenue_options = {
         "User Acquisition": {
             "key": "user_acquisition",
@@ -278,13 +279,13 @@ async def show_overview_page(host: str) -> None:
     render_overview_cost_to_revenue_metric_cards(
         st,
         selected_cost_to_revenue_metrics,
-        currency_unit=leads_currency_unit,
+        currency_unit=cost_to_revenue_currency_unit,
         cost_label=selected_cost_to_revenue["cost_label"],
         revenue_label=selected_cost_to_revenue["revenue_label"],
     )
 
     cost_to_revenue_rows = (selected_cost_to_revenue_payload.get("chart") or leads_data.get("cost_to_revenue_chart", {})).get("rows", [])
-    cost_vs_deposit_figure = set_transparent_chart_background(build_cost_vs_deposit_figure(rows=cost_to_revenue_rows, currency_unit=leads_currency_unit, revenue_label=selected_cost_to_revenue["revenue_label"]))
+    cost_vs_deposit_figure = set_transparent_chart_background(build_cost_vs_deposit_figure(rows=cost_to_revenue_rows, currency_unit=cost_to_revenue_currency_unit, revenue_label=selected_cost_to_revenue["revenue_label"]))
     cost_to_deposit_ratio_figure = set_transparent_chart_background(build_cost_to_deposit_ratio_figure(rows=cost_to_revenue_rows, revenue_label=selected_cost_to_revenue["revenue_label"]))
     cost_vs_deposit_figure.update_layout(height=460)
     cost_to_deposit_ratio_figure.update_layout(height=460)
