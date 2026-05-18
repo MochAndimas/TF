@@ -16,13 +16,7 @@ def set_transparent_chart_background(figure):
 
 
 def render_currency_toggle(key: str) -> str:
-    left, mid, right = st.columns([2.2, 2.6, 2.2], gap="small")
-    with mid:
-        label_col, control_col = st.columns([1.1, 2.2], gap="small")
-        with label_col:
-            st.markdown('<div style="font-size:0.98rem;font-weight:600;padding-top:0.15rem;text-align:right;">Currency</div>', unsafe_allow_html=True)
-        with control_col:
-            return st.radio("Currency", options=["IDR", "USD"], horizontal=True, key=key, label_visibility="collapsed")
+    return st.radio("Currency", options=["IDR", "USD"], horizontal=True, key=key)
 
 
 def convert_idr_to_usd(value: float | int) -> float:
