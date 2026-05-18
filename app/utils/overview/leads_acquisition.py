@@ -143,11 +143,11 @@ class OverviewLeadsAcquisitionData:
         dataframe["revenue"] = pd.to_numeric(dataframe["revenue"], errors="coerce").fillna(0.0)
         return dataframe
 
-    async def _read_remarketing_revenue_with_range(self, from_date: date, to_date: date, ad_type: str = "remarketing") -> pd.DataFrame:
+    async def _read_remarketing_revenue_with_range(self, from_date: date, to_date: date) -> pd.DataFrame:
         query = (
             select(DataMsDeposit.last_activity.label("date"), func.sum(DataMsDeposit.last_depo_amount).label("revenue"))
             .join(DataMsDeposit.campaign)
-            .where(DataMsDeposit.last_activity.between(from_date, to_date), DataMsDeposit.last_depo.between(from_date, to_date), Campaign.ad_type == ad_type, DataMsDeposit.last_depo_amount.is_not(None), DataMsDeposit.last_depo_amount > 0)
+            .where(DataMsDeposit.last_activity.between(from_date, to_date), DataMsDeposit.last_depo.between(from_date, to_date), DataMsDeposit.last_depo_amount.is_not(None), DataMsDeposit.last_depo_amount > 0)
             .group_by(DataMsDeposit.last_activity)
             .order_by(DataMsDeposit.last_activity.asc())
         )
