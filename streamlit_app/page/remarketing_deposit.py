@@ -13,7 +13,11 @@ from streamlit_app.page.deposit_components.charts import (
     build_deposit_method_pie_figure,
     build_top_campaign_deposit_figure,
 )
-from streamlit_app.page.deposit_components.rendering import render_deposit_method_table, render_metric_cards
+from streamlit_app.page.deposit_components.rendering import (
+    render_campaign_deposit_table,
+    render_deposit_method_table,
+    render_metric_cards,
+)
 
 
 async def show_remarketing_deposit_page(host: str) -> None:
@@ -145,3 +149,6 @@ async def show_remarketing_deposit_page(host: str) -> None:
             st.plotly_chart(deposit_method_pie_figure, width="stretch")
     with st.container(border=True):
         st.plotly_chart(top_campaign_figure, width="stretch")
+    st.markdown('<div class="metric-section-title">Remarketing Deposit by Campaign</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        render_campaign_deposit_table(report, currency_unit=currency_unit, height=420)

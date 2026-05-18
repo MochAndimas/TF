@@ -18,9 +18,11 @@ from streamlit_app.app_shell.navigation import (
     hide_sidebar_on_login,
     inject_navigation_style,
     render_sidebar_navigation,
+    sync_page_url_hash,
 )
 from streamlit_app.app_shell.session import (
     initialize_session_state,
+    resolve_page_from_query_params,
     resolve_host,
     resolve_public_page_from_query_params,
     restore_login_state_from_cookie,
@@ -82,6 +84,10 @@ def main() -> None:
     footer(st)
 
     public_page = resolve_public_page_from_query_params()
+    requested_page = resolve_page_from_query_params()
+    if requested_page is not None:
+        st.session_state.page = requested_page
+
     selected_page = public_page
     if st.session_state.logged_in and public_page is None:
         selected_page = render_sidebar_navigation(host=host)
@@ -91,6 +97,7 @@ def main() -> None:
 
     try:
         asyncio.run(_dispatch_page(host=host, selected_page=selected_page))
+        sync_page_url_hash(st.session_state.get("page"))
     except Exception as error:
         st.error(f"Error fetching data: {error}")
 

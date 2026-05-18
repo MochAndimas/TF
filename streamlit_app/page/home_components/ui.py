@@ -106,7 +106,7 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
     "overview": {"kicker": "Overall", "title": "Overview", "description": "High-level campaign performance across active users, ad cost, leads, and brand awareness."},
     "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, lead efficiency, source mix, and daily performance charts."},
     "brand_awareness": {"kicker": "Campaign", "title": "Brand Awareness", "description": "Track reach, impressions, CTR, CPM, CPC, and spend performance by source platform."},
-    "internal_register": {"kicker": "Campaign", "title": "Internal Register", "description": "Analyze daily register trends, campaign contribution, pacing, and source mix from internal register data."},
+    "internal_register": {"kicker": "Activity", "title": "Internal Register", "description": "Analyze daily register trends, campaign contribution, pacing, and source mix from internal register data."},
     "deposit_report": {"kicker": "Revenue", "title": "First Deposit", "description": "View daily first deposit reports, new vs existing user volume, and average order value."},
     "remarketing_deposit": {"kicker": "Revenue", "title": "Remarketing Deposit", "description": "View MS1 remarketing deposit reports by last activity and last deposit date range."},
     "update_data": {"kicker": "Settings", "title": "Update Data", "description": "Trigger ETL synchronization for campaign, GA4, or first deposit data from external sources."},
@@ -126,7 +126,7 @@ def render_hero(fullname: str) -> None:
         f"""
         <div class="tf-home-hero">
             <div class="tf-home-eyebrow">Internal Dashboard</div>
-            <h1 class="tf-home-title">Welcome back, {fullname}</h1>
+            <div class="tf-home-title">Welcome back, {fullname}</div>
             <div class="tf-home-subtitle">
                 This dashboard includes active users, ad cost, lead acquisition,
                 brand awareness, and first deposit.

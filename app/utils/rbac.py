@@ -6,7 +6,7 @@ from typing import Final
 
 from app.db.models.user import TfUser
 
-ALLOWED_ROLES: Final[set[str]] = {"superadmin", "admin", "digital_marketing", "sales"}
+ALLOWED_ROLES: Final[set[str]] = {"superadmin", "admin", "digital_marketing", "sales", "finance"}
 ROLE_CREATION_POLICY: Final[dict[str, set[str]]] = {
     "superadmin": ALLOWED_ROLES,
     "admin": {"digital_marketing", "sales"},

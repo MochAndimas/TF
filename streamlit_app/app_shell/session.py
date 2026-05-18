@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from streamlit_app.app_shell.config import PAGE_KEYS_BY_SLUG
 from streamlit_app.functions.runtime import (
     apply_auth_payload,
     clear_auth_state,
@@ -39,6 +40,14 @@ def query_param(name: str) -> str | None:
     if isinstance(value, list):
         return value[0] if value else None
     return value
+
+
+def resolve_page_from_query_params() -> str | None:
+    """Resolve a normal dashboard page from the URL page slug."""
+    slug = query_param("page")
+    if not slug:
+        return None
+    return PAGE_KEYS_BY_SLUG.get(slug.strip().lower())
 
 
 def resolve_public_page_from_query_params() -> str | None:

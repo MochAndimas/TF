@@ -35,6 +35,22 @@ PAGE_LABELS: dict[str, str] = {
     "meta_ads_token": "Meta Ads Token",
 }
 
+PAGE_SLUGS: dict[str, str] = {
+    "home": "home",
+    "overview": "overview",
+    "user_acquisition": "user-acquisition",
+    "brand_awareness": "brand-awareness",
+    "internal_register": "internal-register",
+    "deposit_report": "first-deposit",
+    "remarketing_deposit": "remarketing-deposit",
+    "register": "create-account",
+    "update_data": "update-data",
+    "google_ads_token": "google-ads-token",
+    "meta_ads_token": "meta-ads-token",
+}
+
+PAGE_KEYS_BY_SLUG: dict[str, str] = {slug: page_key for page_key, slug in PAGE_SLUGS.items()}
+
 PAGE_BUTTON_TYPES: dict[str, str] = {
     "home": "secondary",
     "overview": "tertiary",
@@ -53,7 +69,8 @@ NAV_GROUPS: dict[str, list[str]] = {
     "Portal": ["home"],
     "Overall": ["overview"],
     "Revenue": ["deposit_report", "remarketing_deposit"],
-    "Campaign": ["user_acquisition", "brand_awareness", "internal_register"],
+    "Campaign": ["user_acquisition", "brand_awareness"],
+    "Activity": ["internal_register"],
     "Settings": ["register", "update_data", "google_ads_token", "meta_ads_token"],
 }
 
@@ -61,6 +78,7 @@ ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit", "register", "update_data", "google_ads_token", "meta_ads_token"],
     "admin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit"],
     "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register"],
+    "finance": ["overview", "deposit_report", "remarketing_deposit"],
 }
 
 PAGE_HANDLERS: dict[str, PageHandler] = {

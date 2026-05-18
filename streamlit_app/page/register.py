@@ -7,7 +7,7 @@ Traders Family application.
 import streamlit as st
 
 from streamlit_app.functions.account_modals import add_account_modal, edit_account_modal
-from streamlit_app.functions.accounts import get_accounts
+from streamlit_app.functions.accounts import ROLE_OPTIONS, format_role_label, get_accounts
 
 
 TABLE_STYLE = """
@@ -86,16 +86,19 @@ def _render_stats(users) -> None:
     total_users = len(users)
     admin_users = len(users[users["role"] == "admin"])
     superadmin_users = len(users[users["role"] == "superadmin"])
+    finance_users = len(users[users["role"] == "finance"])
     staff_users = len(users[users["role"].isin(["digital_marketing", "sales"])])
 
-    col1, col2, col3, col4 = st.columns(4, gap="small")
+    col1, col2, col3, col4, col5 = st.columns(5, gap="small")
     with col1:
         st.metric("Total Accounts", total_users)
     with col2:
         st.metric("Super Admin", superadmin_users)
     with col3:
-        st.metric("Admin", admin_users)
+        st.metric("Analyst", admin_users)
     with col4:
+        st.metric("Finance", finance_users)
+    with col5:
         st.metric("Staff", staff_users)
 
 
@@ -118,7 +121,7 @@ def _filter_users(users):
     with role_col:
         role_filter = st.selectbox(
             "Role Filter",
-            options=["All", "superadmin", "admin", "digital_marketing", "sales"],
+            options=["All", *ROLE_OPTIONS.keys()],
             index=0,
         )
 
@@ -131,7 +134,7 @@ def _filter_users(users):
         ]
 
     if role_filter != "All":
-        filtered = filtered[filtered["role"] == role_filter]
+        filtered = filtered[filtered["role"] == ROLE_OPTIONS[role_filter]]
 
     return filtered
 
@@ -155,7 +158,7 @@ def _render_account_rows(host: str, token, users) -> None:
         col_email, col_fullname, col_role, col_action = st.columns([4, 3, 3, 3], vertical_alignment="center")
         col_email.markdown(f'<div class="header-text">{user.email}</div>', unsafe_allow_html=True)
         col_fullname.markdown(f'<div class="header-text">{user.fullname}</div>', unsafe_allow_html=True)
-        col_role.markdown(f'<div class="header-text">{user.role}</div>', unsafe_allow_html=True)
+        col_role.markdown(f'<div class="header-text">{format_role_label(user.role)}</div>', unsafe_allow_html=True)
 
         with col_action:
             if st.button("Manage", key=f"manage_{user.user_id}", type="primary"):

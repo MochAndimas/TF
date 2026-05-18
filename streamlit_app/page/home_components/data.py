@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from streamlit_app.functions.api import fetch_data
+from streamlit_app.functions.accounts import format_role_label
 
 
 def format_datetime(value: datetime | None) -> str:
@@ -16,13 +17,7 @@ def format_datetime(value: datetime | None) -> str:
 
 def role_label(role: str | None) -> str:
     """Map stored role codes into friendlier labels for the portal UI."""
-    labels = {
-        "superadmin": "Super Admin",
-        "admin": "Admin",
-        "digital_marketing": "Digital Marketing",
-        "sales": "Sales",
-    }
-    return labels.get(role or "", role or "-")
+    return format_role_label(role)
 
 
 async def load_home_context(host: str) -> dict[str, object]:

@@ -258,7 +258,6 @@ def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, obj
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
     primary_cards = [("Cost", "cost"), ("Impressions", "impressions"), ("Clicks", "clicks"), ("Leads", "leads"), ("Cost/Leads", "cost_leads")]
-    secondary_cards = [("First Deposit", "first_deposit"), ("Cost to First Deposit", "cost_to_first_deposit")]
 
     for column, (label, key) in zip(st_module.columns(5, gap="small"), primary_cards):
         with column:
@@ -289,11 +288,24 @@ def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, obj
                 else:
                     st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value))
 
-    for column, (label, key) in zip(st_module.columns(2, gap="small"), secondary_cards):
+
+def render_overview_cost_to_revenue_metric_cards(
+    st_module,
+    summary_payload: dict[str, object],
+    currency_unit: str = "IDR",
+    *,
+    cost_label: str = "Cost",
+    revenue_label: str = "Revenue",
+) -> None:
+    current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
+    growth_metrics = summary_payload.get("growth_percentage", {})
+    cards = [(cost_label, "cost_to_revenue_cost"), (revenue_label, "revenue"), (f"Cost to {revenue_label}", "cost_to_revenue_pct")]
+
+    for column, (label, key) in zip(st_module.columns(3, gap="small"), cards):
         with column:
             with st_module.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
-                if key == "first_deposit":
+                if key in {"cost_to_revenue_cost", "revenue"}:
                     if currency_unit == "USD":
                         converted_value = _campaign_convert_idr_to_usd(raw_value)
                         metric_value = _campaign_format_usd(converted_value, compact=True)

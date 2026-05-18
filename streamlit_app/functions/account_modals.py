@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import streamlit as st
 
-from streamlit_app.functions.accounts import is_valid_email
+from streamlit_app.functions.accounts import ROLE_OPTIONS, format_role_label, is_valid_email
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -58,14 +58,7 @@ def add_account_modal(host, token):
         password = st.text_input("Password", type="password", width="stretch")
         confirm_password = st.text_input("Confirm Password", type="password", width="stretch")
 
-        role_options = {
-            "Super Admin": "superadmin",
-            "Admin": "admin",
-            "Digital Marketing": "digital_marketing",
-            "Sales": "sales",
-        }
-
-        role = st.selectbox("Role", list(role_options.keys()))
+        role = st.selectbox("Role", list(ROLE_OPTIONS.keys()))
         submit = st.form_submit_button("Create Account")
 
         if submit:
@@ -82,7 +75,7 @@ def add_account_modal(host, token):
                                 json={
                                     "fullname": fullname,
                                     "email": email,
-                                    "role": role_options[role],
+                                    "role": ROLE_OPTIONS[role],
                                     "password": password,
                                     "confirm_password": confirm_password,
                                 },
@@ -110,14 +103,8 @@ def edit_account_modal(host, user, token):
     with st.form("edit", border=False, clear_on_submit=True):
         fullname = st.text_input("Fullname", placeholder=user.fullname, width="stretch")
         email = st.text_input("Email", placeholder=user.email, width="stretch")
-        role_options = {
-            "": "",
-            "Super Admin": "superadmin",
-            "Admin": "admin",
-            "Digital Marketing": "digital_marketing",
-            "Sales": "sales",
-        }
-        role = st.selectbox("Role", placeholder=user.role, options=list(role_options.keys()))
+        role_options = {"": "", **ROLE_OPTIONS}
+        role = st.selectbox("Role", placeholder=format_role_label(user.role), options=list(role_options.keys()))
         submit = st.form_submit_button("Edit")
 
         if submit:

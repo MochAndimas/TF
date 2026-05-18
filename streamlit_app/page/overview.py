@@ -11,6 +11,7 @@ from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import (
     render_brand_awareness_metric_cards,
+    render_overview_cost_to_revenue_metric_cards,
     render_overview_cost_metric_cards,
     render_overview_leads_metric_cards,
     render_overview_metric_cards,
@@ -74,6 +75,7 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
     should_fetch_leads = (
         "overview_leads_payload" not in st.session_state
         or not _has_metric(cached_leads_payload, "data", "metrics_with_growth", "current_period", "metrics", "cost_leads")
+        or not _has_metric(cached_leads_payload, "data", "cost_to_revenue_modes", "user_acquisition", "metrics_with_growth", "current_period", "metrics", "cost_to_revenue_cost")
         or st.session_state.get("overview_leads_range") != selected_range
     )
     should_fetch_brand = (
@@ -248,9 +250,42 @@ async def show_overview_page(host: str) -> None:
             with st.container(border=True):
                 st.plotly_chart(figure, width="stretch")
 
-    cost_to_revenue_rows = leads_data.get("cost_to_revenue_chart", {}).get("rows", [])
-    cost_vs_deposit_figure = set_transparent_chart_background(build_cost_vs_deposit_figure(rows=cost_to_revenue_rows, currency_unit=leads_currency_unit))
-    cost_to_deposit_ratio_figure = set_transparent_chart_background(build_cost_to_deposit_ratio_figure(rows=cost_to_revenue_rows))
+    st.markdown('<div class="metric-section-title">Cost to Revenue</div>', unsafe_allow_html=True)
+    cost_to_revenue_options = {
+        "User Acquisition": {
+            "key": "user_acquisition",
+            "cost_label": "User Acquisition Cost",
+            "revenue_label": "First Deposit",
+        },
+        "Remarketing": {
+            "key": "remarketing",
+            "cost_label": "Remarketing Cost",
+            "revenue_label": "Remarketing Deposit",
+        },
+        "Overall": {
+            "key": "overall",
+            "cost_label": "Overall Cost",
+            "revenue_label": "Overall Revenue",
+        },
+    }
+    selector_left, selector_mid, selector_right = st.columns([2, 2, 2], gap="small")
+    with selector_mid:
+        selected_cost_to_revenue_label = st.selectbox("Cost to Revenue Type", options=list(cost_to_revenue_options.keys()), index=0, key="overview_cost_to_revenue_type")
+    selected_cost_to_revenue = cost_to_revenue_options[selected_cost_to_revenue_label]
+    cost_to_revenue_modes = leads_data.get("cost_to_revenue_modes", {})
+    selected_cost_to_revenue_payload = cost_to_revenue_modes.get(selected_cost_to_revenue["key"], {})
+    selected_cost_to_revenue_metrics = selected_cost_to_revenue_payload.get("metrics_with_growth") or leads_data.get("metrics_with_growth", {})
+    render_overview_cost_to_revenue_metric_cards(
+        st,
+        selected_cost_to_revenue_metrics,
+        currency_unit=leads_currency_unit,
+        cost_label=selected_cost_to_revenue["cost_label"],
+        revenue_label=selected_cost_to_revenue["revenue_label"],
+    )
+
+    cost_to_revenue_rows = (selected_cost_to_revenue_payload.get("chart") or leads_data.get("cost_to_revenue_chart", {})).get("rows", [])
+    cost_vs_deposit_figure = set_transparent_chart_background(build_cost_vs_deposit_figure(rows=cost_to_revenue_rows, currency_unit=leads_currency_unit, revenue_label=selected_cost_to_revenue["revenue_label"]))
+    cost_to_deposit_ratio_figure = set_transparent_chart_background(build_cost_to_deposit_ratio_figure(rows=cost_to_revenue_rows, revenue_label=selected_cost_to_revenue["revenue_label"]))
     cost_vs_deposit_figure.update_layout(height=460)
     cost_to_deposit_ratio_figure.update_layout(height=460)
     for column, figure in zip(st.columns(2, gap="small"), [cost_vs_deposit_figure, cost_to_deposit_ratio_figure]):

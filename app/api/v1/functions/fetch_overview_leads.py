@@ -33,12 +33,14 @@ async def fetch_overview_leads_acquisition_payload(
         cost_vs_leads,
         leads_per_day,
         cost_to_revenue,
+        cost_to_revenue_modes,
     ) = await asyncio.gather(
         leads_data.metrics_with_growth(from_date=start_date, to_date=end_date),
         leads_data.leads_by_source(from_date=start_date, to_date=end_date),
         leads_data.cost_vs_leads_chart(from_date=start_date, to_date=end_date),
         leads_data.leads_per_day_chart(from_date=start_date, to_date=end_date),
         leads_data.cost_to_revenue_chart(from_date=start_date, to_date=end_date),
+        leads_data.cost_to_revenue_modes_payload(from_date=start_date, to_date=end_date),
     )
     return {
         "start_date": start_date.isoformat(),
@@ -48,4 +50,5 @@ async def fetch_overview_leads_acquisition_payload(
         "cost_vs_leads_chart": cost_vs_leads,
         "leads_per_day_chart": leads_per_day,
         "cost_to_revenue_chart": cost_to_revenue,
+        "cost_to_revenue_modes": cost_to_revenue_modes,
     }

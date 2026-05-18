@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-
 import streamlit as st
 from streamlit.components.v1 import html
 
-from streamlit_app.app_shell.config import NAV_GROUPS, PAGE_BUTTON_TYPES, PAGE_LABELS, ROLE_PAGE_ACCESS
+from streamlit_app.app_shell.config import NAV_GROUPS, PAGE_BUTTON_TYPES, PAGE_LABELS, PAGE_SLUGS, ROLE_PAGE_ACCESS
 from streamlit_app.app_shell.session import resolve_public_page_from_query_params
 from streamlit_app.functions.api import logout
 
@@ -86,6 +85,36 @@ def hide_sidebar_on_login() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def sync_page_url_hash(page_key: str | None) -> None:
+    """Keep the browser URL aligned with the selected page."""
+    if not page_key:
+        return
+
+    slug = PAGE_SLUGS.get(page_key)
+    if not slug:
+        return
+
+    script = """
+        <script>
+        const desiredPage = "__PAGE_SLUG__";
+        const url = new URL(window.parent.location.href);
+        let changed = false;
+        if (url.searchParams.get("page") !== desiredPage) {
+          url.searchParams.set("page", desiredPage);
+          changed = true;
+        }
+        if (url.hash) {
+          url.hash = "";
+          changed = true;
+        }
+        if (changed) {
+          window.parent.history.replaceState(null, "", url.toString());
+        }
+        </script>
+        """
+    html(script.replace("__PAGE_SLUG__", slug), height=0, width=0)
 
 
 def allowed_pages_for_role(role: str | None) -> list[str]:
