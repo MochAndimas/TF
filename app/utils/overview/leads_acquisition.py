@@ -217,7 +217,7 @@ class OverviewLeadsAcquisitionData:
         ads_df = await self._ads_for_range(from_date, to_date)
         if ads_df.empty:
             figure = go.Figure()
-            figure.update_layout(title="Leads by Source", showlegend=False, annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title="Register by Source", showlegend=False, annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
             chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
             return {"table_rows": [], "pie_chart": {"rows": [], "figure": json.loads(chart_json)}}
         grouped = ads_df.groupby("source", as_index=False)[["cost", "impressions", "clicks", "leads"]].sum().sort_values("leads", ascending=False)
@@ -227,8 +227,8 @@ class OverviewLeadsAcquisitionData:
         table_rows = [{"source": str(row["source"]).title(), "cost": float(row["cost"]), "impressions": int(row["impressions"]), "clicks": int(row["clicks"]), "leads": int(row["leads"]), "cost_per_lead": float(row["cost_per_lead"]), "leads_share_pct": float(row["leads_share_pct"])} for _, row in grouped.iterrows()]
         labels = [str(value).title() for value in grouped["source"].tolist()]
         values = [float(value) for value in grouped["leads"].tolist()]
-        pie_figure = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.38, textinfo="label+percent", hovertemplate="<b>%{label}</b><br>Leads: %{value:,}<extra></extra>")])
-        pie_figure.update_layout(title="Leads by Source", showlegend=False, margin=dict(l=24, r=24, t=56, b=24))
+        pie_figure = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.38, textinfo="label+percent", hovertemplate="<b>%{label}</b><br>Register: %{value:,}<extra></extra>")])
+        pie_figure.update_layout(title="Register by Source", showlegend=False, margin=dict(l=24, r=24, t=56, b=24))
         pie_json = await asyncio.to_thread(json.dumps, pie_figure, cls=plotly.utils.PlotlyJSONEncoder)
         return {"table_rows": table_rows, "pie_chart": {"rows": [{"label": label, "leads": float(value)} for label, value in zip(labels, values)], "figure": json.loads(pie_json)}}
 
@@ -238,8 +238,8 @@ class OverviewLeadsAcquisitionData:
         daily["cost_leads"] = daily.apply(lambda row: round(float(row["cost"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0, axis=1)
         figure = go.Figure()
         figure.add_trace(go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["cost"], errors="coerce").fillna(0).tolist(), name="Cost", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Cost: Rp. %{y:,.0f}<extra></extra>"))
-        figure.add_trace(go.Scatter(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["cost_leads"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="Cost/Lead", yaxis="y2", line=dict(color="#ff6248", width=2), hovertemplate="<b>%{x}</b><br>Cost/Lead: Rp. %{y:,.0f}<extra></extra>"))
-        figure.update_layout(title="Cost per Leads (Cost & Cost/Lead)", xaxis=dict(type="category"), yaxis=dict(title="Cost"), yaxis2=dict(title="Cost/Lead", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
+        figure.add_trace(go.Scatter(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["cost_leads"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="Cost/Register", yaxis="y2", line=dict(color="#ff6248", width=2), hovertemplate="<b>%{x}</b><br>Cost/Register: Rp. %{y:,.0f}<extra></extra>"))
+        figure.update_layout(title="Cost per Register (Cost & Cost/Register)", xaxis=dict(type="category"), yaxis=dict(title="Cost"), yaxis2=dict(title="Cost/Register", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"]), "leads": int(row["leads"]), "cost_leads": float(row["cost_leads"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}
@@ -247,8 +247,8 @@ class OverviewLeadsAcquisitionData:
     async def leads_per_day_chart(self, from_date: date, to_date: date) -> dict[str, object]:
         ads_df = await self._ads_for_range(from_date, to_date)
         daily = self._daily_totals_frame(ads_df, from_date, to_date)
-        figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["leads"], errors="coerce").fillna(0).tolist(), name="Leads", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Leads: %{y:,}<extra></extra>")])
-        figure.update_layout(title="Leads per Day", xaxis=dict(type="category"), yaxis=dict(title="Leads"))
+        figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["leads"], errors="coerce").fillna(0).tolist(), name="Register", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Register: %{y:,}<extra></extra>")])
+        figure.update_layout(title="Register per Day", xaxis=dict(type="category"), yaxis=dict(title="Register"))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "leads": int(row["leads"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}

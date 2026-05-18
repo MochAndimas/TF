@@ -24,7 +24,7 @@ class UserAcquisitionCampaignMixin:
         source_label = data.strip().replace("_", " ").title()
         if details.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"{source_label} Spend vs Leads", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title=f"{source_label} Spend vs Register", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
             rows: list[dict[str, object]] = []
         else:
             marker_sizes = (pd.to_numeric(details["clicks"], errors="coerce").fillna(0) / 40).clip(lower=8, upper=30)
@@ -37,11 +37,11 @@ class UserAcquisitionCampaignMixin:
                         text=details["dimension_name"].astype(str),
                         marker=dict(size=marker_sizes, color=details["ctr_pct"].astype(float), colorscale="Viridis", showscale=True, colorbar=dict(title="CTR %"), line=dict(width=1)),
                         customdata=details[["clicks", "ctr_pct"]].to_numpy(),
-                        hovertemplate="<b>%{text}</b><br>Spend: Rp %{x:,.0f}<br>Leads: %{y:,}<br>Clicks: %{customdata[0]:,.0f}<br>CTR: %{customdata[1]:,.2f}%<extra></extra>",
+                        hovertemplate="<b>%{text}</b><br>Spend: Rp %{x:,.0f}<br>Register: %{y:,}<br>Clicks: %{customdata[0]:,.0f}<br>CTR: %{customdata[1]:,.2f}%<extra></extra>",
                     )
                 ]
             )
-            figure.update_layout(title=f"{source_label} Spend vs Leads", xaxis_title="Spend (Rp)", yaxis_title="Leads")
+            figure.update_layout(title=f"{source_label} Spend vs Register", xaxis_title="Spend (Rp)", yaxis_title="Register")
             rows = await asyncio.to_thread(lambda: details.to_dict(orient="records"))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
@@ -61,13 +61,13 @@ class UserAcquisitionCampaignMixin:
         source_label = data.strip().replace("_", " ").title()
         if details.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"Top {top_n} {source_label} by Leads", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title=f"Top {top_n} {source_label} by Register", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
             rows: list[dict[str, object]] = []
         else:
             ranked = details.sort_values("leads", ascending=False).head(top_n).copy().sort_values("leads", ascending=True)
             ranked["short_label"] = ranked["dimension_name"].astype(str).apply(lambda value: value if len(value) <= 38 else f"{value[:35]}...")
-            figure = go.Figure(data=[go.Bar(x=ranked["leads"], y=ranked["short_label"], orientation="h", text=[f"{int(value):,}" for value in ranked["leads"]], textposition="auto", customdata=ranked["spend"], hovertemplate="<b>%{y}</b><br>Leads: %{x:,}<br>Spend: Rp %{customdata:,.0f}<extra></extra>")])
-            figure.update_layout(title=f"Top {top_n} {source_label} by Leads", xaxis_title="Leads", yaxis_title="")
+            figure = go.Figure(data=[go.Bar(x=ranked["leads"], y=ranked["short_label"], orientation="h", text=[f"{int(value):,}" for value in ranked["leads"]], textposition="auto", customdata=ranked["spend"], hovertemplate="<b>%{y}</b><br>Register: %{x:,}<br>Spend: Rp %{customdata:,.0f}<extra></extra>")])
+            figure.update_layout(title=f"Top {top_n} {source_label} by Register", xaxis_title="Register", yaxis_title="")
             rows = await asyncio.to_thread(lambda: ranked.to_dict(orient="records"))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
@@ -122,7 +122,7 @@ class UserAcquisitionCampaignMixin:
 
         daily = await self._user_acquisition_daily_dimension_dataframe(data=data, dimension=dimension, from_date=start_date, to_date=end_date)
         source_label = data.strip().replace("_", " ").title()
-        metric_title = {"cost_per_lead": "Cost per Lead", "click_per_lead": "Click per Lead", "click_through_lead": "Click Through Lead"}[metric_key]
+        metric_title = {"cost_per_lead": "Cost per Register", "click_per_lead": "Click per Register", "click_through_lead": "Click Through Register"}[metric_key]
         if daily.empty:
             figure = go.Figure()
             figure.update_layout(title=f"{source_label} {metric_title} Trend", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
@@ -172,7 +172,7 @@ class UserAcquisitionCampaignMixin:
         source_label = data.strip().replace("_", " ").title()
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"{source_label} Cumulative Leads vs Spend ({dimension.replace('_', ' ').title()})", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title=f"{source_label} Cumulative Register vs Spend ({dimension.replace('_', ' ').title()})", annotations=[{"text": "No campaign data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
             rows: list[dict[str, object]] = []
         else:
             daily["cost"] = pd.to_numeric(daily["cost"], errors="coerce").fillna(0)
@@ -189,8 +189,8 @@ class UserAcquisitionCampaignMixin:
                 short_label = str(dimension_name)
                 if len(short_label) > 30:
                     short_label = f"{short_label[:27]}..."
-                figure.add_trace(go.Scatter(x=subset["cumulative_cost"], y=subset["cumulative_leads"], mode="lines+markers", name=short_label, hovertemplate="<b>%{fullData.name}</b><br>Cum Spend: Rp %{x:,.0f}<br>Cum Leads: %{y:,.0f}<extra></extra>"))
-            figure.update_layout(title=f"{source_label} Cumulative Leads vs Spend ({dimension.replace('_', ' ').title()})", xaxis_title="Cumulative Spend", yaxis_title="Cumulative Leads", legend=dict(orientation="h", y=1.12, x=0))
+                figure.add_trace(go.Scatter(x=subset["cumulative_cost"], y=subset["cumulative_leads"], mode="lines+markers", name=short_label, hovertemplate="<b>%{fullData.name}</b><br>Cum Spend: Rp %{x:,.0f}<br>Cum Register: %{y:,.0f}<extra></extra>"))
+            figure.update_layout(title=f"{source_label} Cumulative Register vs Spend ({dimension.replace('_', ' ').title()})", xaxis_title="Cumulative Spend", yaxis_title="Cumulative Register", legend=dict(orientation="h", y=1.12, x=0))
             serializable = selected.copy()
             serializable["date"] = pd.to_datetime(serializable["date"]).dt.date.astype(str)
             rows = await asyncio.to_thread(lambda: serializable.to_dict(orient="records"))
@@ -227,8 +227,8 @@ class UserAcquisitionCampaignMixin:
                 short_label = str(dimension_name)
                 if len(short_label) > 30:
                     short_label = f"{short_label[:27]}..."
-                figure.add_trace(go.Bar(x=date_labels, y=mix[dimension_name], name=short_label, hovertemplate="<b>%{x}</b><br>Leads: %{y:,}<extra></extra>"))
-            figure.update_layout(title=f"{source_label} Daily Mix ({dimension.replace('_', ' ').title()})", xaxis_title="Date", yaxis_title="Leads", barmode="stack", xaxis=dict(type="category"), legend=dict(orientation="h", y=1.12, x=0))
+                figure.add_trace(go.Bar(x=date_labels, y=mix[dimension_name], name=short_label, hovertemplate="<b>%{x}</b><br>Register: %{y:,}<extra></extra>"))
+            figure.update_layout(title=f"{source_label} Daily Mix ({dimension.replace('_', ' ').title()})", xaxis_title="Date", yaxis_title="Register", barmode="stack", xaxis=dict(type="category"), legend=dict(orientation="h", y=1.12, x=0))
             serializable = mix.copy()
             serializable["date"] = pd.to_datetime(serializable["date"]).dt.date.astype(str)
             rows = await asyncio.to_thread(lambda: serializable.to_dict(orient="records"))
@@ -246,15 +246,15 @@ class UserAcquisitionCampaignMixin:
         source_label = data.strip().title()
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"Cost To Leads - {source_label}", annotations=[{"text": "No leads data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title=f"Cost To Register - {source_label}", annotations=[{"text": "No register data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         else:
             date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()
             cost_values = pd.to_numeric(daily["cost"], errors="coerce").fillna(0).tolist()
             cpl_values = pd.to_numeric(daily["cost_leads"], errors="coerce").fillna(0).tolist()
             figure = go.Figure()
             figure.add_trace(go.Bar(x=date_labels, y=cost_values, name="Cost", text=[f"Rp. {float(value):,.0f}" for value in cost_values], textposition="auto", hovertemplate="<b>%{x}</b><br>Cost: Rp. %{y:,.0f}<extra></extra>"))
-            figure.add_trace(go.Scatter(x=date_labels, y=cpl_values, mode="lines+markers", name="Cost Per Leads", yaxis="y2", hovertemplate="<b>%{x}</b><br>Cost/Leads: %{y:,.2f}<extra></extra>"))
-            figure.update_layout(title=f"Cost To Leads - {source_label}", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Cost"), yaxis2=dict(title="Cost To Leads", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
+            figure.add_trace(go.Scatter(x=date_labels, y=cpl_values, mode="lines+markers", name="Cost Per Register", yaxis="y2", hovertemplate="<b>%{x}</b><br>Cost/Register: %{y:,.2f}<extra></extra>"))
+            figure.update_layout(title=f"Cost To Register - {source_label}", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Cost"), yaxis2=dict(title="Cost To Register", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)
@@ -269,11 +269,11 @@ class UserAcquisitionCampaignMixin:
         source_label = data.strip().title()
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"Leads By Periods - {source_label}", annotations=[{"text": "No leads data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title=f"Register By Periods - {source_label}", annotations=[{"text": "No register data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         else:
             leads_values = pd.to_numeric(daily["leads"], errors="coerce").fillna(0).astype(int).tolist()
-            figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=leads_values, name="Leads", text=leads_values, textposition="auto", hovertemplate="<b>%{x}</b><br>Leads: %{y:,}<extra></extra>")])
-            figure.update_layout(title=f"Leads By Periods - {source_label}", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Total Leads"), legend=dict(orientation="h", y=1.1, x=0))
+            figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=leads_values, name="Register", text=leads_values, textposition="auto", hovertemplate="<b>%{x}</b><br>Register: %{y:,}<extra></extra>")])
+            figure.update_layout(title=f"Register By Periods - {source_label}", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Total Register"), legend=dict(orientation="h", y=1.1, x=0))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)
@@ -288,14 +288,14 @@ class UserAcquisitionCampaignMixin:
         source_label = data.strip().title()
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"Clicks To Leads - {source_label}", annotations=[{"text": "No leads data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(title=f"Clicks To Register - {source_label}", annotations=[{"text": "No register data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         else:
             click_values = pd.to_numeric(daily["clicks"], errors="coerce").fillna(0).tolist()
             cpl_values = pd.to_numeric(daily["clicks_leads"], errors="coerce").fillna(0).tolist()
             figure = go.Figure()
             figure.add_trace(go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=click_values, name="Clicks", text=[f"{int(float(value)):,}" for value in click_values], textposition="auto", hovertemplate="<b>%{x}</b><br>Clicks: %{y:,}<extra></extra>"))
-            figure.add_trace(go.Scatter(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=cpl_values, mode="lines+markers", name="Clicks Per Leads", yaxis="y2", hovertemplate="<b>%{x}</b><br>Clicks/Leads: %{y:,.2f}<extra></extra>"))
-            figure.update_layout(title=f"Clicks To Leads - {source_label}", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Clicks"), yaxis2=dict(title="Clicks To Leads", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
+            figure.add_trace(go.Scatter(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=cpl_values, mode="lines+markers", name="Clicks Per Register", yaxis="y2", hovertemplate="<b>%{x}</b><br>Clicks/Register: %{y:,.2f}<extra></extra>"))
+            figure.update_layout(title=f"Clicks To Register - {source_label}", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Clicks"), yaxis2=dict(title="Clicks To Register", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)

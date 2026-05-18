@@ -117,8 +117,8 @@ def render_campaign_metric_cards(st_module, source_metrics: dict[str, object], s
         ("Cost Spend", "cost"),
         ("Impressions", "impressions"),
         ("Clicks", "clicks"),
-        ("Leads", "leads"),
-        ("Cost/Leads", "cost_leads"),
+        ("Register", "leads"),
+        ("Cost/Register", "cost_leads"),
     ]
 
     for column, (label, key) in zip(st_module.columns(5, gap="small"), cards):
@@ -257,7 +257,7 @@ def render_overview_cost_metric_cards(st_module, summary_payload: dict[str, obje
 def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, object], currency_unit: str = "IDR") -> None:
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
-    primary_cards = [("Cost", "cost"), ("Impressions", "impressions"), ("Clicks", "clicks"), ("Leads", "leads"), ("Cost/Leads", "cost_leads")]
+    primary_cards = [("Cost", "cost"), ("Impressions", "impressions"), ("Clicks", "clicks"), ("Register", "leads"), ("Cost/Register", "cost_leads")]
 
     for column, (label, key) in zip(st_module.columns(5, gap="small"), primary_cards):
         with column:

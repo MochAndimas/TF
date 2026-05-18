@@ -20,7 +20,11 @@ def build_performance_dataframe(detail_rows: list[dict], level_column: str) -> p
         details_df[column] = pd.to_numeric(details_df.get(column, 0), errors="coerce").fillna(0)
     details_df[level_column] = details_df.get(level_column, "N/A").fillna("N/A").replace("", "N/A")
     details_df["campaign_source"] = details_df.get("campaign_source", "N/A").fillna("N/A").replace("", "N/A")
-    grouped = details_df.groupby(["campaign_source", level_column], as_index=False)[["spend", "impressions", "clicks"]].sum().sort_values("spend", ascending=False)
+    group_columns = ["campaign_source", level_column]
+    if level_column == "campaign_id":
+        details_df["campaign_name"] = details_df.get("campaign_name", "N/A").fillna("N/A").replace("", "N/A")
+        group_columns.append("campaign_name")
+    grouped = details_df.groupby(group_columns, as_index=False)[["spend", "impressions", "clicks"]].sum().sort_values("spend", ascending=False)
     grouped["ctr"] = grouped.apply(lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2) if float(row["impressions"]) else 0.0, axis=1)
     grouped["cpm"] = grouped.apply(lambda row: round((float(row["spend"]) / float(row["impressions"])) * 1000, 2) if float(row["impressions"]) else 0.0, axis=1)
     grouped["cpc"] = grouped.apply(lambda row: round(float(row["spend"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0, axis=1)
@@ -34,6 +38,8 @@ def format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFra
     formatted = df.copy()
     if level_label in formatted.columns:
         formatted[level_label] = formatted[level_label].astype(str).apply(lambda value: textwrap.fill(value, width=46, break_long_words=False))
+    if "Campaign Name" in formatted.columns:
+        formatted["Campaign Name"] = formatted["Campaign Name"].astype(str).apply(lambda value: textwrap.fill(value, width=42, break_long_words=False))
     for col in ("Cost", "CPM", "CPC"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"Rp {float(v):,.0f}")
@@ -58,8 +64,11 @@ def build_performance_table(detail_rows: list[dict]):
     if performance_df.empty:
         return selected_level, None, None, None
 
-    display_df = performance_df.rename(columns={"campaign_source": "Ads Source", level_column: level_label, "spend": "Cost", "impressions": "Impressions", "clicks": "Clicks", "ctr": "CTR", "cpm": "CPM", "cpc": "CPC"})
-    display_columns = ["Ads Source", level_label, "Cost", "Impressions", "Clicks", "CTR", "CPM", "CPC"]
+    display_df = performance_df.rename(columns={"campaign_source": "Ads Source", level_column: level_label, "campaign_name": "Campaign Name", "spend": "Cost", "impressions": "Impressions", "clicks": "Clicks", "ctr": "CTR", "cpm": "CPM", "cpc": "CPC"})
+    display_columns = ["Ads Source", level_label]
+    if level_column == "campaign_id":
+        display_columns.append("Campaign Name")
+    display_columns += ["Cost", "Impressions", "Clicks", "CTR", "CPM", "CPC"]
     display_df = display_df[[column for column in display_columns if column in display_df.columns]]
     display_df = format_performance_display(display_df, level_label)
 
@@ -76,10 +85,11 @@ def render_performance_table(level_label: str, display_df: pd.DataFrame) -> None
             display_df,
             width="stretch",
             hide_index=True,
-            row_height=58,
+            row_height=76,
             column_config={
                 "Ads Source": st.column_config.TextColumn("Ads Source", width="small"),
-                level_label: st.column_config.TextColumn(level_label, width="large"),
+                level_label: st.column_config.TextColumn(level_label, width="small" if level_label == "Campaign ID" else "large"),
+                "Campaign Name": st.column_config.TextColumn("Campaign Name", width="medium"),
                 "Cost": st.column_config.TextColumn("Cost", width="small"),
                 "Impressions": st.column_config.TextColumn("Impressions", width="small"),
                 "Clicks": st.column_config.TextColumn("Clicks", width="small"),

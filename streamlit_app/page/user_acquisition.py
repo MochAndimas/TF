@@ -54,9 +54,9 @@ async def show_user_acquisition_page(host: str) -> None:
 
     selected_charts = overview_data.get("leads_performance_charts", {}).get(selected_key, {})
     chart_specs = [
-        ("cost_to_leads", f"Cost To Leads - {selected_source}", 430),
-        ("clicks_to_leads", f"Clicks To Leads - {selected_source}", 430),
-        ("leads_by_periods", f"Leads By Periods - {selected_source}", 430),
+        ("cost_to_leads", f"Cost To Register - {selected_source}", 430),
+        ("clicks_to_leads", f"Clicks To Register - {selected_source}", 430),
+        ("leads_by_periods", f"Register By Periods - {selected_source}", 430),
     ]
     figures = []
     for key, title, height in chart_specs:
@@ -79,9 +79,9 @@ async def show_user_acquisition_page(host: str) -> None:
     ua_insight_charts = overview_data.get("ua_insight_charts", {})
     ratio_trends_payload = ua_insight_charts.get("ratio_trends", {}).get(selected_key, {}).get(level_column, {})
     trend_specs = [
-        ("cost_per_lead", f"{selected_source} Cost per Lead Trend"),
-        ("click_per_lead", f"{selected_source} Click per Lead Trend"),
-        ("click_through_lead", f"{selected_source} Click Through Lead Trend"),
+        ("cost_per_lead", f"{selected_source} Cost per Register Trend"),
+        ("click_per_lead", f"{selected_source} Click per Register Trend"),
+        ("click_through_lead", f"{selected_source} Click Through Register Trend"),
     ]
     st.markdown("### Campaign Insights")
     trend_figures = []
@@ -98,13 +98,13 @@ async def show_user_acquisition_page(host: str) -> None:
     scatter_figure = set_transparent_chart_background(
         campaign_figure_from_payload(
             ua_insight_charts.get("spend_vs_leads", {}).get(selected_key, {}).get(level_column, {}).get("figure"),
-            f"{selected_source} Spend vs Leads",
+            f"{selected_source} Spend vs Register",
         )
     )
     top_n_figure = set_transparent_chart_background(
         campaign_figure_from_payload(
             ua_insight_charts.get("top_leads", {}).get(selected_key, {}).get(level_column, {}).get("figure"),
-            f"Top {top_n} {selected_source} by Leads",
+            f"Top {top_n} {selected_source} by Register",
         )
     )
     scatter_figure.update_layout(height=430)
@@ -118,13 +118,13 @@ async def show_user_acquisition_page(host: str) -> None:
     cumulative_figure = set_transparent_chart_background(
         campaign_figure_from_payload(
             ua_insight_charts.get("cumulative", {}).get(selected_key, {}).get(level_column, {}).get("figure"),
-            f"{selected_source} Cumulative Leads vs Spend",
+            f"{selected_source} Cumulative Register vs Spend",
         )
     )
     daily_mix_figure = set_transparent_chart_background(
         campaign_figure_from_payload(
             ua_insight_charts.get("daily_mix", {}).get(selected_key, {}).get(level_column, {}).get("figure"),
-            "Daily Mix (UA Leads by Source)",
+            "Daily Mix (UA Register by Source)",
         )
     )
     cumulative_figure.update_layout(height=430)

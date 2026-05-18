@@ -39,13 +39,13 @@ def apply_currency_to_ua_table(leads_table_df: pd.DataFrame, currency_unit: str)
     formatted = leads_table_df.copy()
     if currency_unit == "USD":
         formatted["Cost"] = formatted["Cost"].apply(lambda value: format_currency_value(convert_idr_to_usd(value), "USD"))
-        formatted["Cost/Lead"] = formatted["Cost/Lead"].apply(lambda value: format_currency_value(convert_idr_to_usd(value), "USD"))
+        formatted["Cost/Register"] = formatted["Cost/Register"].apply(lambda value: format_currency_value(convert_idr_to_usd(value), "USD"))
     else:
         formatted["Cost"] = formatted["Cost"].apply(lambda value: format_currency_value(value, "IDR"))
-        formatted["Cost/Lead"] = formatted["Cost/Lead"].apply(lambda value: format_currency_value(value, "IDR"))
+        formatted["Cost/Register"] = formatted["Cost/Register"].apply(lambda value: format_currency_value(value, "IDR"))
     formatted["Impressions"] = formatted["Impressions"].apply(lambda value: f"{int(value):,}")
     formatted["Clicks"] = formatted["Clicks"].apply(lambda value: f"{int(value):,}")
-    formatted["Leads"] = formatted["Leads"].apply(lambda value: f"{int(value):,}")
+    formatted["Register"] = formatted["Register"].apply(lambda value: f"{int(value):,}")
     return formatted
 
 
@@ -59,10 +59,10 @@ def apply_currency_to_ua_figure(figure: go.Figure, chart_type: str, currency_uni
         cost_trace.y = [convert_idr_to_usd(value) for value in (cost_trace.y or [])]
         cpl_trace.y = [convert_idr_to_usd(value) for value in (cpl_trace.y or [])]
         cost_trace.name = "Cost (USD)"
-        cpl_trace.name = "Cost/Lead (USD)"
+        cpl_trace.name = "Cost/Register (USD)"
         cost_trace.hovertemplate = "<b>%{x}</b><br>Cost: $ %{y:,.2f}<extra></extra>"
-        cpl_trace.hovertemplate = "<b>%{x}</b><br>Cost/Lead: $ %{y:,.2f}<extra></extra>"
-        figure.update_layout(yaxis=dict(title="Cost (USD)"), yaxis2=dict(title="Cost/Lead (USD)"))
+        cpl_trace.hovertemplate = "<b>%{x}</b><br>Cost/Register: $ %{y:,.2f}<extra></extra>"
+        figure.update_layout(yaxis=dict(title="Cost (USD)"), yaxis2=dict(title="Cost/Register (USD)"))
         return figure
 
     if chart_type == "cost_to_revenue":

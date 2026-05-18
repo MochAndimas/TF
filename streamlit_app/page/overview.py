@@ -115,7 +115,7 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         st.session_state["overview_cost_range"] = selected_range
     if should_fetch_leads:
         if not isinstance(response_leads, dict) or not response_leads.get("success", False):
-            st.error((response_leads or {}).get("detail") or (response_leads or {}).get("message") or "Failed to fetch overview leads acquisition.")
+            st.error((response_leads or {}).get("detail") or (response_leads or {}).get("message") or "Failed to fetch overview register acquisition.")
             return False
         st.session_state["overview_leads_payload"] = response_leads
         st.session_state["overview_leads_range"] = selected_range
@@ -219,31 +219,31 @@ async def show_overview_page(host: str) -> None:
     leads_by_source = leads_data.get("leads_by_source", {})
     leads_table_df = pd.DataFrame(leads_by_source.get("table_rows", []))
     if not leads_table_df.empty:
-        leads_table_df = leads_table_df.rename(columns={"source": "Source", "cost": "Cost", "impressions": "Impressions", "clicks": "Clicks", "leads": "Leads", "cost_per_lead": "Cost/Lead"})
-        desired_columns = ["Source", "Cost", "Impressions", "Clicks", "Leads", "Cost/Lead"]
+        leads_table_df = leads_table_df.rename(columns={"source": "Source", "cost": "Cost", "impressions": "Impressions", "clicks": "Clicks", "leads": "Register", "cost_per_lead": "Cost/Register"})
+        desired_columns = ["Source", "Cost", "Impressions", "Clicks", "Register", "Cost/Register"]
         leads_table_df = leads_table_df[[column for column in desired_columns if column in leads_table_df.columns]]
-        for column_name in ("Cost", "Impressions", "Clicks", "Leads", "Cost/Lead"):
+        for column_name in ("Cost", "Impressions", "Clicks", "Register", "Cost/Register"):
             leads_table_df[column_name] = pd.to_numeric(leads_table_df[column_name], errors="coerce").fillna(0)
         leads_table_df = apply_currency_to_ua_table(leads_table_df, leads_currency_unit)
 
-    leads_pie_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_by_source.get("pie_chart", {}).get("figure"), "Leads by Source"))
+    leads_pie_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_by_source.get("pie_chart", {}).get("figure"), "Register by Source"))
     leads_pie_figure.update_layout(height=430)
     leads_source_left, leads_source_right = st.columns(2, gap="small")
     with leads_source_left:
         with st.container(border=True):
-            st.markdown("### Leads by Source Table")
+            st.markdown("### Register by Source Table")
             if leads_table_df.empty:
-                st.info("No leads source data for selected period.")
+                st.info("No register source data for selected period.")
             else:
                 st.dataframe(leads_table_df, width="stretch", hide_index=True, height=380)
     with leads_source_right:
         with st.container(border=True):
             st.plotly_chart(leads_pie_figure, width="stretch")
 
-    cost_vs_leads_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("cost_vs_leads_chart", {}).get("figure"), "Cost per Leads (Cost & Cost/Lead)"))
+    cost_vs_leads_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("cost_vs_leads_chart", {}).get("figure"), "Cost per Register (Cost & Cost/Register)"))
     cost_vs_leads_figure = apply_currency_to_ua_figure(cost_vs_leads_figure, chart_type="cost_vs_leads", currency_unit=leads_currency_unit)
     cost_vs_leads_figure.update_layout(height=430)
-    leads_per_day_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("leads_per_day_chart", {}).get("figure"), "Leads per Day"))
+    leads_per_day_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("leads_per_day_chart", {}).get("figure"), "Register per Day"))
     leads_per_day_figure.update_layout(height=430)
     for column, figure in zip(st.columns(2, gap="small"), [cost_vs_leads_figure, leads_per_day_figure]):
         with column:
@@ -268,9 +268,11 @@ async def show_overview_page(host: str) -> None:
             "revenue_label": "Overall Revenue",
         },
     }
-    control_left, control_right = st.columns([1, 1], gap="small")
+    _, control_left, control_right, _ = st.columns([1, 0.75, 1.15, 1], gap="small")
     with control_left:
-        cost_to_revenue_currency_unit = render_currency_toggle("overview_cost_to_revenue_currency_unit")
+        _, currency_column = st.columns([0.2, 0.8], gap="small")
+        with currency_column:
+            cost_to_revenue_currency_unit = render_currency_toggle("overview_cost_to_revenue_currency_unit")
     with control_right:
         selected_cost_to_revenue_label = st.selectbox("Cost to Revenue Type", options=list(cost_to_revenue_options.keys()), index=0, key="overview_cost_to_revenue_type")
     selected_cost_to_revenue = cost_to_revenue_options[selected_cost_to_revenue_label]

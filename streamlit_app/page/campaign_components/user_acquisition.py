@@ -21,7 +21,11 @@ def build_performance_dataframe(detail_rows: list[dict], level_column: str) -> p
     details_df[level_column] = details_df.get(level_column, "N/A").fillna("N/A").replace("", "N/A")
     details_df["campaign_source"] = details_df.get("campaign_source", "N/A").fillna("N/A").replace("", "N/A")
 
-    grouped = details_df.groupby(["campaign_source", level_column], as_index=False)[["spend", "impressions", "clicks", "leads"]].sum().sort_values("spend", ascending=False)
+    group_columns = ["campaign_source", level_column]
+    if level_column == "campaign_id":
+        details_df["campaign_name"] = details_df.get("campaign_name", "N/A").fillna("N/A").replace("", "N/A")
+        group_columns.append("campaign_name")
+    grouped = details_df.groupby(group_columns, as_index=False)[["spend", "impressions", "clicks", "leads"]].sum().sort_values("spend", ascending=False)
     grouped["avg_click_to_leads_pct"] = grouped.apply(lambda row: round((float(row["leads"]) / float(row["clicks"])) * 100, 2) if float(row["clicks"]) else 0.0, axis=1)
     grouped["avg_ctr_pct"] = grouped.apply(lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2) if float(row["impressions"]) else 0.0, axis=1)
     grouped["cpc"] = grouped.apply(lambda row: round(float(row["spend"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0, axis=1)
@@ -37,14 +41,16 @@ def format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFra
     formatted = df.copy()
     if level_label in formatted.columns:
         formatted[level_label] = formatted[level_label].astype(str).apply(lambda value: textwrap.fill(value, width=46, break_long_words=False))
+    if "Campaign Name" in formatted.columns:
+        formatted["Campaign Name"] = formatted["Campaign Name"].astype(str).apply(lambda value: textwrap.fill(value, width=42, break_long_words=False))
 
-    for col in ("Cost", "CPC", "CPM", "Cost/Leads", "Cost per Leads"):
+    for col in ("Cost", "CPC", "CPM", "Cost/Register", "Cost per Register"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"Rp {float(v):,.0f}")
-    for col in ("Impressions", "Clicks", "Leads"):
+    for col in ("Impressions", "Clicks", "Register"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"{int(float(v)):,}")
-    for col in ("Click->Leads %", "Avg. Click to Leads", "Avg. CTR"):
+    for col in ("Click->Register %", "Avg. Click to Register", "Avg. CTR"):
         if col in formatted.columns:
             formatted[col] = formatted[col].apply(lambda v: f"{float(v):,.2f}%")
     return formatted
@@ -67,18 +73,22 @@ def build_performance_table(detail_rows: list[dict]):
         columns={
             "campaign_source": "Ads Source",
             level_column: level_label,
+            "campaign_name": "Campaign Name",
             "spend": "Cost",
             "impressions": "Impressions",
             "clicks": "Clicks",
-            "leads": "Leads",
-            "avg_click_to_leads_pct": "Click->Leads %",
+            "leads": "Register",
+            "avg_click_to_leads_pct": "Click->Register %",
             "avg_ctr_pct": "Avg. CTR",
             "cpc": "CPC",
             "cpm": "CPM",
-            "cost_per_leads": "Cost/Leads",
+            "cost_per_leads": "Cost/Register",
         }
     )
-    display_columns = ["Ads Source", level_label, "Cost", "Impressions", "Clicks", "Leads", "Click->Leads %", "Avg. CTR", "CPC", "CPM", "Cost/Leads"]
+    display_columns = ["Ads Source", level_label]
+    if level_column == "campaign_id":
+        display_columns.append("Campaign Name")
+    display_columns += ["Cost", "Impressions", "Clicks", "Register", "Click->Register %", "Avg. CTR", "CPC", "CPM", "Cost/Register"]
     display_df = display_df[[column for column in display_columns if column in display_df.columns]]
     display_df = format_performance_display(display_df, level_label)
 
@@ -95,18 +105,19 @@ def render_performance_table(level_label: str, display_df: pd.DataFrame) -> None
             display_df,
             width="stretch",
             hide_index=True,
-            row_height=58,
+            row_height=76,
             column_config={
                 "Ads Source": st.column_config.TextColumn("Ads Source", width="small"),
-                level_label: st.column_config.TextColumn(level_label, width="large"),
+                level_label: st.column_config.TextColumn(level_label, width="small" if level_label == "Campaign ID" else "large"),
+                "Campaign Name": st.column_config.TextColumn("Campaign Name", width="medium"),
                 "Cost": st.column_config.TextColumn("Cost", width="small"),
                 "Impressions": st.column_config.TextColumn("Impressions", width="small"),
                 "Clicks": st.column_config.TextColumn("Clicks", width="small"),
-                "Leads": st.column_config.TextColumn("Leads", width="small"),
-                "Click->Leads %": st.column_config.TextColumn("Click->Leads %", width="small"),
+                "Register": st.column_config.TextColumn("Register", width="small"),
+                "Click->Register %": st.column_config.TextColumn("Click->Register %", width="small"),
                 "Avg. CTR": st.column_config.TextColumn("Avg. CTR", width="small"),
                 "CPC": st.column_config.TextColumn("CPC", width="small"),
                 "CPM": st.column_config.TextColumn("CPM", width="small"),
-                "Cost/Leads": st.column_config.TextColumn("Cost/Leads", width="medium"),
+                "Cost/Register": st.column_config.TextColumn("Cost/Register", width="medium"),
             },
         )

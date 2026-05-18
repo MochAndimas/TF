@@ -103,8 +103,8 @@ PAGE_STYLE = """
 """
 
 SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
-    "overview": {"kicker": "Overall", "title": "Overview", "description": "High-level campaign performance across active users, ad cost, leads, and brand awareness."},
-    "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, lead efficiency, source mix, and daily performance charts."},
+    "overview": {"kicker": "Overall", "title": "Overview", "description": "High-level campaign performance across active users, ad cost, register, and brand awareness."},
+    "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, register efficiency, source mix, and daily performance charts."},
     "brand_awareness": {"kicker": "Campaign", "title": "Brand Awareness", "description": "Track reach, impressions, CTR, CPM, CPC, and spend performance by source platform."},
     "internal_register": {"kicker": "Activity", "title": "Internal Register", "description": "Analyze daily register trends, campaign contribution, pacing, and source mix from internal register data."},
     "deposit_report": {"kicker": "Revenue", "title": "First Deposit", "description": "View daily first deposit reports, new vs existing user volume, and average order value."},
@@ -128,7 +128,7 @@ def render_hero(fullname: str) -> None:
             <div class="tf-home-eyebrow">Internal Dashboard</div>
             <div class="tf-home-title">Welcome back, {fullname}</div>
             <div class="tf-home-subtitle">
-                This dashboard includes active users, ad cost, lead acquisition,
+                This dashboard includes active users, ad cost, register acquisition,
                 brand awareness, and first deposit.
             </div>
         </div>
