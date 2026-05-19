@@ -199,56 +199,61 @@ async def show_overview_page(host: str) -> None:
             with st.container(border=True):
                 st.plotly_chart(figure, width="stretch")
 
-    brand_data = st.session_state.get("overview_brand_payload", {}).get("data", {})
-    st.markdown('<div class="metric-section-title">Overall Performance Campaign Brand Awareness</div>', unsafe_allow_html=True)
-    render_brand_awareness_metric_cards(st, brand_data.get("metrics_with_growth", {}), "")
-    brand_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("spend_chart", {}).get("figure"), "Brand Awareness Spend"))
-    brand_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("performance_chart", {}).get("figure"), "Brand Awareness Performance"))
-    brand_spend_figure.update_layout(height=430)
-    brand_performance_figure.update_layout(height=430)
-    for column, figure in zip(st.columns(2, gap="small"), [brand_spend_figure, brand_performance_figure]):
-        with column:
-            with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
-
     leads_data = st.session_state.get("overview_leads_payload", {}).get("data", {})
-    st.markdown('<div class="metric-section-title">Overall Performance Campaign User Acquisition</div>', unsafe_allow_html=True)
-    leads_currency_unit = "IDR"
-    render_overview_leads_metric_cards(st, leads_data.get("metrics_with_growth", {}), currency_unit=leads_currency_unit)
+    brand_data = st.session_state.get("overview_brand_payload", {}).get("data", {})
+    st.markdown('<div class="metric-section-title">Overall Performance Campaign</div>', unsafe_allow_html=True)
+    performance_options = {"User Acquisition": "user_acquisition", "Brand Awareness": "brand_awareness"}
+    _, performance_control, _ = st.columns([1.2, 1.2, 1.2], gap="small")
+    with performance_control:
+        selected_performance_label = st.selectbox("Campaign Performance Type", options=list(performance_options.keys()), index=0, key="overview_campaign_performance_type")
 
-    leads_by_source = leads_data.get("leads_by_source", {})
-    leads_table_df = pd.DataFrame(leads_by_source.get("table_rows", []))
-    if not leads_table_df.empty:
-        leads_table_df = leads_table_df.rename(columns={"source": "Source", "cost": "Cost", "impressions": "Impressions", "clicks": "Clicks", "leads": "Register", "cost_per_lead": "Cost/Register"})
-        desired_columns = ["Source", "Cost", "Impressions", "Clicks", "Register", "Cost/Register"]
-        leads_table_df = leads_table_df[[column for column in desired_columns if column in leads_table_df.columns]]
-        for column_name in ("Cost", "Impressions", "Clicks", "Register", "Cost/Register"):
-            leads_table_df[column_name] = pd.to_numeric(leads_table_df[column_name], errors="coerce").fillna(0)
-        leads_table_df = apply_currency_to_ua_table(leads_table_df, leads_currency_unit)
+    if performance_options[selected_performance_label] == "brand_awareness":
+        render_brand_awareness_metric_cards(st, brand_data.get("metrics_with_growth", {}), "")
+        brand_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("spend_chart", {}).get("figure"), "Brand Awareness Spend"))
+        brand_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("performance_chart", {}).get("figure"), "Brand Awareness Performance"))
+        brand_spend_figure.update_layout(height=430)
+        brand_performance_figure.update_layout(height=430)
+        for column, figure in zip(st.columns(2, gap="small"), [brand_spend_figure, brand_performance_figure]):
+            with column:
+                with st.container(border=True):
+                    st.plotly_chart(figure, width="stretch")
+    else:
+        leads_currency_unit = "IDR"
+        render_overview_leads_metric_cards(st, leads_data.get("metrics_with_growth", {}), currency_unit=leads_currency_unit)
 
-    leads_pie_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_by_source.get("pie_chart", {}).get("figure"), "Register by Source"))
-    leads_pie_figure.update_layout(height=430)
-    leads_source_left, leads_source_right = st.columns(2, gap="small")
-    with leads_source_left:
-        with st.container(border=True):
-            st.markdown("### Register by Source Table")
-            if leads_table_df.empty:
-                st.info("No register source data for selected period.")
-            else:
-                st.dataframe(leads_table_df, width="stretch", hide_index=True, height=380)
-    with leads_source_right:
-        with st.container(border=True):
-            st.plotly_chart(leads_pie_figure, width="stretch")
+        leads_by_source = leads_data.get("leads_by_source", {})
+        leads_table_df = pd.DataFrame(leads_by_source.get("table_rows", []))
+        if not leads_table_df.empty:
+            leads_table_df = leads_table_df.rename(columns={"source": "Source", "cost": "Cost", "impressions": "Impressions", "clicks": "Clicks", "leads": "Register", "cost_per_lead": "Cost/Register"})
+            desired_columns = ["Source", "Cost", "Impressions", "Clicks", "Register", "Cost/Register"]
+            leads_table_df = leads_table_df[[column for column in desired_columns if column in leads_table_df.columns]]
+            for column_name in ("Cost", "Impressions", "Clicks", "Register", "Cost/Register"):
+                leads_table_df[column_name] = pd.to_numeric(leads_table_df[column_name], errors="coerce").fillna(0)
+            leads_table_df = apply_currency_to_ua_table(leads_table_df, leads_currency_unit)
 
-    cost_vs_leads_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("cost_vs_leads_chart", {}).get("figure"), "Cost per Register (Cost & Cost/Register)"))
-    cost_vs_leads_figure = apply_currency_to_ua_figure(cost_vs_leads_figure, chart_type="cost_vs_leads", currency_unit=leads_currency_unit)
-    cost_vs_leads_figure.update_layout(height=430)
-    leads_per_day_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("leads_per_day_chart", {}).get("figure"), "Register per Day"))
-    leads_per_day_figure.update_layout(height=430)
-    for column, figure in zip(st.columns(2, gap="small"), [cost_vs_leads_figure, leads_per_day_figure]):
-        with column:
+        leads_pie_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_by_source.get("pie_chart", {}).get("figure"), "Register by Source"))
+        leads_pie_figure.update_layout(height=430)
+        leads_source_left, leads_source_right = st.columns(2, gap="small")
+        with leads_source_left:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                st.markdown("### Register by Source Table")
+                if leads_table_df.empty:
+                    st.info("No register source data for selected period.")
+                else:
+                    st.dataframe(leads_table_df, width="stretch", hide_index=True, height=380)
+        with leads_source_right:
+            with st.container(border=True):
+                st.plotly_chart(leads_pie_figure, width="stretch")
+
+        cost_vs_leads_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("cost_vs_leads_chart", {}).get("figure"), "Cost per Register (Cost & Cost/Register)"))
+        cost_vs_leads_figure = apply_currency_to_ua_figure(cost_vs_leads_figure, chart_type="cost_vs_leads", currency_unit=leads_currency_unit)
+        cost_vs_leads_figure.update_layout(height=430)
+        leads_per_day_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("leads_per_day_chart", {}).get("figure"), "Register per Day"))
+        leads_per_day_figure.update_layout(height=430)
+        for column, figure in zip(st.columns(2, gap="small"), [cost_vs_leads_figure, leads_per_day_figure]):
+            with column:
+                with st.container(border=True):
+                    st.plotly_chart(figure, width="stretch")
 
     st.markdown('<div class="metric-section-title">Cost to Revenue</div>', unsafe_allow_html=True)
     cost_to_revenue_options = {
