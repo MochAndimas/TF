@@ -8,6 +8,7 @@ from streamlit_app.functions.api import fetch_data
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.page.deposit import PAGE_STYLE
 from streamlit_app.page.deposit_components.charts import (
+    build_campaign_deposit_amount_heatmap_figure,
     build_daily_deposit_amount_figure,
     build_daily_deposit_qty_aov_figure,
     build_deposit_method_pie_figure,
@@ -133,7 +134,12 @@ async def show_remarketing_deposit_page(host: str) -> None:
         currency_unit=currency_unit,
         deposit_label=deposit_label,
     )
-    for figure, height in [(daily_amount_figure, 420), (qty_aov_figure, 420), (deposit_method_pie_figure, 320), (top_campaign_figure, 480)]:
+    campaign_heatmap_figure = build_campaign_deposit_amount_heatmap_figure(
+        report,
+        currency_unit=currency_unit,
+        deposit_label=deposit_label,
+    )
+    for figure, height in [(daily_amount_figure, 420), (qty_aov_figure, 420), (deposit_method_pie_figure, 320), (top_campaign_figure, 480), (campaign_heatmap_figure, 560)]:
         figure.update_layout(height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
     for column, figure in zip(st.columns(2, gap="small"), [daily_amount_figure, qty_aov_figure]):
@@ -149,6 +155,8 @@ async def show_remarketing_deposit_page(host: str) -> None:
             st.plotly_chart(deposit_method_pie_figure, width="stretch")
     with st.container(border=True):
         st.plotly_chart(top_campaign_figure, width="stretch")
+    with st.container(border=True):
+        st.plotly_chart(campaign_heatmap_figure, width="stretch")
     st.markdown('<div class="metric-section-title">Remarketing Deposit by Campaign</div>', unsafe_allow_html=True)
     with st.container(border=True):
         render_campaign_deposit_table(report, currency_unit=currency_unit, height=420)

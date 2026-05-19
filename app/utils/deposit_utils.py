@@ -293,6 +293,7 @@ class DepositData:
             return {
                 "timeline": timeline,
                 "daily_metrics": [],
+                "campaign_daily_metrics": [],
                 "campaign_totals": [],
                 "deposit_method_summary": self._build_deposit_method_summary(dataframe=base_df),
                 "campaign_type": campaign_type or "all",
@@ -310,6 +311,7 @@ class DepositData:
             return {
                 "timeline": timeline,
                 "daily_metrics": [],
+                "campaign_daily_metrics": [],
                 "campaign_totals": [],
                 "deposit_method_summary": self._build_deposit_method_summary(dataframe=base_df),
                 "campaign_type": campaign_type or "all",
@@ -336,6 +338,7 @@ class DepositData:
         return {
             "timeline": timeline,
             "daily_metrics": self._build_daily_metrics_payload(dates=dates, dataframe=merged),
+            "campaign_daily_metrics": self._build_campaign_daily_metrics_payload(dataframe=positive_df),
             "campaign_totals": self._build_campaign_totals_payload(dataframe=positive_df),
             "deposit_method_summary": self._build_deposit_method_summary(dataframe=positive_df),
             "campaign_type": campaign_type or "all",
@@ -369,6 +372,29 @@ class DepositData:
             }
             for day in dates
         ]
+
+    def _build_campaign_daily_metrics_payload(self, dataframe: pd.DataFrame) -> list[dict[str, object]]:
+        if dataframe.empty:
+            return []
+
+        daily = (
+            dataframe.groupby(["tanggal_regis", "campaign_id", "campaign_name"], as_index=False)["email"]
+            .nunique()
+            .rename(columns={"tanggal_regis": "date", "email": "qty"})
+            .sort_values(["date", "campaign_name"])
+        )
+        amount = (
+            dataframe.groupby(["tanggal_regis", "campaign_id", "campaign_name"], as_index=False)["first_depo"]
+            .sum()
+            .rename(columns={"tanggal_regis": "date", "first_depo": "depo_amount"})
+        )
+        daily = daily.merge(amount, on=["date", "campaign_id", "campaign_name"], how="left").fillna(0)
+        daily["date"] = pd.to_datetime(daily["date"]).dt.date.astype(str)
+        daily["campaign_id"] = daily["campaign_id"].astype(str)
+        daily["campaign_name"] = daily["campaign_name"].fillna("Unknown Campaign").astype(str)
+        daily["qty"] = pd.to_numeric(daily["qty"], errors="coerce").fillna(0).astype(int)
+        daily["depo_amount"] = pd.to_numeric(daily["depo_amount"], errors="coerce").fillna(0.0).round(2)
+        return daily.to_dict(orient="records")
 
     def _build_campaign_totals_payload(self, dataframe: pd.DataFrame) -> list[dict[str, object]]:
         if dataframe.empty:

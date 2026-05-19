@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 
 import pandas as pd
 import plotly.graph_objects as go
 
 from streamlit_app.page.deposit_components.formatting import currency_label, currency_multiplier, format_amount_full
+
+
+def _format_heatmap_tick(value: float, currency_unit: str) -> str:
+    abs_value = abs(float(value or 0))
+    if currency_unit == "IDR":
+        if abs_value >= 1_000_000_000:
+            return f"{value / 1_000_000_000:.1f}B"
+        if abs_value >= 1_000_000:
+            return f"{value / 1_000_000:.1f}M"
+        if abs_value >= 1_000:
+            return f"{value / 1_000:.0f}K"
+        return f"{value:.0f}"
+    if abs_value >= 1_000_000:
+        return f"{value / 1_000_000:.1f}M"
+    if abs_value >= 1_000:
+        return f"{value / 1_000:.0f}k"
+    return f"{value:.0f}"
 
 
 def extract_daily_metric_values(report: dict[str, object], metric_key: str, timeline: list[str]) -> dict[str, dict[str, float]]:
@@ -108,6 +126,91 @@ def build_top_campaign_deposit_figure(
     figure.add_trace(go.Bar(x=ranked["new_total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="New User", marker_color="#6176ff", hovertemplate=f"<b>%{{y}}</b><br>New: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
     figure.add_trace(go.Bar(x=ranked["existing_total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="Existing User", marker_color="#ff7a59", hovertemplate=f"<b>%{{y}}</b><br>Existing: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
     figure.update_layout(title=f"Top Campaign by {deposit_label} Amount", barmode="stack", xaxis=dict(title=f"{deposit_label} Amount ({currency_symbol})"), yaxis=dict(title="Campaign"), legend=dict(orientation="h", y=1.08, x=0), margin=dict(l=24, r=24, t=60, b=24))
+    return figure
+
+
+def build_campaign_deposit_amount_heatmap_figure(
+    report: dict[str, object],
+    currency_unit: str,
+    top_n: int = 12,
+    deposit_label: str = "First Deposit",
+) -> go.Figure:
+    timeline = [str(day) for day in report.get("timeline", [])]
+    rows = [row for row in report.get("campaign_daily_metrics", []) if isinstance(row, dict)]
+    if not timeline or not rows:
+        figure = go.Figure()
+        figure.update_layout(title=f"Daily {deposit_label} Amount Heatmap (Top {top_n} Campaigns)", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+        return figure
+
+    dataframe = pd.DataFrame(rows)
+    required_columns = {"date", "campaign_id", "campaign_name", "depo_amount"}
+    if dataframe.empty or not required_columns.issubset(dataframe.columns):
+        figure = go.Figure()
+        figure.update_layout(title=f"Daily {deposit_label} Amount Heatmap (Top {top_n} Campaigns)", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+        return figure
+
+    multiplier = currency_multiplier(currency_unit)
+    currency_symbol = currency_label(currency_unit)
+    decimals = ".2f" if currency_unit == "USD" else ".0f"
+    dataframe["date"] = dataframe["date"].astype(str)
+    dataframe["campaign_id"] = dataframe["campaign_id"].astype(str)
+    dataframe["campaign_name"] = dataframe["campaign_name"].fillna("Unknown Campaign").astype(str)
+    dataframe["depo_amount"] = pd.to_numeric(dataframe["depo_amount"], errors="coerce").fillna(0.0) * multiplier
+    top_campaigns = (
+        dataframe.groupby(["campaign_id", "campaign_name"], as_index=False)["depo_amount"]
+        .sum()
+        .sort_values("depo_amount", ascending=False)
+        .head(top_n)
+    )
+    selected = dataframe.loc[dataframe["campaign_id"].isin(top_campaigns["campaign_id"])].copy()
+    if selected.empty:
+        figure = go.Figure()
+        figure.update_layout(title=f"Daily {deposit_label} Amount Heatmap (Top {top_n} Campaigns)", annotations=[{"text": "No positive first deposit amount data", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+        return figure
+
+    selected["campaign_label"] = selected["campaign_name"].apply(lambda value: value if len(value) <= 42 else f"{value[:39]}...")
+    heatmap = selected.pivot_table(index="campaign_label", columns="date", values="depo_amount", aggfunc="sum", fill_value=0)
+    heatmap = heatmap.reindex(columns=timeline, fill_value=0)
+    ordered_labels = (
+        selected.groupby("campaign_label")["depo_amount"]
+        .sum()
+        .sort_values(ascending=True)
+        .index
+        .tolist()
+    )
+    heatmap = heatmap.reindex(ordered_labels)
+    date_labels = [dt.date.fromisoformat(day).strftime("%b %d\n%Y") for day in timeline]
+    amount_values = heatmap.to_numpy()
+    color_values = [[math.log1p(float(value or 0)) for value in row] for row in amount_values]
+    max_amount = float(amount_values.max() or 0) if amount_values.size else 0.0
+    tick_amounts = [0.0]
+    if max_amount > 0:
+        tick_amounts.extend([max_amount * ratio for ratio in (0.25, 0.5, 0.75, 1.0)])
+    figure = go.Figure(
+        data=[
+            go.Heatmap(
+                x=date_labels,
+                y=heatmap.index.tolist(),
+                z=color_values,
+                customdata=amount_values,
+                colorscale=[
+                    [0.0, "#0f172a"],
+                    [0.08, "#1e40af"],
+                    [0.24, "#2563eb"],
+                    [0.48, "#22c55e"],
+                    [0.72, "#facc15"],
+                    [1.0, "#f97316"],
+                ],
+                colorbar=dict(
+                    title=f"{deposit_label} Amount",
+                    tickvals=[math.log1p(value) for value in tick_amounts],
+                    ticktext=[_format_heatmap_tick(value, currency_unit) for value in tick_amounts],
+                ),
+                hovertemplate=f"<b>%{{y}}</b><br><b>%{{x}}</b><br>{deposit_label} Amount: {currency_symbol} %{{customdata:,{decimals}}}<extra></extra>",
+            )
+        ]
+    )
+    figure.update_layout(title=f"Daily {deposit_label} Amount Heatmap (Top {top_n} Campaigns)", xaxis_title="Date", yaxis_title="", xaxis=dict(type="category"), margin=dict(l=24, r=24, t=60, b=24))
     return figure
 
 
