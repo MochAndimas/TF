@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import html as html_escape
-from textwrap import dedent
-
 import pandas as pd
 import streamlit as st
-from streamlit.components.v1 import html as components_html
 
 from streamlit_app.functions.metrics import _render_hover_metric_card
 from streamlit_app.page.deposit_components.formatting import (
@@ -124,112 +120,22 @@ def render_campaign_deposit_table(report: dict[str, object], currency_unit: str,
             return f"Rp{numeric_value:,.0f}"
         return f"${numeric_value:,.2f}"
 
-    body_rows = []
-    for row in table_df.to_dict("records"):
-        body_rows.append(
-            dedent(
-                """
-            <tr>
-                <td class="tf-nowrap">{campaign_id}</td>
-                <td class="tf-wrap">{campaign_name}</td>
-                <td class="tf-number">{depo_amount}</td>
-                <td class="tf-number">{qty}</td>
-                <td class="tf-number">{avg_depo}</td>
-            </tr>
-            """
-            ).format(
-                campaign_id=html_escape.escape(str(row["Campaign ID"])),
-                campaign_name=html_escape.escape(str(row["Campaign Name"])),
-                depo_amount=currency_value(row["Depo Amount"]),
-                qty=f"{int(row['Jumlah Depo (qty)']):,}",
-                avg_depo=currency_value(row["Avg Depo Value"]),
-            )
-        )
+    display_df = table_df.copy()
+    display_df["Depo Amount"] = display_df["Depo Amount"].apply(currency_value)
+    display_df["Jumlah Depo (qty)"] = display_df["Jumlah Depo (qty)"].apply(lambda value: f"{int(value):,}")
+    display_df["Avg Depo Value"] = display_df["Avg Depo Value"].apply(currency_value)
 
-    table_height = max(180, min(height, 92 + (len(body_rows) * 76)))
-    table_markup = dedent(
-        """
-        <!doctype html>
-        <html>
-        <head>
-        <style>
-            :root {{
-                color-scheme: dark;
-            }}
-            body {{
-                margin: 0;
-                background: transparent;
-                color: rgb(250, 250, 250);
-                font-family: "Source Sans Pro", sans-serif;
-            }}
-            .tf-campaign-deposit-table {{
-                width: 100%;
-                border-collapse: separate;
-                border-spacing: 0;
-                overflow: hidden;
-                border: 1px solid rgba(148, 163, 184, 0.24);
-                border-radius: 8px;
-                font-size: 0.95rem;
-            }}
-            .tf-campaign-deposit-table th,
-            .tf-campaign-deposit-table td {{
-                border-right: 1px solid rgba(148, 163, 184, 0.18);
-                border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-                padding: 0.75rem 0.8rem;
-                vertical-align: top;
-            }}
-            .tf-campaign-deposit-table th {{
-                background: rgba(148, 163, 184, 0.08);
-                color: rgba(255, 255, 255, 0.72);
-                font-weight: 700;
-                text-align: left;
-                white-space: normal;
-            }}
-            .tf-campaign-deposit-table tr:last-child td {{
-                border-bottom: 0;
-            }}
-            .tf-campaign-deposit-table th:last-child,
-            .tf-campaign-deposit-table td:last-child {{
-                border-right: 0;
-            }}
-            .tf-campaign-deposit-table .tf-wrap {{
-                white-space: normal;
-                overflow-wrap: anywhere;
-                word-break: normal;
-                line-height: 1.35;
-                min-width: 260px;
-            }}
-            .tf-campaign-deposit-table .tf-nowrap {{
-                white-space: nowrap;
-            }}
-            .tf-campaign-deposit-table .tf-number {{
-                text-align: right;
-                white-space: nowrap;
-                font-variant-numeric: tabular-nums;
-            }}
-        </style>
-        </head>
-        <body>
-        <table class="tf-campaign-deposit-table">
-            <thead>
-                <tr>
-                    <th>Campaign ID</th>
-                    <th>Campaign Name</th>
-                    <th>Depo Amount</th>
-                    <th>Jumlah Depo (qty)</th>
-                    <th>Avg Depo Value</th>
-                </tr>
-            </thead>
-            <tbody>
-                {body_rows}
-            </tbody>
-        </table>
-        </body>
-        </html>
-        """
-    ).format(body_rows="".join(body_rows)).strip()
-    components_html(
-        table_markup,
-        height=table_height,
-        scrolling=True,
+    st.dataframe(
+        display_df,
+        width="stretch",
+        hide_index=True,
+        row_height=76,
+        height=height,
+        column_config={
+            "Campaign ID": st.column_config.TextColumn("Campaign ID", width="small"),
+            "Campaign Name": st.column_config.TextColumn("Campaign Name", width="medium"),
+            "Depo Amount": st.column_config.TextColumn("Depo Amount", width="small"),
+            "Jumlah Depo (qty)": st.column_config.TextColumn("Jumlah Depo (qty)", width="small"),
+            "Avg Depo Value": st.column_config.TextColumn("Avg Depo Value", width="small"),
+        },
     )
