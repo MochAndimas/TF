@@ -11,6 +11,12 @@ import plotly.graph_objects as go
 from streamlit_app.page.deposit_components.formatting import currency_label, currency_multiplier, format_amount_full
 
 
+DEPOSIT_HEATMAP_COLORSCALE = [
+    [0.0, "#2563eb"],
+    [1.0, "#dc2626"],
+]
+
+
 def _format_heatmap_tick(value: float, currency_unit: str) -> str:
     abs_value = abs(float(value or 0))
     if currency_unit == "IDR":
@@ -48,6 +54,7 @@ def build_daily_deposit_amount_figure(
     report: dict[str, object],
     currency_unit: str,
     deposit_label: str = "First Deposit",
+    split_by_user: bool = True,
 ) -> go.Figure:
     timeline = report.get("timeline", [])
     if not timeline or not report.get("daily_metrics"):
@@ -60,6 +67,19 @@ def build_daily_deposit_amount_figure(
     currency_symbol = currency_label(currency_unit)
     decimals = ".2f" if currency_unit == "USD" else ".0f"
     figure = go.Figure()
+    if not split_by_user:
+        figure.add_trace(
+            go.Bar(
+                x=date_labels,
+                y=[(amount_map[day]["new"] + amount_map[day]["existing"]) * multiplier for day in timeline],
+                name="Total",
+                marker_color="#6176ff",
+                hovertemplate=f"<b>%{{x}}</b><br>Total: {currency_symbol} %{{y:,{decimals}}}<extra></extra>",
+            )
+        )
+        figure.update_layout(title=f"Daily {deposit_label} Amount", xaxis=dict(type="category"), yaxis=dict(title=f"{deposit_label} Amount ({currency_symbol})"), margin=dict(l=24, r=24, t=60, b=24), showlegend=False)
+        return figure
+
     figure.add_trace(go.Bar(x=date_labels, y=[amount_map[day]["new"] * multiplier for day in timeline], name="New User", marker_color="#6176ff", hovertemplate=f"<b>%{{x}}</b><br>New: {currency_symbol} %{{y:,{decimals}}}<extra></extra>"))
     figure.add_trace(go.Bar(x=date_labels, y=[amount_map[day]["existing"] * multiplier for day in timeline], name="Existing User", marker_color="#ff7a59", hovertemplate=f"<b>%{{x}}</b><br>Existing: {currency_symbol} %{{y:,{decimals}}}<extra></extra>"))
     figure.update_layout(title=f"Daily {deposit_label} Amount: New vs Existing", barmode="stack", xaxis=dict(type="category"), yaxis=dict(title=f"{deposit_label} Amount ({currency_symbol})"), legend=dict(orientation="h", y=1.08, x=0), margin=dict(l=24, r=24, t=60, b=24))
@@ -70,12 +90,14 @@ def build_daily_deposit_qty_aov_figure(
     report: dict[str, object],
     currency_unit: str,
     deposit_label: str = "First Deposit",
+    split_by_user: bool = True,
 ) -> go.Figure:
     timeline = report.get("timeline", [])
     if not timeline or not report.get("daily_metrics"):
         figure = go.Figure()
         figure.update_layout(title=f"Daily {deposit_label} Qty + AOV", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         return figure
+    amount_map = extract_daily_metric_values(report, "depo_amount", timeline)
     qty_map = extract_daily_metric_values(report, "qty", timeline)
     aov_map = extract_daily_metric_values(report, "aov", timeline)
     date_labels = [dt.date.fromisoformat(day).strftime("%b %d\n%Y") for day in timeline]
@@ -83,6 +105,18 @@ def build_daily_deposit_qty_aov_figure(
     currency_symbol = currency_label(currency_unit)
     decimals = ".2f" if currency_unit == "USD" else ".0f"
     figure = go.Figure()
+    if not split_by_user:
+        total_qty = [qty_map[day]["new"] + qty_map[day]["existing"] for day in timeline]
+        total_amount = [amount_map[day]["new"] + amount_map[day]["existing"] for day in timeline]
+        total_aov = [
+            (amount / qty if qty else 0.0) * multiplier
+            for amount, qty in zip(total_amount, total_qty)
+        ]
+        figure.add_trace(go.Bar(x=date_labels, y=total_qty, name="Deposit Qty", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Qty: %{y:,.0f}<extra></extra>"))
+        figure.add_trace(go.Scatter(x=date_labels, y=total_aov, mode="lines+markers", name="AOV", yaxis="y2", line=dict(color="#dc2626", width=2), hovertemplate=f"<b>%{{x}}</b><br>AOV: {currency_symbol} %{{y:,{decimals}}}<extra></extra>"))
+        figure.update_layout(title=f"Daily {deposit_label} Qty + AOV", xaxis=dict(type="category"), yaxis=dict(title=f"{deposit_label} Qty"), yaxis2=dict(title=f"AOV ({currency_symbol})", overlaying="y", side="right"), legend=dict(orientation="h", y=1.12, x=0), margin=dict(l=24, r=24, t=68, b=24))
+        return figure
+
     figure.add_trace(go.Bar(x=date_labels, y=[qty_map[day]["new"] for day in timeline], name="New Qty", marker_color="#6176ff", offsetgroup="new_qty", hovertemplate="<b>%{x}</b><br>New Qty: %{y:,.0f}<extra></extra>"))
     figure.add_trace(go.Bar(x=date_labels, y=[qty_map[day]["existing"] for day in timeline], name="Existing Qty", marker_color="#8ea0ff", offsetgroup="existing_qty", hovertemplate="<b>%{x}</b><br>Existing Qty: %{y:,.0f}<extra></extra>"))
     figure.add_trace(go.Scatter(x=date_labels, y=[aov_map[day]["new"] * multiplier for day in timeline], mode="lines+markers", name="New AOV", yaxis="y2", line=dict(color="#22c55e", width=2), hovertemplate=f"<b>%{{x}}</b><br>New AOV: {currency_symbol} %{{y:,{decimals}}}<extra></extra>"))
@@ -96,6 +130,7 @@ def build_top_campaign_deposit_figure(
     currency_unit: str,
     top_n: int = 10,
     deposit_label: str = "First Deposit",
+    split_by_user: bool = True,
 ) -> go.Figure:
     campaign_totals = report.get("campaign_totals", [])
     if not campaign_totals:
@@ -123,6 +158,11 @@ def build_top_campaign_deposit_figure(
         return figure
     ranked = pd.DataFrame(rows).sort_values("total", ascending=False).head(top_n).sort_values("total", ascending=True)
     figure = go.Figure()
+    if not split_by_user:
+        figure.add_trace(go.Bar(x=ranked["total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="Total", marker_color="#6176ff", hovertemplate=f"<b>%{{y}}</b><br>Total: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
+        figure.update_layout(title=f"Top Campaign by {deposit_label} Amount", xaxis=dict(title=f"{deposit_label} Amount ({currency_symbol})"), yaxis=dict(title="Campaign"), margin=dict(l=24, r=24, t=60, b=24), showlegend=False)
+        return figure
+
     figure.add_trace(go.Bar(x=ranked["new_total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="New User", marker_color="#6176ff", hovertemplate=f"<b>%{{y}}</b><br>New: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
     figure.add_trace(go.Bar(x=ranked["existing_total"].tolist(), y=ranked["label"].tolist(), orientation="h", name="Existing User", marker_color="#ff7a59", hovertemplate=f"<b>%{{y}}</b><br>Existing: {currency_symbol} %{{x:,{decimals}}}<extra></extra>"))
     figure.update_layout(title=f"Top Campaign by {deposit_label} Amount", barmode="stack", xaxis=dict(title=f"{deposit_label} Amount ({currency_symbol})"), yaxis=dict(title="Campaign"), legend=dict(orientation="h", y=1.08, x=0), margin=dict(l=24, r=24, t=60, b=24))
@@ -193,14 +233,7 @@ def build_campaign_deposit_amount_heatmap_figure(
                 y=heatmap.index.tolist(),
                 z=color_values,
                 customdata=amount_values,
-                colorscale=[
-                    [0.0, "#0f172a"],
-                    [0.08, "#1e40af"],
-                    [0.24, "#2563eb"],
-                    [0.48, "#22c55e"],
-                    [0.72, "#facc15"],
-                    [1.0, "#f97316"],
-                ],
+                colorscale=DEPOSIT_HEATMAP_COLORSCALE,
                 colorbar=dict(
                     title=f"{deposit_label} Amount",
                     tickvals=[math.log1p(value) for value in tick_amounts],

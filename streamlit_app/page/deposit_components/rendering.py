@@ -22,8 +22,10 @@ def render_status_cards(
     growth: dict[str, float],
     currency_unit: str,
     deposit_label: str = "First Deposit",
+    show_title: bool = True,
 ) -> None:
-    st.markdown(f'<div class="deposit-group-title">{title}</div>', unsafe_allow_html=True)
+    if show_title:
+        st.markdown(f'<div class="deposit-group-title">{title}</div>', unsafe_allow_html=True)
     card_specs = [(f"{deposit_label} Amount ({currency_label(currency_unit)})", "depo_amount", format_amount), (f"{deposit_label} (Qty)", "qty", format_qty), (f"AOV ({currency_label(currency_unit)})", "aov", format_aov)]
     for column, (label, key, formatter) in zip(st.columns(3, gap="small"), card_specs):
         with column:
@@ -35,12 +37,45 @@ def render_status_cards(
                     st.metric(label=label, value=formatter(totals.get(key, 0.0)), delta=f"{growth.get(key, 0.0):+.2f}% vs prev period")
 
 
-def render_metric_cards(report: dict[str, object], currency_unit: str, deposit_label: str = "First Deposit") -> None:
+def _growth_percentage(current_value: float, previous_value: float) -> float:
+    if previous_value == 0:
+        return 100.0 if current_value else 0.0
+    return round(((current_value - previous_value) / previous_value) * 100, 2)
+
+
+def _combined_status_totals(status_totals: dict[str, dict[str, float]]) -> dict[str, float]:
+    new_totals = status_totals.get("new", {})
+    existing_totals = status_totals.get("existing", {})
+    depo_amount = float(new_totals.get("depo_amount", 0) or 0) + float(existing_totals.get("depo_amount", 0) or 0)
+    qty = float(new_totals.get("qty", 0) or 0) + float(existing_totals.get("qty", 0) or 0)
+    return {
+        "depo_amount": depo_amount,
+        "qty": qty,
+        "aov": round(depo_amount / qty, 2) if qty else 0.0,
+    }
+
+
+def render_metric_cards(
+    report: dict[str, object],
+    currency_unit: str,
+    deposit_label: str = "First Deposit",
+    split_by_user: bool = True,
+) -> None:
     summary = report.get("summary", {})
     if not summary:
         return
     totals = summary.get("current_period", {}).get("totals", {})
     growth = summary.get("growth_percentage", {})
+    if not split_by_user:
+        combined_totals = _combined_status_totals(totals)
+        previous_totals = _combined_status_totals(summary.get("previous_period", {}).get("totals", {}))
+        combined_growth = {
+            metric_key: _growth_percentage(float(combined_totals.get(metric_key, 0) or 0), float(previous_totals.get(metric_key, 0) or 0))
+            for metric_key in ("depo_amount", "qty", "aov")
+        }
+        render_status_cards("", combined_totals, combined_growth, currency_unit=currency_unit, deposit_label=deposit_label, show_title=False)
+        return
+
     left_col, right_col = st.columns(2, gap="small")
     with left_col:
         render_status_cards("New User", totals.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label)
