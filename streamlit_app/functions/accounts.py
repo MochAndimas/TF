@@ -10,14 +10,19 @@ from streamlit_app.functions.api import fetch_data
 
 ROLE_LABELS: dict[str, str] = {
     "superadmin": "Super Admin",
-    "admin": "Analyst",
+    "analyst": "Analyst",
     "digital_marketing": "Digital Marketing",
-    "sales": "Sales",
     "finance": "Finance",
+    "sales": "Sales",
+    "admin": "Analyst",
 }
 
 ROLE_OPTIONS: dict[str, str] = {
-    label: role for role, label in ROLE_LABELS.items()
+    "Super Admin": "superadmin",
+    "Analyst": "analyst",
+    "Digital Marketing": "digital_marketing",
+    "Finance": "finance",
+    "Sales": "sales",
 }
 
 

@@ -30,10 +30,16 @@ from app.utils.overview import (
     OverviewData,
     OverviewLeadsAcquisitionData,
 )
-from app.utils.user_utils import get_current_user
+from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
+from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def require_overview_access(current_user: TfUser) -> None:
+    """Allow roles that may view the Overall menu group."""
+    require_roles(current_user, *ANALYTICS_ROLES, "finance")
 
 
 async def _build_overview_data(
@@ -142,6 +148,11 @@ async def overview_active_users(
         source: GA4 source bucket (``app``, ``web``, or combined ``app_web``).
     """
     try:
+        require_overview_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
         overview_data = await _build_overview_data(
             session=session,
             start_date=start_date,
@@ -186,6 +197,11 @@ async def overview_campaign_cost(
     breakdowns by campaign type and platform.
     """
     try:
+        require_overview_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
         campaign_cost_data = await _build_overview_campaign_cost_data(
             session=session,
             start_date=start_date,
@@ -229,6 +245,11 @@ async def overview_leads_acquisition(
     plus daily trend charts.
     """
     try:
+        require_overview_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
         leads_data = await _build_overview_leads_data(
             session=session,
             start_date=start_date,
@@ -271,6 +292,11 @@ async def overview_brand_awareness(
     The payload includes KPI cards with growth, daily spend chart, and a mixed
     performance chart (impressions/clicks bars + CTR/CPM/CPC lines).
     """
+    try:
+        require_overview_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
     try:
         brand_data = await _build_overview_brand_data(
             session=session,

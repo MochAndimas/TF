@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.models.user import TfUser
 from app.db.session import get_db
+from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
 from app.api.v1.endpoint.auth_helpers import (
     clear_auth_session_cookie,
     enforce_rate_limit,
@@ -206,6 +207,11 @@ async def home_context(
     current_user: TfUser = Depends(get_current_user),
 ):
     """Return the authenticated user's home-page context payload."""
+    try:
+        require_roles(current_user, *ANALYTICS_ROLES, "finance")
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
     account, latest_run = await get_home_context(
         session=session,
         user_id=current_user.user_id,

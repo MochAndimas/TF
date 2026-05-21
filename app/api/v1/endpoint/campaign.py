@@ -19,10 +19,21 @@ from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
 from app.utils.campaign import CampaignData
-from app.utils.user_utils import get_current_user
+from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
+from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _enforce_campaign_access(current_user: TfUser) -> None:
+    """Allow roles that may view the Campaign menu group."""
+    require_roles(current_user, *FINANCE_ANALYTICS_ROLES)
+
+
+def _enforce_activity_access(current_user: TfUser) -> None:
+    """Allow roles that may view non-settings internal activity analytics."""
+    require_roles(current_user, *ANALYTICS_ROLES)
 
 
 async def _build_campaign_data(
@@ -81,6 +92,11 @@ async def user_acquisition_overview(
         HTTPException: ``500`` when unexpected server-side processing fails.
     """
     try:
+        _enforce_campaign_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
         campaign_data = await _build_campaign_data(
             session=session,
             start_date=start_date,
@@ -136,6 +152,11 @@ async def brand_awareness_overview(
         HTTPException: ``500`` for unexpected processing failures.
     """
     try:
+        _enforce_campaign_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
         campaign_data = await _build_campaign_data(
             session=session,
             start_date=start_date,
@@ -177,6 +198,11 @@ async def internal_register_overview(
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
     """Generate Internal Register payload for dashboard rendering."""
+    try:
+        _enforce_activity_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
     try:
         if start_date > end_date:
             raise HTTPException(

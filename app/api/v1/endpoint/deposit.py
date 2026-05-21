@@ -15,10 +15,16 @@ from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
 from app.utils.deposit_utils import DepositData
+from app.utils.rbac import FINANCE_ANALYTICS_ROLES
 from app.utils.remarketing_deposit_utils import RemarketingDepositData
-from app.utils.user_utils import get_current_user
+from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
+
+
+def _enforce_revenue_access(current_user: TfUser) -> None:
+    """Allow roles that may view the Revenue menu group."""
+    require_roles(current_user, *FINANCE_ANALYTICS_ROLES)
 
 
 async def _build_deposit_data(
@@ -96,6 +102,11 @@ async def deposit_daily_report(
         HTTPException: ``500`` for unexpected internal processing errors.
     """
     try:
+        _enforce_revenue_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
         deposit_data = await _build_deposit_data(
             session=session,
             start_date=start_date,
@@ -136,6 +147,11 @@ async def remarketing_deposit_report(
     current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
 ):
     """Generate remarketing deposit report payload from ``data_ms_deposit``."""
+    try:
+        _enforce_revenue_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
     try:
         deposit_data = await _build_remarketing_deposit_data(
             session=session,

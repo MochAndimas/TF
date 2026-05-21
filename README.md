@@ -143,16 +143,21 @@ Secara default cron dijalankan setiap hari pukul `08:00 Asia/Jakarta`.
 Role yang saat ini dipakai aplikasi:
 
 - `superadmin`
-- `admin`
+- `analyst`
 - `digital_marketing`
+- `finance`
 - `sales`
 
 Akses halaman Streamlit saat ini:
 
 - `superadmin`: semua halaman
-- `admin`: `home`, `overview`, `user_acquisition`, `brand_awareness`, `deposit_report`
-- `digital_marketing`: `home`, `overview`, `user_acquisition`, `brand_awareness`
-- `sales`: role sudah dikenal di beberapa bagian aplikasi, tetapi belum mendapat navigasi aktif di shell Streamlit
+- `analyst`: semua halaman kecuali grup menu Settings
+- `digital_marketing`: `home`, grup Overall, grup Campaign, dan grup Activity
+- `finance`: `home`, grup Overall, grup Revenue, dan grup Campaign
+- `sales`: role sudah dikenal aplikasi, tetapi belum mendapat navigasi aktif
+
+Backend menerapkan guard role yang sama untuk endpoint analytics. Role legacy `admin`
+masih diperlakukan sebagai alias `analyst` untuk kompatibilitas akun lama.
 
 ## Struktur Repo
 

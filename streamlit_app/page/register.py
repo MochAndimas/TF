@@ -84,22 +84,25 @@ def _render_stats(users) -> None:
         None: Displays Streamlit metric cards for total users and role counts.
     """
     total_users = len(users)
-    admin_users = len(users[users["role"] == "admin"])
+    analyst_users = len(users[users["role"].isin(["analyst", "admin"])])
     superadmin_users = len(users[users["role"] == "superadmin"])
     finance_users = len(users[users["role"] == "finance"])
-    staff_users = len(users[users["role"].isin(["digital_marketing", "sales"])])
+    digital_marketing_users = len(users[users["role"] == "digital_marketing"])
+    sales_users = len(users[users["role"] == "sales"])
 
-    col1, col2, col3, col4, col5 = st.columns(5, gap="small")
+    col1, col2, col3, col4, col5, col6 = st.columns(6, gap="small")
     with col1:
         st.metric("Total Accounts", total_users)
     with col2:
         st.metric("Super Admin", superadmin_users)
     with col3:
-        st.metric("Analyst", admin_users)
+        st.metric("Analyst", analyst_users)
     with col4:
         st.metric("Finance", finance_users)
     with col5:
-        st.metric("Staff", staff_users)
+        st.metric("Digital Marketing", digital_marketing_users)
+    with col6:
+        st.metric("Sales", sales_users)
 
 
 def _filter_users(users):
@@ -134,7 +137,11 @@ def _filter_users(users):
         ]
 
     if role_filter != "All":
-        filtered = filtered[filtered["role"] == ROLE_OPTIONS[role_filter]]
+        selected_role = ROLE_OPTIONS[role_filter]
+        if selected_role == "analyst":
+            filtered = filtered[filtered["role"].isin(["analyst", "admin"])]
+        else:
+            filtered = filtered[filtered["role"] == selected_role]
 
     return filtered
 

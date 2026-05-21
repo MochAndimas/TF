@@ -364,24 +364,8 @@ async def delete_account(
         PermissionError: Raised when current user is not `superadmin`.
         ValueError: Raised when attempting to delete own account.
     """
-    require_roles(current_user, "admin", "superadmin")
-    if current_user.role == "admin":
-        query = await session.execute(
-            select(TfUser).where(
-                TfUser.user_id == user_id,
-                TfUser.deleted_at == None,
-            )
-        )
-        target_user = query.scalar_one_or_none()
-        if target_user is None:
-            return None
-        if target_user.role not in {"digital_marketing", "sales"}:
-            raise PermissionError("Admins may only delete non-admin accounts.")
-    else:
-        target_user = None
-
-    if current_user.role not in {"admin", "superadmin"}:
-        raise PermissionError("Not authorized!")
+    require_roles(current_user, "superadmin")
+    target_user = None
     
     if current_user.user_id == user_id:
         raise ValueError("You cannot delete your own account!")

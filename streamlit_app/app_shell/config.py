@@ -76,9 +76,11 @@ NAV_GROUPS: dict[str, list[str]] = {
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit", "register", "update_data", "google_ads_token", "meta_ads_token"],
+    "analyst": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit"],
     "admin": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register", "deposit_report", "remarketing_deposit"],
     "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "internal_register"],
-    "finance": ["overview", "deposit_report", "remarketing_deposit"],
+    "finance": ["home", "overview", "user_acquisition", "brand_awareness", "deposit_report", "remarketing_deposit"],
+    "sales": [],
 }
 
 PAGE_HANDLERS: dict[str, PageHandler] = {
