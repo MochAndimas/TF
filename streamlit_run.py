@@ -85,7 +85,10 @@ def main() -> None:
 
     public_page = resolve_public_page_from_query_params()
     requested_page = resolve_page_from_query_params()
-    if requested_page is not None:
+    page_override_once = st.session_state.pop("page_override_once", None)
+    if page_override_once is not None:
+        st.session_state.page = page_override_once
+    elif requested_page is not None:
         st.session_state.page = requested_page
 
     selected_page = public_page

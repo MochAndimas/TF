@@ -116,6 +116,7 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
 
 def go_to(page_key: str) -> None:
     """Navigate to another Streamlit page by updating shared session state."""
+    st.session_state["page_override_once"] = page_key
     st.session_state.page = page_key
     st.rerun()
 
