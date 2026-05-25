@@ -26,10 +26,11 @@ async def fetch_overview_brand_awareness_payload(
         dict[str, object]: Payload containing metric cards with growth,
         spend bar chart, and mixed performance chart.
     """
-    metrics, spend_chart, performance_chart = await asyncio.gather(
+    metrics, spend_chart, performance_chart, performance_by_source = await asyncio.gather(
         brand_data.metrics_with_growth(from_date=start_date, to_date=end_date),
         brand_data.spend_chart(from_date=start_date, to_date=end_date),
         brand_data.performance_chart(from_date=start_date, to_date=end_date),
+        brand_data.performance_by_source(from_date=start_date, to_date=end_date),
     )
     return {
         "start_date": start_date.isoformat(),
@@ -37,4 +38,5 @@ async def fetch_overview_brand_awareness_payload(
         "metrics_with_growth": metrics,
         "spend_chart": spend_chart,
         "performance_chart": performance_chart,
+        "performance_by_source": performance_by_source,
     }

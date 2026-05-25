@@ -1,4 +1,4 @@
-"""Streamlit page for Remarketing analytics (Brand Awareness style)."""
+"""Streamlit page for Remarketing analytics."""
 
 import streamlit as st
 
@@ -51,7 +51,15 @@ async def show_remarketing_page(host: str) -> None:
         st.session_state["remarketing_campaign_range"] = selected_range
 
     overview_data = st.session_state.get("remarketing_campaign_payload", {}).get("data", {})
-    render_brand_awareness_metric_cards(st, overview_data.get("metrics_with_growth", {}).get(selected_key, {}), f"{selected_source} - Remarketing")
+    st.markdown(
+        f'<div class="metric-section-title">{selected_source} - Remarketing</div>',
+        unsafe_allow_html=True,
+    )
+    render_brand_awareness_metric_cards(
+        st,
+        overview_data.get("metrics_with_growth", {}).get(selected_key, {}),
+        "",
+    )
 
     selected_charts = overview_data.get("charts", {}).get(selected_key, {})
     spend_figure = set_transparent_chart_background(campaign_figure_from_payload(selected_charts.get("spend", {}).get("figure"), f"{selected_source} - Remarketing Spend"))

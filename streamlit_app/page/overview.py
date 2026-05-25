@@ -45,6 +45,61 @@ PAGE_STYLE = """
 """
 
 
+def _format_campaign_source_table(rows: list[dict[str, object]]) -> pd.DataFrame:
+    table_df = pd.DataFrame(rows)
+    if table_df.empty:
+        return table_df
+
+    table_df = table_df.rename(
+        columns={
+            "source": "Source",
+            "spend": "Spend",
+            "impressions": "Impressions",
+            "clicks": "Clicks",
+            "ctr": "CTR",
+            "cpm": "CPM",
+            "cpc": "CPC",
+        }
+    )
+    ordered_columns = ["Source", "Spend", "Impressions", "Clicks", "CTR", "CPM", "CPC"]
+    table_df = table_df[[column for column in ordered_columns if column in table_df.columns]]
+    for numeric_column in ("Spend", "Impressions", "Clicks", "CTR", "CPM", "CPC"):
+        table_df[numeric_column] = pd.to_numeric(table_df[numeric_column], errors="coerce").fillna(0)
+
+    table_df["Spend"] = table_df["Spend"].apply(lambda value: f"Rp {float(value):,.0f}")
+    table_df["Impressions"] = table_df["Impressions"].apply(lambda value: f"{int(value):,}")
+    table_df["Clicks"] = table_df["Clicks"].apply(lambda value: f"{int(value):,}")
+    table_df["CTR"] = table_df["CTR"].apply(lambda value: f"{float(value):.2f}%")
+    table_df["CPM"] = table_df["CPM"].apply(lambda value: f"Rp {float(value):,.2f}")
+    table_df["CPC"] = table_df["CPC"].apply(lambda value: f"Rp {float(value):,.2f}")
+    return table_df
+
+
+def _render_overall_source_breakdown(section_data: dict[str, object], *, title_prefix: str) -> None:
+    breakdown_data = section_data.get("performance_by_source", {})
+    source_rows = breakdown_data.get("table_rows", [])
+    table_df = _format_campaign_source_table(source_rows)
+    pie_figure = set_transparent_chart_background(
+        campaign_figure_from_payload(
+            breakdown_data.get("pie_chart", {}).get("figure"),
+            f"{title_prefix} Cost by Source",
+        )
+    )
+    pie_figure.update_layout(height=430)
+
+    left_column, right_column = st.columns(2, gap="small")
+    with left_column:
+        with st.container(border=True):
+            st.markdown(f"### {title_prefix} by Source Table")
+            if table_df.empty:
+                st.info("No source breakdown data for selected period.")
+            else:
+                st.dataframe(table_df, width="stretch", hide_index=True, height=380)
+    with right_column:
+        with st.container(border=True):
+            st.plotly_chart(pie_figure, width="stretch")
+
+
 def _has_metric(payload: dict, *path: str) -> bool:
     current = payload
     for key in path:
@@ -224,6 +279,7 @@ async def show_overview_page(host: str) -> None:
 
     if performance_options[selected_performance_label] == "brand_awareness":
         render_brand_awareness_metric_cards(st, brand_data.get("metrics_with_growth", {}), "")
+        _render_overall_source_breakdown(brand_data, title_prefix="Brand Awareness")
         brand_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("spend_chart", {}).get("figure"), "Brand Awareness Spend"))
         brand_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("performance_chart", {}).get("figure"), "Brand Awareness Performance"))
         brand_spend_figure.update_layout(height=430)
@@ -234,6 +290,7 @@ async def show_overview_page(host: str) -> None:
                     st.plotly_chart(figure, width="stretch")
     elif performance_options[selected_performance_label] == "remarketing":
         render_brand_awareness_metric_cards(st, remarketing_data.get("metrics_with_growth", {}), "")
+        _render_overall_source_breakdown(remarketing_data, title_prefix="Remarketing")
         remarketing_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("spend_chart", {}).get("figure"), "Remarketing Spend"))
         remarketing_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("performance_chart", {}).get("figure"), "Remarketing Performance"))
         remarketing_spend_figure.update_layout(height=430)
@@ -304,7 +361,14 @@ async def show_overview_page(host: str) -> None:
         with currency_column:
             cost_to_revenue_currency_unit = render_currency_toggle("overview_cost_to_revenue_currency_unit")
     with control_right:
-        selected_cost_to_revenue_label = st.selectbox("Cost to Revenue Type", options=list(cost_to_revenue_options.keys()), index=0, key="overview_cost_to_revenue_type")
+        cost_to_revenue_labels = list(cost_to_revenue_options.keys())
+        default_cost_to_revenue_index = cost_to_revenue_labels.index("Overall")
+        selected_cost_to_revenue_label = st.selectbox(
+            "Cost to Revenue Type",
+            options=cost_to_revenue_labels,
+            index=default_cost_to_revenue_index,
+            key="overview_cost_to_revenue_type",
+        )
     selected_cost_to_revenue = cost_to_revenue_options[selected_cost_to_revenue_label]
     cost_to_revenue_modes = leads_data.get("cost_to_revenue_modes", {})
     selected_cost_to_revenue_payload = cost_to_revenue_modes.get(selected_cost_to_revenue["key"], {})

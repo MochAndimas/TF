@@ -12,6 +12,14 @@ import plotly.utils
 
 
 class BrandAwarenessCampaignMixin:
+    @staticmethod
+    def _campaign_type_title(ad_type: str) -> str:
+        mapping = {
+            "brand_awareness": "Brand Awareness",
+            "remarketing": "Remarketing",
+        }
+        return mapping.get((ad_type or "").strip().lower(), "Campaign")
+
     async def _brand_awareness_daily_dataframe(
         self,
         data: str,
@@ -20,34 +28,24 @@ class BrandAwarenessCampaignMixin:
         *,
         ad_type: str = "brand_awareness",
     ) -> pd.DataFrame:
-        source = data.strip().lower()
-        frames = self._ads_frame_map()
-        if source not in frames:
-            supported_sources = ", ".join(sorted(frames.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
+        daily_dimension = await self._ads_daily_dimension_dataframe(
+            data=data,
+            dimension="campaign_id",
+            from_date=from_date,
+            to_date=to_date,
+            campaign_type=ad_type,
+            include_leads=False,
+        )
+        if daily_dimension.empty:
+            return pd.DataFrame(columns=["date", "cost", "impressions", "clicks", "ctr", "cpm", "cpc"])
 
-        df = frames[source]
-        if from_date < self.from_date or to_date > self.to_date:
-            df = await self._read_ads_db_with_range(model=self._ads_model_map()[source], from_date=from_date, to_date=to_date)
-
-        columns = ["date", "cost", "impressions", "clicks", "ctr", "cpm", "cpc"]
-        if df.empty:
-            return pd.DataFrame(columns=columns)
-
-        filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
-        filtered = filtered.loc[filtered["campaign_id"] != "No data"]
-        filtered = filtered.loc[filtered["campaign_type"] == ad_type]
-        if filtered.empty:
-            return pd.DataFrame(columns=columns)
-
-        for column in ("cost", "impressions", "clicks"):
-            filtered[column] = pd.to_numeric(filtered[column], errors="coerce").fillna(0)
-
-        daily = filtered.groupby("date", as_index=False)[["cost", "impressions", "clicks"]].sum().sort_values("date")
-        daily["ctr"] = daily.apply(lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2) if float(row["impressions"]) else 0.0, axis=1)
-        daily["cpm"] = daily.apply(lambda row: round((float(row["cost"]) / float(row["impressions"])) * 1000, 2) if float(row["impressions"]) else 0.0, axis=1)
-        daily["cpc"] = daily.apply(lambda row: round(float(row["cost"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0, axis=1)
-        return daily[columns]
+        daily = (
+            daily_dimension.groupby("date", as_index=False)[["cost", "impressions", "clicks"]]
+            .sum()
+            .sort_values("date")
+        )
+        daily = self.frame_builder.add_ctr_cpm_cpc_columns(df=daily)
+        return daily[["date", "cost", "impressions", "clicks", "ctr", "cpm", "cpc"]]
 
     async def brand_awareness_metrics(
         self,
@@ -62,13 +60,8 @@ class BrandAwarenessCampaignMixin:
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
         source = data.strip().lower()
-        model_map = self._ads_model_map()
-        if source not in model_map:
-            supported_sources = ", ".join(sorted(model_map.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
-
         totals = await self._ads_metrics_from_sql(
-            model=model_map[source],
+            model=self._resolve_source_model(source),
             from_date=start_date,
             to_date=end_date,
             ad_type=ad_type,
@@ -121,13 +114,26 @@ class BrandAwarenessCampaignMixin:
             raise ValueError("from_date cannot be after to_date.")
         daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date, ad_type=ad_type)
         source_label = data.strip().replace("_", " ").title()
+        campaign_title = self._campaign_type_title(ad_type)
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"{source_label} - Brand Awareness Spend", annotations=[{"text": "No brand awareness data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(
+                title=f"{source_label} - {campaign_title} Spend",
+                annotations=[
+                    {
+                        "text": f"No {campaign_title.lower()} data for selected date range",
+                        "xref": "paper",
+                        "yref": "paper",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "showarrow": False,
+                    }
+                ],
+            )
         else:
             cost_values = pd.to_numeric(daily["cost"], errors="coerce").fillna(0).tolist()
             figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=cost_values, name="Spend", text=[f"Rp. {float(value):,.0f}" for value in cost_values], textposition="inside", hovertemplate="<b>%{x}</b><br>Spend: Rp. %{y:,.0f}<extra></extra>")])
-            figure.update_layout(title=f"{source_label} - Brand Awareness Spend", xaxis_title="Date", yaxis_title="Spend", xaxis=dict(type="category"))
+            figure.update_layout(title=f"{source_label} - {campaign_title} Spend", xaxis_title="Date", yaxis_title="Spend", xaxis=dict(type="category"))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)
@@ -147,9 +153,22 @@ class BrandAwarenessCampaignMixin:
             raise ValueError("from_date cannot be after to_date.")
         daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date, ad_type=ad_type)
         source_label = data.strip().replace("_", " ").title()
+        campaign_title = self._campaign_type_title(ad_type)
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"{source_label} - Brand Awareness Performance", annotations=[{"text": "No brand awareness data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(
+                title=f"{source_label} - {campaign_title} Performance",
+                annotations=[
+                    {
+                        "text": f"No {campaign_title.lower()} data for selected date range",
+                        "xref": "paper",
+                        "yref": "paper",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "showarrow": False,
+                    }
+                ],
+            )
         else:
             date_labels = pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist()
             impression_values = pd.to_numeric(daily["impressions"], errors="coerce").fillna(0).tolist()
@@ -163,7 +182,7 @@ class BrandAwarenessCampaignMixin:
             figure.add_trace(go.Scatter(x=date_labels, y=cpc_values, mode="lines+markers", name="Cost Per Clicks", yaxis="y2", hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.0f}<extra></extra>"))
             figure.add_trace(go.Scatter(x=date_labels, y=cpm_values, mode="lines+markers", name="Cost Per Impressions", yaxis="y2", hovertemplate="<b>%{x}</b><br>CPM: Rp. %{y:,.2f}<extra></extra>"))
             figure.add_trace(go.Scatter(x=date_labels, y=ctr_values, mode="lines+markers", name="Click Through Rate", yaxis="y2", hovertemplate="<b>%{x}</b><br>CTR: %{y:,.2f}%<extra></extra>"))
-            figure.update_layout(title=f"{source_label} - Brand Awareness Performance", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Clicks / Impressions"), yaxis2=dict(title="CPC / CPM / CTR", overlaying="y", side="right"), barmode="group", legend=dict(orientation="h", y=1.12, x=0))
+            figure.update_layout(title=f"{source_label} - {campaign_title} Performance", xaxis_title="Date", xaxis=dict(type="category"), yaxis=dict(title="Clicks / Impressions"), yaxis2=dict(title="CPC / CPM / CTR", overlaying="y", side="right"), barmode="group", legend=dict(orientation="h", y=1.12, x=0))
 
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)
@@ -198,31 +217,18 @@ class BrandAwarenessCampaignMixin:
         *,
         ad_type: str = "brand_awareness",
     ) -> pd.DataFrame:
-        source = data.strip().lower()
         valid_dimensions = {"campaign_id", "ad_group", "ad_name"}
         if dimension not in valid_dimensions:
             supported = ", ".join(sorted(valid_dimensions))
             raise ValueError(f"Unsupported dimension '{dimension}'. Supported dimensions: {supported}.")
-        frames = self._ads_frame_map()
-        if source not in frames:
-            supported_sources = ", ".join(sorted(frames.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
-        df = frames[source]
-        if from_date < self.from_date or to_date > self.to_date:
-            df = await self._read_ads_db_with_range(model=self._ads_model_map()[source], from_date=from_date, to_date=to_date)
-        columns = ["date", "dimension_name", "cost", "impressions", "clicks"]
-        if df.empty:
-            return pd.DataFrame(columns=columns)
-        filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
-        filtered = filtered.loc[filtered["campaign_id"] != "No data"]
-        filtered = filtered.loc[filtered["campaign_type"] == ad_type]
-        if filtered.empty:
-            return pd.DataFrame(columns=columns)
-        filtered[dimension] = filtered[dimension].fillna("N/A").replace("", "N/A")
-        for column in ("cost", "impressions", "clicks"):
-            filtered[column] = pd.to_numeric(filtered[column], errors="coerce").fillna(0)
-        daily = filtered.groupby(["date", dimension], as_index=False)[["cost", "impressions", "clicks"]].sum().sort_values(["date", dimension]).rename(columns={dimension: "dimension_name"})
-        return daily[columns]
+        return await self._ads_daily_dimension_dataframe(
+            data=data,
+            dimension=dimension,
+            from_date=from_date,
+            to_date=to_date,
+            campaign_type=ad_type,
+            include_leads=False,
+        )
 
     async def brand_awareness_ratio_trend_chart(
         self,
@@ -247,9 +253,22 @@ class BrandAwarenessCampaignMixin:
         daily = await self._brand_awareness_daily_dimension_dataframe(data=data, dimension=dimension, from_date=start_date, to_date=end_date, ad_type=ad_type)
         source_label = data.strip().replace("_", " ").title()
         metric_title = {"ctr": "CTR", "cpm": "CPM", "cpc": "CPC"}[metric_key]
+        campaign_title = self._campaign_type_title(ad_type)
         if daily.empty:
             figure = go.Figure()
-            figure.update_layout(title=f"{source_label} {metric_title} Trend", annotations=[{"text": "No brand awareness data for selected date range", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+            figure.update_layout(
+                title=f"{source_label} {metric_title} Trend",
+                annotations=[
+                    {
+                        "text": f"No {campaign_title.lower()} data for selected date range",
+                        "xref": "paper",
+                        "yref": "paper",
+                        "x": 0.5,
+                        "y": 0.5,
+                        "showarrow": False,
+                    }
+                ],
+            )
             rows: list[dict[str, object]] = []
         else:
             daily["cost"] = pd.to_numeric(daily["cost"], errors="coerce").fillna(0)

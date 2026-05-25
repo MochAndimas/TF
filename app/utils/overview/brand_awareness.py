@@ -139,3 +139,76 @@ class OverviewBrandAwarenessData:
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"]), "impressions": int(row["impressions"]), "clicks": int(row["clicks"]), "ctr": float(row["ctr"]), "cpm": float(row["cpm"]), "cpc": float(row["cpc"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}
+
+    async def performance_by_source(self, from_date: date, to_date: date) -> dict[str, object]:
+        ads_df = await self._ads_for_range(from_date, to_date)
+        if ads_df.empty:
+            figure = go.Figure()
+            figure.update_layout(
+                title="Brand Awareness Cost by Source",
+                showlegend=False,
+                annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
+            )
+            chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
+            return {"table_rows": [], "pie_chart": {"rows": [], "figure": json.loads(chart_json)}}
+
+        grouped = (
+            ads_df.groupby("source", as_index=False)[["cost", "impressions", "clicks"]]
+            .sum()
+            .sort_values("cost", ascending=False)
+        )
+        for column in ("cost", "impressions", "clicks"):
+            grouped[column] = pd.to_numeric(grouped[column], errors="coerce").fillna(0)
+        grouped["ctr"] = grouped.apply(
+            lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2)
+            if float(row["impressions"])
+            else 0.0,
+            axis=1,
+        )
+        grouped["cpm"] = grouped.apply(
+            lambda row: round((float(row["cost"]) / float(row["impressions"])) * 1000, 2)
+            if float(row["impressions"])
+            else 0.0,
+            axis=1,
+        )
+        grouped["cpc"] = grouped.apply(
+            lambda row: round(float(row["cost"]) / float(row["clicks"]), 2)
+            if float(row["clicks"])
+            else 0.0,
+            axis=1,
+        )
+        table_rows = [
+            {
+                "source": str(row["source"]).title(),
+                "spend": float(row["cost"]),
+                "impressions": int(row["impressions"]),
+                "clicks": int(row["clicks"]),
+                "ctr": float(row["ctr"]),
+                "cpm": float(row["cpm"]),
+                "cpc": float(row["cpc"]),
+            }
+            for _, row in grouped.iterrows()
+        ]
+
+        labels = [str(value).title() for value in grouped["source"].tolist()]
+        values = [float(value) for value in grouped["cost"].tolist()]
+        pie_figure = go.Figure(
+            data=[
+                go.Pie(
+                    labels=labels,
+                    values=values,
+                    hole=0.38,
+                    textinfo="label+percent",
+                    hovertemplate="<b>%{label}</b><br>Cost: Rp %{value:,.0f}<extra></extra>",
+                )
+            ]
+        )
+        pie_figure.update_layout(title="Brand Awareness Cost by Source", showlegend=False, margin=dict(l=24, r=24, t=56, b=24))
+        pie_json = await asyncio.to_thread(json.dumps, pie_figure, cls=plotly.utils.PlotlyJSONEncoder)
+        return {
+            "table_rows": table_rows,
+            "pie_chart": {
+                "rows": [{"label": label, "cost": float(value)} for label, value in zip(labels, values)],
+                "figure": json.loads(pie_json),
+            },
+        }

@@ -242,7 +242,7 @@ async def overview_remarketing(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance")),  # noqa: ARG001
 ):
-    """Return remarketing overview payload sourced from ``data_ms_deposit``."""
+    """Return remarketing overview payload sourced from ads campaign metrics."""
     return await build_analytics_response(
         loader=lambda: _load_remarketing_payload(session, start_date, end_date),
         success_message="Overview remarketing generated.",

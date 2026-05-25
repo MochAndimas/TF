@@ -13,6 +13,7 @@ from sqlalchemy.sql import Select
 from app.db.models.external_api import Campaign, DailyRegister, FacebookAds, GoogleAds, TikTokAds
 from app.utils.campaign.allocator import CampaignLeadAllocator
 from app.utils.campaign.cache_adapter import CampaignCacheAdapter
+from app.utils.campaign.frame_builder import CampaignFrameBuilder
 from app.utils.campaign.repository import CampaignRepository
 from app.utils.campaign.serializer import CampaignSerializer
 from app.utils.campaign.types import AdsModel
@@ -33,6 +34,7 @@ class CampaignDataBase:
             cache=self.cache_adapter,
             serializer=self.serializer,
         )
+        self.frame_builder = CampaignFrameBuilder()
         self.df_google = pd.DataFrame()
         self.df_facebook = pd.DataFrame()
         self.df_tiktok = pd.DataFrame()
@@ -151,6 +153,37 @@ class CampaignDataBase:
     def _ads_model_map() -> dict[str, type[AdsModel]]:
         return {"google": GoogleAds, "facebook": FacebookAds, "tiktok": TikTokAds}
 
+    def _resolve_source_model(self, source: str) -> type[AdsModel]:
+        model_map = self._ads_model_map()
+        if source not in model_map:
+            supported_sources = ", ".join(sorted(model_map.keys()))
+            raise ValueError(f"Unsupported ads source '{source}'. Supported sources: {supported_sources}.")
+        return model_map[source]
+
+    def _resolve_source_frame(self, source: str) -> pd.DataFrame:
+        frames = self._ads_frame_map()
+        if source not in frames:
+            supported_sources = ", ".join(sorted(frames.keys()))
+            raise ValueError(f"Unsupported ads source '{source}'. Supported sources: {supported_sources}.")
+        return frames[source]
+
+    async def _load_ads_source_frame(
+        self,
+        *,
+        source: str,
+        from_date: date,
+        to_date: date,
+    ) -> pd.DataFrame:
+        """Load one ads source dataframe for the requested date range."""
+        frame = self._resolve_source_frame(source)
+        if from_date < self.from_date or to_date > self.to_date:
+            return await self._read_ads_db_with_range(
+                model=self._resolve_source_model(source),
+                from_date=from_date,
+                to_date=to_date,
+            )
+        return frame
+
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
         period_days = (to_date - from_date).days + 1
@@ -168,40 +201,30 @@ class CampaignDataBase:
 
     async def _ads_daily_dataframe(self, data: str, from_date: date, to_date: date) -> pd.DataFrame:
         source = data.strip().lower()
-        frames = self._ads_frame_map()
-        if source not in frames:
-            supported_sources = ", ".join(sorted(frames.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
+        df = await self._load_ads_source_frame(source=source, from_date=from_date, to_date=to_date)
+        return self.frame_builder.ads_daily_frame(df=df, from_date=from_date, to_date=to_date)
 
-        df = frames[source]
-        if from_date < self.from_date or to_date > self.to_date:
-            df = await self._read_ads_db_with_range(model=self._ads_model_map()[source], from_date=from_date, to_date=to_date)
-
-        empty = ["date", "cost", "clicks", "leads", "cost_leads", "clicks_leads"]
-        if df.empty:
-            return pd.DataFrame(columns=empty)
-
-        filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
-        if filtered.empty:
-            return pd.DataFrame(columns=empty)
-
-        filtered = filtered.loc[filtered["campaign_id"] != "No data"]
-        if filtered.empty:
-            return pd.DataFrame(columns=empty)
-
-        for column in ("cost", "clicks", "leads"):
-            filtered[column] = pd.to_numeric(filtered[column], errors="coerce").fillna(0)
-
-        daily = filtered.groupby("date", as_index=False)[["cost", "clicks", "leads"]].sum().sort_values("date")
-        daily["cost_leads"] = daily.apply(
-            lambda row: round(float(row["cost"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0,
-            axis=1,
+    async def _ads_daily_dimension_dataframe(
+        self,
+        *,
+        data: str,
+        dimension: str,
+        from_date: date,
+        to_date: date,
+        campaign_type: str | None = None,
+        include_leads: bool = False,
+    ) -> pd.DataFrame:
+        """Build daily per-dimension ads metrics with optional campaign type filter."""
+        source = data.strip().lower()
+        df = await self._load_ads_source_frame(source=source, from_date=from_date, to_date=to_date)
+        return self.frame_builder.ads_daily_dimension_frame(
+            df=df,
+            dimension=dimension,
+            from_date=from_date,
+            to_date=to_date,
+            campaign_type=campaign_type,
+            include_leads=include_leads,
         )
-        daily["clicks_leads"] = daily.apply(
-            lambda row: round(float(row["clicks"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0,
-            axis=1,
-        )
-        return daily
 
     async def _ads_performance_dataframe(
         self,
@@ -212,50 +235,7 @@ class CampaignDataBase:
         ad_type: str | None = None,
     ) -> pd.DataFrame:
         base = await self._ads_base_details_dataframe(data=data, from_date=from_date, to_date=to_date, ad_type=ad_type)
-        columns = [
-            "campaign_source",
-            "dimension_name",
-            "spend",
-            "impressions",
-            "clicks",
-            "leads",
-            "click_to_leads_pct",
-            "ctr_pct",
-            "cpc",
-            "cpm",
-            "cost_leads",
-        ]
-        if base.empty:
-            return pd.DataFrame(columns=columns)
-
-        base[dimension] = base[dimension].fillna("N/A").replace("", "N/A")
-        grouped = (
-            base.groupby(["campaign_source", dimension], as_index=False)[["impressions", "clicks", "spend", "leads"]]
-            .sum()
-            .sort_values("spend", ascending=False)
-        )
-        grouped = grouped.rename(columns={dimension: "dimension_name"})
-        grouped["click_to_leads_pct"] = grouped.apply(
-            lambda row: round((float(row["leads"]) / float(row["clicks"])) * 100, 2) if float(row["clicks"]) else 0.0,
-            axis=1,
-        )
-        grouped["ctr_pct"] = grouped.apply(
-            lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2) if float(row["impressions"]) else 0.0,
-            axis=1,
-        )
-        grouped["cpc"] = grouped.apply(
-            lambda row: round(float(row["spend"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0,
-            axis=1,
-        )
-        grouped["cpm"] = grouped.apply(
-            lambda row: round((float(row["spend"]) / float(row["impressions"])) * 1000, 2) if float(row["impressions"]) else 0.0,
-            axis=1,
-        )
-        grouped["cost_leads"] = grouped.apply(
-            lambda row: round(float(row["spend"]) / float(row["leads"]), 2) if float(row["leads"]) else 0.0,
-            axis=1,
-        )
-        return grouped[columns]
+        return self.frame_builder.ads_performance_frame(base=base, dimension=dimension)
 
     async def _ads_metrics_from_sql(self, model: type[AdsModel], from_date: date, to_date: date, ad_type: str | None = None) -> dict[str, float]:
         cache_key = self.cache_adapter.make_key("metrics", model.__tablename__, ad_type or "all", from_date, to_date)
@@ -309,22 +289,9 @@ class CampaignDataBase:
         cached_payload = self.cache_adapter.set(cache_key, pd.DataFrame([payload]))
         return self.serializer.normalize_ads_metrics_payload(cached_payload.iloc[0].to_dict())
 
-    @staticmethod
-    def _normalize_ads_metrics_payload(payload: dict[str, object]) -> dict[str, float]:
-        impressions = int(float(payload.get("impressions") or 0))
-        clicks = int(float(payload.get("clicks") or 0))
-        leads = int(float(payload.get("leads") or 0))
-        cost = float(payload.get("cost") or 0.0)
-        return CampaignSerializer.normalize_ads_metrics_payload(payload)
-
     async def _ads_base_details_dataframe(self, data: str, from_date: date, to_date: date, ad_type: str | None = None) -> pd.DataFrame:
         source = data.strip().lower()
-        model_map = self._ads_model_map()
-        if source not in model_map:
-            supported_sources = ", ".join(sorted(model_map.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
-
-        model = model_map[source]
+        model = self._resolve_source_model(source)
         return await self.repository.read_ads_base_details(
             model=model,
             from_date=from_date,
@@ -334,17 +301,12 @@ class CampaignDataBase:
 
     async def ads_metrics(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, float]:
         source = data.strip().lower()
-        model_map = self._ads_model_map()
-        if source not in model_map:
-            supported_sources = ", ".join(sorted(model_map.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
-
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
 
-        return await self._ads_metrics_from_sql(model=model_map[source], from_date=start_date, to_date=end_date)
+        return await self._ads_metrics_from_sql(model=self._resolve_source_model(source), from_date=start_date, to_date=end_date)
 
     async def ads_metrics_with_growth(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
         current_from = from_date or self.from_date

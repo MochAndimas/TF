@@ -74,40 +74,14 @@ class UserAcquisitionCampaignMixin:
         return {"source": data.strip().lower(), "dimension": dimension, "top_n": top_n, "from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "rows": rows, "figure": json.loads(chart_json)}
 
     async def _user_acquisition_daily_dimension_dataframe(self, data: str, dimension: str, from_date: date, to_date: date) -> pd.DataFrame:
-        source = data.strip().lower()
-        frames = self._ads_frame_map()
-        if source not in frames:
-            supported_sources = ", ".join(sorted(frames.keys()))
-            raise ValueError(f"Unsupported ads source '{data}'. Supported sources: {supported_sources}.")
-
-        df = frames[source]
-        if from_date < self.from_date or to_date > self.to_date:
-            df = await self._read_ads_db_with_range(model=self._ads_model_map()[source], from_date=from_date, to_date=to_date)
-
-        columns = ["date", "dimension_name", "cost", "impressions", "clicks", "leads"]
-        if df.empty:
-            return pd.DataFrame(columns=columns)
-
-        filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
-        filtered = filtered.loc[filtered["campaign_id"] != "No data"]
-        if filtered.empty:
-            return pd.DataFrame(columns=columns)
-
-        ua_filtered = filtered.loc[filtered["campaign_type"] == "user_acquisition"]
-        if not ua_filtered.empty:
-            filtered = ua_filtered
-
-        filtered[dimension] = filtered[dimension].fillna("N/A").replace("", "N/A")
-        for column in ("cost", "impressions", "clicks", "leads"):
-            filtered[column] = pd.to_numeric(filtered[column], errors="coerce").fillna(0)
-
-        daily = (
-            filtered.groupby(["date", dimension], as_index=False)[["cost", "impressions", "clicks", "leads"]]
-            .sum()
-            .sort_values(["date", dimension])
-            .rename(columns={dimension: "dimension_name"})
+        return await self._ads_daily_dimension_dataframe(
+            data=data,
+            dimension=dimension,
+            from_date=from_date,
+            to_date=to_date,
+            campaign_type="user_acquisition",
+            include_leads=True,
         )
-        return daily[columns]
 
     async def user_acquisition_ratio_trend_chart(self, data: str, dimension: str, metric: str, top_n: int = 6, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
         start_date = from_date or self.from_date
