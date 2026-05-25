@@ -7,9 +7,14 @@ Traders Family application.
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoint.common import (
+    build_analytics_response,
+    require_roles_dep,
+    validate_date_range,
+)
 from app.api.v1.functions.fetch_campaign import (
     fetch_brand_awareness_overview_payload,
     fetch_remarketing_overview_payload,
@@ -22,20 +27,9 @@ from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
 from app.utils.campaign import CampaignData
 from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
-from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-def _enforce_campaign_access(current_user: TfUser) -> None:
-    """Allow roles that may view the Campaign menu group."""
-    require_roles(current_user, *FINANCE_ANALYTICS_ROLES)
-
-
-def _enforce_activity_access(current_user: TfUser) -> None:
-    """Allow roles that may view non-settings internal activity analytics."""
-    require_roles(current_user, *ANALYTICS_ROLES)
 
 
 async def _build_campaign_data(
@@ -43,28 +37,93 @@ async def _build_campaign_data(
     start_date: date,
     end_date: date,
 ) -> CampaignData:
-    """Validate date input and preload campaign analytics service.
-
-    Args:
-        session (AsyncSession): Injected asynchronous DB session.
-        start_date (date): Inclusive report start date.
-        end_date (date): Inclusive report end date.
-
-    Returns:
-        CampaignData: Preloaded service instance for campaign analytics.
-
-    Raises:
-        HTTPException: Raised with ``400`` when date range is invalid.
-    """
-    if start_date > end_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date cannot be after end_date.",
-        )
+    """Validate date input and preload campaign analytics service."""
+    validate_date_range(start_date, end_date)
     return await CampaignData.load_data(
         session=session,
         from_date=start_date,
         to_date=end_date,
+    )
+
+
+async def _load_user_acquisition_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    campaign_data = await _build_campaign_data(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return await fetch_user_acquisition_overview_payload(
+        campaign_data=campaign_data,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+async def _load_brand_awareness_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    campaign_data = await _build_campaign_data(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return await fetch_brand_awareness_overview_payload(
+        campaign_data=campaign_data,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+async def _load_remarketing_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    campaign_data = await _build_campaign_data(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    return await fetch_remarketing_overview_payload(
+        campaign_data=campaign_data,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+async def _load_internal_register_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+    source: str,
+) -> dict[str, object]:
+    validate_date_range(start_date, end_date)
+    return await fetch_internal_register_payload(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+        source=source,
+    )
+
+
+async def _load_login_activity_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+    source: str,
+) -> dict[str, object]:
+    validate_date_range(start_date, end_date)
+    return await fetch_login_activity_payload(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+        source=source,
     )
 
 
@@ -73,62 +132,16 @@ async def user_acquisition_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
-    """Generate User Acquisition payload for dashboard rendering.
-
-    Args:
-        start_date (date): Start of requested reporting window (inclusive).
-        end_date (date): End of requested reporting window (inclusive).
-        session (AsyncSession): Injected asynchronous database session.
-        current_user (TfUser): Authenticated user resolved from access token.
-
-    Returns:
-        JSONResponse: Success response containing:
-            - ``success`` (bool): ``True`` when payload creation succeeds.
-            - ``message`` (str): Human-readable success message.
-            - ``data`` (dict[str, object]): Aggregated campaign overview payload.
-
-    Raises:
-        HTTPException: ``400`` when date range is invalid or validation fails.
-        HTTPException: ``500`` when unexpected server-side processing fails.
-    """
-    try:
-        _enforce_campaign_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        campaign_data = await _build_campaign_data(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        data = await fetch_user_acquisition_overview_payload(
-            campaign_data=campaign_data,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        return AnalyticsResponse(
-            success=True,
-            message="User acquisition overview generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception:
-        logger.exception("Failed to generate user acquisition overview payload")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while generating user acquisition overview.",
-        )
+    """Generate User Acquisition payload for dashboard rendering."""
+    return await build_analytics_response(
+        loader=lambda: _load_user_acquisition_payload(session, start_date, end_date),
+        success_message="User acquisition overview generated.",
+        logger=logger,
+        failure_log_message="Failed to generate user acquisition overview payload",
+        failure_detail_message="An internal error occurred while generating user acquisition overview.",
+    )
 
 
 @router.get("/api/campaign/brand-awareness", response_model=AnalyticsResponse)
@@ -136,59 +149,16 @@ async def brand_awareness_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
-    """Generate Brand Awareness payload for dashboard rendering.
-
-    Args:
-        start_date (date): Start of requested reporting window (inclusive).
-        end_date (date): End of requested reporting window (inclusive).
-        session (AsyncSession): Injected asynchronous database session.
-        current_user (TfUser): Authenticated user resolved from access token.
-
-    Returns:
-        JSONResponse: Success response with aggregated Brand Awareness data.
-
-    Raises:
-        HTTPException: ``400`` for validation errors.
-        HTTPException: ``500`` for unexpected processing failures.
-    """
-    try:
-        _enforce_campaign_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        campaign_data = await _build_campaign_data(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        data = await fetch_brand_awareness_overview_payload(
-            campaign_data=campaign_data,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        return AnalyticsResponse(
-            success=True,
-            message="Brand awareness overview generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception:
-        logger.exception("Failed to generate brand awareness overview payload")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while generating brand awareness overview.",
-        )
+    """Generate Brand Awareness payload for dashboard rendering."""
+    return await build_analytics_response(
+        loader=lambda: _load_brand_awareness_payload(session, start_date, end_date),
+        success_message="Brand awareness overview generated.",
+        logger=logger,
+        failure_log_message="Failed to generate brand awareness overview payload",
+        failure_detail_message="An internal error occurred while generating brand awareness overview.",
+    )
 
 
 @router.get("/api/campaign/remarketing", response_model=AnalyticsResponse)
@@ -196,45 +166,16 @@ async def remarketing_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
     """Generate Remarketing payload for dashboard rendering."""
-    try:
-        _enforce_campaign_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        campaign_data = await _build_campaign_data(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        data = await fetch_remarketing_overview_payload(
-            campaign_data=campaign_data,
-            start_date=start_date,
-            end_date=end_date,
-        )
-
-        return AnalyticsResponse(
-            success=True,
-            message="Remarketing overview generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception:
-        logger.exception("Failed to generate remarketing overview payload")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while generating remarketing overview.",
-        )
+    return await build_analytics_response(
+        loader=lambda: _load_remarketing_payload(session, start_date, end_date),
+        success_message="Remarketing overview generated.",
+        logger=logger,
+        failure_log_message="Failed to generate remarketing overview payload",
+        failure_detail_message="An internal error occurred while generating remarketing overview.",
+    )
 
 
 @router.get("/api/campaign/internal-register", response_model=AnalyticsResponse)
@@ -243,44 +184,16 @@ async def internal_register_overview(
     end_date: date = Query(...),
     source: str = Query("all"),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES)),  # noqa: ARG001
 ):
     """Generate Internal Register payload for dashboard rendering."""
-    try:
-        _enforce_activity_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        if start_date > end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="start_date cannot be after end_date.",
-            )
-        data = await fetch_internal_register_payload(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-            source=source,
-        )
-        return AnalyticsResponse(
-            success=True,
-            message="Internal register overview generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception:
-        logger.exception("Failed to generate internal register overview payload")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while generating internal register overview.",
-        )
+    return await build_analytics_response(
+        loader=lambda: _load_internal_register_payload(session, start_date, end_date, source),
+        success_message="Internal register overview generated.",
+        logger=logger,
+        failure_log_message="Failed to generate internal register overview payload",
+        failure_detail_message="An internal error occurred while generating internal register overview.",
+    )
 
 
 @router.get("/api/campaign/login-activity", response_model=AnalyticsResponse)
@@ -289,41 +202,13 @@ async def login_activity_overview(
     end_date: date = Query(...),
     source: str = Query("all"),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES)),  # noqa: ARG001
 ):
     """Generate Login activity payload for dashboard rendering."""
-    try:
-        _enforce_activity_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        if start_date > end_date:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="start_date cannot be after end_date.",
-            )
-        data = await fetch_login_activity_payload(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-            source=source,
-        )
-        return AnalyticsResponse(
-            success=True,
-            message="Login activity overview generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception:
-        logger.exception("Failed to generate login activity overview payload")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal error occurred while generating login activity overview.",
-        )
+    return await build_analytics_response(
+        loader=lambda: _load_login_activity_payload(session, start_date, end_date, source),
+        success_message="Login activity overview generated.",
+        logger=logger,
+        failure_log_message="Failed to generate login activity overview payload",
+        failure_detail_message="An internal error occurred while generating login activity overview.",
+    )

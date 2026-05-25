@@ -375,21 +375,16 @@ async def delete_account(
         ValueError: Raised when attempting to delete own account.
     """
     require_roles(current_user, "superadmin")
-    target_user = None
-    
     if current_user.user_id == user_id:
         raise ValueError("You cannot delete your own account!")
 
-    if target_user is None:
-        query = await session.execute(
-            select(TfUser).where(
-                TfUser.user_id == user_id,
-                TfUser.deleted_at == None
-            )
+    query = await session.execute(
+        select(TfUser).where(
+            TfUser.user_id == user_id,
+            TfUser.deleted_at == None
         )
-        user = query.scalar_one_or_none()
-    else:
-        user = target_user
+    )
+    user = query.scalar_one_or_none()
 
     if not user:
         return None

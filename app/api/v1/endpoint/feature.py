@@ -7,17 +7,17 @@ Traders Family application.
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.session import get_db
-from app.utils.user_utils import get_current_user, require_roles
-from app.db.models.user import TfUser
-from app.schemas.feature import UpdateData, UpdateDataResponse, UpdateDataStatusResponse
-from app.etl.job_runner import execute_update_job, resolve_run_window
-from app.utils.etl_run_utils import cleanup_stale_runs, fail_run, start_run
-from app.db.models.etl_run import EtlRun
 
+from app.api.v1.endpoint.common import require_roles_dep
+from app.db.models.etl_run import EtlRun
+from app.db.models.user import TfUser
+from app.db.session import get_db
+from app.etl.job_runner import execute_update_job, resolve_run_window
+from app.schemas.feature import UpdateData, UpdateDataResponse, UpdateDataStatusResponse
+from app.utils.etl_run_utils import cleanup_stale_runs, fail_run, start_run
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -27,26 +27,9 @@ logger = logging.getLogger(__name__)
 async def update_data(
     response: UpdateData,
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user)
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),
 ):
-    """Run data update jobs for selected external source and date range.
-
-    Args:
-        response (UpdateData): Request payload containing source type and period.
-        session (AsyncSession): Database session injected by FastAPI.
-        current_user (TfUser): Authenticated user allowed to trigger update.
-
-    Returns:
-        JSONResponse: Message describing update status.
-
-    Raises:
-        HTTPException: Raised when source type is invalid or update process fails.
-    """
-    try:
-        require_roles(current_user, "superadmin")
-    except PermissionError as error:
-        raise HTTPException(status_code=403, detail=str(error)) from error
-
+    """Run data update jobs for selected external source and date range."""
     try:
         start_date = response.start_date
         end_date = response.end_date
@@ -89,13 +72,13 @@ async def update_data(
         if "run_id" in locals():
             await fail_run(session=session, run_id=run_id, error_detail=str(error.detail))
         raise
-    except Exception as e:
+    except Exception as error:
         if "run_id" in locals():
-            await fail_run(session=session, run_id=run_id, error_detail=str(e))
+            await fail_run(session=session, run_id=run_id, error_detail=str(error))
         logger.exception("Feature update job scheduling failed")
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred while scheduling the update job."
+            detail="An internal error occurred while scheduling the update job.",
         )
 
 
@@ -106,27 +89,9 @@ async def update_data(
 async def update_data_status(
     run_id: str,
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),  # noqa: ARG001
 ):
-    """Fetch ETL run status payload by run identifier.
-
-    Args:
-        run_id (str): ETL run identifier to inspect.
-        session (AsyncSession): Database session injected by FastAPI.
-        current_user (TfUser): Authenticated user resolved from bearer token.
-
-    Returns:
-        UpdateDataStatusResponse: Current ETL run metadata including status,
-        message/error, and execution timestamps.
-
-    Raises:
-        HTTPException: ``404`` when run identifier is not found.
-    """
-    try:
-        require_roles(current_user, "superadmin")
-    except PermissionError as error:
-        raise HTTPException(status_code=403, detail=str(error)) from error
-
+    """Fetch ETL run status payload by run identifier."""
     result = await session.execute(select(EtlRun).where(EtlRun.run_id == run_id))
     run = result.scalar_one_or_none()
     if run is None:

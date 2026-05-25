@@ -9,9 +9,11 @@ This module encapsulates application startup concerns including:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from random import random
 from time import perf_counter
@@ -40,6 +42,18 @@ from app.db.models.user import LogData, TfUser
 from app.db.session import sqlite_async_session, sqlite_engine
 
 NextHandler = Callable[[Request], Awaitable[Response]]
+
+
+@dataclass(slots=True)
+class RequestLogEvent:
+    """In-memory request log payload queued by middleware and flushed by worker."""
+
+    url: str
+    method: str
+    process_time: float
+    status: int
+    metadata: dict[str, object]
+    created_at: datetime
 
 
 class FastApiApp:
@@ -82,6 +96,10 @@ class FastApiApp:
         """
         self.app_version = version
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._request_log_queue: asyncio.Queue[RequestLogEvent] | None = None
+        self._request_log_worker_task: asyncio.Task | None = None
+        self._request_log_worker_stop = asyncio.Event()
+        self._request_log_drop_count = 0
         self._configure_logging()
         settings.validate_runtime_constraints()
 
@@ -134,7 +152,9 @@ class FastApiApp:
             self.logger.info("Application startup: verifying database readiness")
             await verify_database_ready()
         await self._bootstrap_superadmin_if_enabled()
+        self._start_request_log_worker()
         yield
+        await self._stop_request_log_worker()
         self.logger.info("Application shutdown: disposing database engine")
         await sqlite_engine.dispose()
 
@@ -293,20 +313,20 @@ class FastApiApp:
 
         process_time = perf_counter() - started_at
         if self._should_persist_request_log(request):
-            await self._persist_request_log(
+            self._enqueue_request_log(
                 request=request,
                 response=response,
                 process_time=process_time,
             )
         return response
 
-    async def _persist_request_log(
+    def _enqueue_request_log(
         self,
         request: Request,
         response: Response,
         process_time: float,
     ) -> None:
-        """Persist request/response metadata to database.
+        """Queue request/response metadata for async DB persistence.
 
         Args:
             request (Request): Incoming HTTP request metadata source.
@@ -314,24 +334,29 @@ class FastApiApp:
             process_time (float): Request processing duration in seconds.
 
         Returns:
-            None: Logging failures are swallowed and only written to application logger.
+            None: If queue is unavailable/full, request is not blocked.
         """
+        queue = self._request_log_queue
+        if queue is None:
+            return
+
+        event = RequestLogEvent(
+            url=self._safe_log_url(request),
+            method=request.method,
+            process_time=process_time,
+            status=response.status_code,
+            metadata=self._request_log_metadata(request, response),
+            created_at=datetime.now(),
+        )
         try:
-            async with sqlite_async_session() as session:
-                session.add(
-                    LogData(
-                        url=self._safe_log_url(request),
-                        method=request.method,
-                        time=process_time,
-                        status=response.status_code,
-                        response=self._request_log_metadata(request, response),
-                        created_at=datetime.now(),
-                    )
+            queue.put_nowait(event)
+        except asyncio.QueueFull:
+            self._request_log_drop_count += 1
+            if self._request_log_drop_count % 100 == 1:
+                self.logger.warning(
+                    "Request log queue full; dropped %s log event(s) so far.",
+                    self._request_log_drop_count,
                 )
-                await session.commit()
-                await self._cleanup_old_request_logs(session)
-        except Exception:
-            self.logger.exception("Failed to persist request log")
 
     @classmethod
     def _should_persist_request_log(cls, request: Request) -> bool:
@@ -385,6 +410,96 @@ class FastApiApp:
         cutoff = datetime.now() - timedelta(days=retention_days)
         await session.execute(delete(LogData).where(LogData.created_at < cutoff))
         await session.commit()
+
+    def _start_request_log_worker(self) -> None:
+        """Start background worker that flushes queued request logs to DB."""
+        if not settings.REQUEST_LOG_ENABLED:
+            self.logger.info("Request log worker disabled by configuration.")
+            return
+        if self._request_log_worker_task is not None:
+            return
+
+        queue_size = max(1, int(settings.REQUEST_LOG_QUEUE_MAX_SIZE))
+        self._request_log_queue = asyncio.Queue(maxsize=queue_size)
+        self._request_log_worker_stop.clear()
+        self._request_log_worker_task = asyncio.create_task(self._request_log_worker())
+        self.logger.info("Request log worker started with queue size=%s", queue_size)
+
+    async def _stop_request_log_worker(self) -> None:
+        """Stop request log worker and flush pending logs before shutdown."""
+        if self._request_log_worker_task is None:
+            return
+
+        self._request_log_worker_stop.set()
+        try:
+            await self._request_log_worker_task
+        except Exception:
+            self.logger.exception("Request log worker crashed during shutdown")
+        finally:
+            self._request_log_worker_task = None
+            self._request_log_queue = None
+
+    async def _request_log_worker(self) -> None:
+        """Flush queued request logs in bounded batches."""
+        flush_interval = max(0.1, float(settings.REQUEST_LOG_FLUSH_INTERVAL_SECONDS))
+        batch_size = max(1, int(settings.REQUEST_LOG_FLUSH_BATCH_SIZE))
+        queue = self._request_log_queue
+        if queue is None:
+            return
+
+        while not self._request_log_worker_stop.is_set() or not queue.empty():
+            batch = await self._dequeue_request_log_batch(
+                queue=queue,
+                batch_size=batch_size,
+                timeout_seconds=flush_interval,
+            )
+            if not batch:
+                continue
+            await self._persist_request_log_batch(batch=batch)
+
+    async def _dequeue_request_log_batch(
+        self,
+        *,
+        queue: asyncio.Queue[RequestLogEvent],
+        batch_size: int,
+        timeout_seconds: float,
+    ) -> list[RequestLogEvent]:
+        """Drain one request-log batch with timeout-based flush."""
+        batch: list[RequestLogEvent] = []
+        try:
+            first_item = await asyncio.wait_for(queue.get(), timeout=timeout_seconds)
+            batch.append(first_item)
+        except asyncio.TimeoutError:
+            return batch
+
+        while len(batch) < batch_size:
+            try:
+                batch.append(queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return batch
+
+    async def _persist_request_log_batch(self, *, batch: list[RequestLogEvent]) -> None:
+        """Persist one queued request-log batch in a single DB transaction."""
+        try:
+            async with sqlite_async_session() as session:
+                session.add_all(
+                    [
+                        LogData(
+                            url=item.url,
+                            method=item.method,
+                            time=item.process_time,
+                            status=item.status,
+                            response=item.metadata,
+                            created_at=item.created_at,
+                        )
+                        for item in batch
+                    ]
+                )
+                await session.commit()
+                await self._cleanup_old_request_logs(session)
+        except Exception:
+            self.logger.exception("Failed to persist request log batch")
 
     @staticmethod
     async def _security_headers_middleware(request: Request, call_next: NextHandler) -> Response:

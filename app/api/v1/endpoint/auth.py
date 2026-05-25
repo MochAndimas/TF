@@ -12,6 +12,11 @@ from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.api.v1.endpoint.common import (
+    raise_bad_request,
+    raise_forbidden,
+    require_roles_dep,
+)
 from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.utils.rbac import ANALYTICS_ROLES
@@ -33,7 +38,6 @@ from app.utils.user_utils import (
     logout,
     logout_all_sessions,
     record_auth_event,
-    require_roles,
     update_account,
     user_token,
     validate_role_assignment,
@@ -68,7 +72,7 @@ router = APIRouter()
 async def register(
     data: RegisterBase,
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),
 ):
     """Register a new user account.
 
@@ -84,14 +88,6 @@ async def register(
     Raises:
         HTTPException: Raised when password confirmation fails or email already exists.
     """
-    try:
-        require_roles(current_user, "superadmin")
-    except PermissionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(error),
-        ) from error
-
     if data.password != data.confirm_password:
         raise HTTPException(
             status_code=400,
@@ -101,15 +97,9 @@ async def register(
     try:
         validate_role_assignment(current_user.role, data.role)
     except PermissionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(error),
-        ) from error
+        raise_forbidden(error)
     except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        ) from error
+        raise_bad_request(error)
 
     try:
         user = await create_account(
@@ -120,10 +110,7 @@ async def register(
             password=data.password
         )
     except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        ) from error
+        raise_bad_request(error)
     
     if not user:
         raise HTTPException(
@@ -141,17 +128,9 @@ async def register(
 @router.get("/api/accounts", response_model=AccountListResponse)
 async def get_accounts(
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),
 ):
     """Return all active accounts for the account-management page."""
-    try:
-        require_roles(current_user, "superadmin")
-    except PermissionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(error),
-        ) from error
-
     users = await list_accounts(session=session)
     return AccountListResponse(
         success=True,
@@ -178,15 +157,9 @@ async def patch_account(
             role=payload.role,
         )
     except PermissionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(error),
-        ) from error
+        raise_forbidden(error)
     except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        ) from error
+        raise_bad_request(error)
 
     if user is None:
         raise HTTPException(
@@ -204,14 +177,9 @@ async def patch_account(
 @router.get("/api/home/context", response_model=HomeContextResponse)
 async def home_context(
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance")),
 ):
     """Return the authenticated user's home-page context payload."""
-    try:
-        require_roles(current_user, *ANALYTICS_ROLES, "finance")
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
     account, latest_run = await get_home_context(
         session=session,
         user_id=current_user.user_id,
@@ -430,7 +398,7 @@ async def logout_all_user_sessions(
             target_user_id=payload.user_id,
         )
     except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+        raise_forbidden(error)
 
     target_user_id = payload.user_id or current_user.user_id
     await record_auth_event(
@@ -466,7 +434,7 @@ async def logout_all_user_sessions(
 async def delete_user(
     user_id: str,
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user)
+    current_user: TfUser = Depends(require_roles_dep("superadmin"))
 ):  
     """Soft-delete a target user account.
 
@@ -482,7 +450,6 @@ async def delete_user(
         HTTPException: Raised for authorization errors, invalid operations, or missing user.
     """
     try:
-        require_roles(current_user, "superadmin")
         result = await delete_account(
             session=session,
             user_id=user_id,
@@ -499,13 +466,5 @@ async def delete_user(
             deleted_user_id=user_id,
             success=True,
         )
-    except PermissionError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not Authorized"
-        )
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise_bad_request(e)

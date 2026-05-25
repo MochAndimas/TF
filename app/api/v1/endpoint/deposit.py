@@ -4,12 +4,18 @@ This module is part of `app.api.v1.endpoint` and contains runtime logic used by 
 Traders Family application.
 """
 
+import logging
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoint.common import (
+    build_analytics_response,
+    require_roles_dep,
+    validate_date_range,
+)
 from app.api.v1.functions.fetch_deposit import fetch_deposit_daily_overview_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
@@ -17,14 +23,9 @@ from app.schemas.responses import AnalyticsResponse
 from app.utils.deposit_utils import DepositData
 from app.utils.rbac import FINANCE_ANALYTICS_ROLES
 from app.utils.remarketing_deposit_utils import RemarketingDepositData
-from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
-
-
-def _enforce_revenue_access(current_user: TfUser) -> None:
-    """Allow roles that may view the Revenue menu group."""
-    require_roles(current_user, *FINANCE_ANALYTICS_ROLES)
+logger = logging.getLogger(__name__)
 
 
 async def _build_deposit_data(
@@ -32,24 +33,8 @@ async def _build_deposit_data(
     start_date: date,
     end_date: date,
 ) -> DepositData:
-    """Validate date range then preload deposit data service.
-
-    Args:
-        session (AsyncSession): Injected asynchronous DB session.
-        start_date (date): Inclusive start date for initial data load.
-        end_date (date): Inclusive end date for initial data load.
-
-    Returns:
-        DepositData: Ready-to-use service instance containing preloaded rows.
-
-    Raises:
-        HTTPException: Raised with ``400`` status when date order is invalid.
-    """
-    if start_date > end_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date cannot be after end_date.",
-        )
+    """Validate date range then preload deposit data service."""
+    validate_date_range(start_date, end_date)
     return await DepositData.load_data(
         session=session,
         from_date=start_date,
@@ -63,16 +48,51 @@ async def _build_remarketing_deposit_data(
     end_date: date,
 ) -> RemarketingDepositData:
     """Validate date range then preload remarketing deposit data service."""
-    if start_date > end_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_date cannot be after end_date.",
-        )
+    validate_date_range(start_date, end_date)
     return await RemarketingDepositData.load_data(
         session=session,
         from_date=start_date,
         to_date=end_date,
     )
+
+
+async def _load_deposit_daily_report_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+    campaign_type: Literal["all", "user_acquisition", "brand_awareness"],
+) -> dict[str, object]:
+    deposit_data = await _build_deposit_data(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    selected_type = None if campaign_type == "all" else campaign_type
+    return await fetch_deposit_daily_overview_payload(
+        deposit_data=deposit_data,
+        start_date=start_date,
+        end_date=end_date,
+        campaign_type=selected_type,
+    )
+
+
+async def _load_remarketing_report_payload(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+    campaign_type: Literal["all", "user_acquisition", "brand_awareness", "remarketing"],
+) -> dict[str, object]:
+    deposit_data = await _build_remarketing_deposit_data(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    selected_type = None if campaign_type == "all" else campaign_type
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "report": await deposit_data.build_daily_report_payload(campaign_type=selected_type),
+    }
 
 
 @router.get("/api/deposit/daily-report", response_model=AnalyticsResponse)
@@ -81,61 +101,16 @@ async def deposit_daily_report(
     end_date: date = Query(...),
     campaign_type: Literal["all", "user_acquisition", "brand_awareness"] = Query(default="all"),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
-    """Generate daily deposit report payload.
-
-    Args:
-        start_date (date): Inclusive start date from query parameters.
-        end_date (date): Inclusive end date from query parameters.
-        campaign_type (Literal["all", "user_acquisition", "brand_awareness"]):
-            Campaign type selector for report filtering.
-        session (AsyncSession): Injected asynchronous DB session.
-        current_user (TfUser): Authenticated user resolved from access token.
-
-    Returns:
-        JSONResponse: Success payload containing report metadata, summary
-        metrics, and chart-ready deposit aggregates.
-
-    Raises:
-        HTTPException: ``400`` for invalid input/date validation errors.
-        HTTPException: ``500`` for unexpected internal processing errors.
-    """
-    try:
-        _enforce_revenue_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        deposit_data = await _build_deposit_data(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        selected_type = None if campaign_type == "all" else campaign_type
-        data = await fetch_deposit_daily_overview_payload(
-            deposit_data=deposit_data,
-            start_date=start_date,
-            end_date=end_date,
-            campaign_type=selected_type,
-        )
-        return AnalyticsResponse(
-            success=True,
-            message="Deposit daily report generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating deposit daily report: {error}",
-        )
+    """Generate daily deposit report payload."""
+    return await build_analytics_response(
+        loader=lambda: _load_deposit_daily_report_payload(session, start_date, end_date, campaign_type),
+        success_message="Deposit daily report generated.",
+        logger=logger,
+        failure_log_message="Failed to generate deposit daily report payload",
+        failure_detail_message="An internal error occurred while generating deposit daily report.",
+    )
 
 
 @router.get("/api/deposit/remarketing-report", response_model=AnalyticsResponse)
@@ -144,40 +119,13 @@ async def remarketing_deposit_report(
     end_date: date = Query(...),
     campaign_type: Literal["all", "user_acquisition", "brand_awareness", "remarketing"] = Query(default="all"),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
     """Generate remarketing deposit report payload from ``data_ms_deposit``."""
-    try:
-        _enforce_revenue_access(current_user)
-    except PermissionError as error:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-
-    try:
-        deposit_data = await _build_remarketing_deposit_data(
-            session=session,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        selected_type = None if campaign_type == "all" else campaign_type
-        data = {
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
-            "report": await deposit_data.build_daily_report_payload(campaign_type=selected_type),
-        }
-        return AnalyticsResponse(
-            success=True,
-            message="Remarketing deposit report generated.",
-            data=data,
-        )
-    except HTTPException:
-        raise
-    except ValueError as error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(error),
-        )
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while generating remarketing deposit report: {error}",
-        )
+    return await build_analytics_response(
+        loader=lambda: _load_remarketing_report_payload(session, start_date, end_date, campaign_type),
+        success_message="Remarketing deposit report generated.",
+        logger=logger,
+        failure_log_message="Failed to generate remarketing deposit report payload",
+        failure_detail_message="An internal error occurred while generating remarketing deposit report.",
+    )

@@ -107,6 +107,9 @@ class Settings(BaseModel):
     REQUEST_LOG_SAMPLE_RATE: float = 1.0
     REQUEST_LOG_RETENTION_DAYS: int = 30
     REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE: float = 0.01
+    REQUEST_LOG_QUEUE_MAX_SIZE: int = 1000
+    REQUEST_LOG_FLUSH_BATCH_SIZE: int = 50
+    REQUEST_LOG_FLUSH_INTERVAL_SECONDS: float = 1.0
     ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = True
     ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS: int = 300
     ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES: int = 64
@@ -290,6 +293,13 @@ class DevelopmentSettings(Settings):
         default=0.01,
         cast=float,
     )
+    REQUEST_LOG_QUEUE_MAX_SIZE: int = env("REQUEST_LOG_QUEUE_MAX_SIZE", default=1000, cast=int)
+    REQUEST_LOG_FLUSH_BATCH_SIZE: int = env("REQUEST_LOG_FLUSH_BATCH_SIZE", default=50, cast=int)
+    REQUEST_LOG_FLUSH_INTERVAL_SECONDS: float = env(
+        "REQUEST_LOG_FLUSH_INTERVAL_SECONDS",
+        default=1.0,
+        cast=float,
+    )
     ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = env(
         "ANALYTICS_DATAFRAME_CACHE_ENABLED",
         default=True,
@@ -346,6 +356,13 @@ class ProductionSettings(Settings):
     REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE: float = env(
         "REQUEST_LOG_RETENTION_CLEANUP_SAMPLE_RATE",
         default=0.01,
+        cast=float,
+    )
+    REQUEST_LOG_QUEUE_MAX_SIZE: int = env("REQUEST_LOG_QUEUE_MAX_SIZE", default=1000, cast=int)
+    REQUEST_LOG_FLUSH_BATCH_SIZE: int = env("REQUEST_LOG_FLUSH_BATCH_SIZE", default=50, cast=int)
+    REQUEST_LOG_FLUSH_INTERVAL_SECONDS: float = env(
+        "REQUEST_LOG_FLUSH_INTERVAL_SECONDS",
+        default=1.0,
         cast=float,
     )
     ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = env(
