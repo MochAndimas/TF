@@ -188,8 +188,8 @@ def validate_ms_deposit_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: MS deposit data has {int(invalid_dates)} rows with invalid last activity dates."
         )
 
-    invalid_metric = (pd.to_numeric(df["first_depo"], errors="coerce").fillna(0) <= 0).sum()
+    invalid_metric = (pd.to_numeric(df["first_depo"], errors="coerce").fillna(0) < 0).sum()
     if invalid_metric:
         raise ValueError(
-            f"DQ failed: MS deposit data has {int(invalid_metric)} rows with non-positive first deposit."
+            f"DQ failed: MS deposit data has {int(invalid_metric)} rows with negative first deposit."
         )

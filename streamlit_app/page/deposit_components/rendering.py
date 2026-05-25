@@ -32,7 +32,14 @@ def render_status_cards(
             with st.container(border=True):
                 if key in {"depo_amount", "aov"}:
                     raw_value = totals.get(key, 0.0)
-                    _render_hover_metric_card(st, label=label, value=formatter(raw_value, currency_unit=currency_unit), delta=f"{growth.get(key, 0.0):+.2f}% vs prev period", growth_value=growth.get(key, 0.0), tooltip=format_amount_full(raw_value, currency_unit=currency_unit))
+                    _render_hover_metric_card(
+                        st,
+                        label=label,
+                        value=formatter(raw_value, currency_unit=currency_unit),
+                        delta=f"{growth.get(key, 0.0):+.2f}% vs prev period",
+                        growth_value=growth.get(key, 0.0),
+                        tooltip=format_amount_full(raw_value, currency_unit=currency_unit),
+                    )
                 else:
                     st.metric(label=label, value=formatter(totals.get(key, 0.0)), delta=f"{growth.get(key, 0.0):+.2f}% vs prev period")
 

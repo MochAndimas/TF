@@ -21,6 +21,7 @@ from app.api.v1.functions.fetch_overview import fetch_overview_active_users_payl
 from app.api.v1.functions.fetch_overview_brand import fetch_overview_brand_awareness_payload
 from app.api.v1.functions.fetch_overview_campaign import fetch_overview_campaign_cost_payload
 from app.api.v1.functions.fetch_overview_leads import fetch_overview_leads_acquisition_payload
+from app.api.v1.functions.fetch_overview_remarketing import fetch_overview_remarketing_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
@@ -29,8 +30,9 @@ from app.utils.overview import (
     OverviewCampaignCostData,
     OverviewData,
     OverviewLeadsAcquisitionData,
+    OverviewRemarketingPerformanceData,
 )
-from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
+from app.utils.rbac import ANALYTICS_ROLES
 from app.utils.user_utils import get_current_user, require_roles
 
 router = APIRouter()
@@ -126,6 +128,23 @@ async def _build_overview_brand_data(
             detail="start_date cannot be after end_date.",
         )
     return await OverviewBrandAwarenessData.load_data(
+        session=session,
+        from_date=start_date,
+        to_date=end_date,
+    )
+
+
+async def _build_overview_remarketing_data(
+    session: AsyncSession,
+    start_date: date,
+    end_date: date,
+) -> OverviewRemarketingPerformanceData:
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be after end_date.",
+        )
+    return await OverviewRemarketingPerformanceData.load_data(
         session=session,
         from_date=start_date,
         to_date=end_date,
@@ -325,4 +344,48 @@ async def overview_brand_awareness(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An internal error occurred while generating overview brand awareness.",
+        )
+
+
+@router.get("/api/overview/remarketing", response_model=AnalyticsResponse)
+async def overview_remarketing(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(get_current_user),  # noqa: ARG001
+):
+    """Return remarketing overview payload sourced from ``data_ms_deposit``."""
+    try:
+        require_overview_access(current_user)
+    except PermissionError as error:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    try:
+        remarketing_data = await _build_overview_remarketing_data(
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        data = await fetch_overview_remarketing_payload(
+            remarketing_data=remarketing_data,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return AnalyticsResponse(
+            success=True,
+            message="Overview remarketing generated.",
+            data=data,
+        )
+    except HTTPException:
+        raise
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(error),
+        )
+    except Exception:
+        logger.exception("Failed to generate overview remarketing payload")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal error occurred while generating overview remarketing.",
         )

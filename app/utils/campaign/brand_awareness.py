@@ -12,7 +12,14 @@ import plotly.utils
 
 
 class BrandAwarenessCampaignMixin:
-    async def _brand_awareness_daily_dataframe(self, data: str, from_date: date, to_date: date) -> pd.DataFrame:
+    async def _brand_awareness_daily_dataframe(
+        self,
+        data: str,
+        from_date: date,
+        to_date: date,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> pd.DataFrame:
         source = data.strip().lower()
         frames = self._ads_frame_map()
         if source not in frames:
@@ -29,7 +36,7 @@ class BrandAwarenessCampaignMixin:
 
         filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
         filtered = filtered.loc[filtered["campaign_id"] != "No data"]
-        filtered = filtered.loc[filtered["campaign_type"] == "brand_awareness"]
+        filtered = filtered.loc[filtered["campaign_type"] == ad_type]
         if filtered.empty:
             return pd.DataFrame(columns=columns)
 
@@ -42,7 +49,14 @@ class BrandAwarenessCampaignMixin:
         daily["cpc"] = daily.apply(lambda row: round(float(row["cost"]) / float(row["clicks"]), 2) if float(row["clicks"]) else 0.0, axis=1)
         return daily[columns]
 
-    async def brand_awareness_metrics(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, float]:
+    async def brand_awareness_metrics(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> dict[str, float]:
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -57,7 +71,7 @@ class BrandAwarenessCampaignMixin:
             model=model_map[source],
             from_date=start_date,
             to_date=end_date,
-            ad_type="brand_awareness",
+            ad_type=ad_type,
         )
         cost_total = float(totals["cost"])
         impressions_total = float(totals["impressions"])
@@ -71,14 +85,21 @@ class BrandAwarenessCampaignMixin:
             "cpc": round(cost_total / clicks_total, 2) if clicks_total else 0.0,
         }
 
-    async def brand_awareness_metrics_with_growth(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def brand_awareness_metrics_with_growth(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> dict[str, object]:
         current_from = from_date or self.from_date
         current_to = to_date or self.to_date
         if current_from > current_to:
             raise ValueError("from_date cannot be after to_date.")
         previous_from, previous_to = self._previous_period_range(current_from, current_to)
-        current_metrics = await self.brand_awareness_metrics(data=data, from_date=current_from, to_date=current_to)
-        previous_metrics = await self.brand_awareness_metrics(data=data, from_date=previous_from, to_date=previous_to)
+        current_metrics = await self.brand_awareness_metrics(data=data, from_date=current_from, to_date=current_to, ad_type=ad_type)
+        previous_metrics = await self.brand_awareness_metrics(data=data, from_date=previous_from, to_date=previous_to, ad_type=ad_type)
         growth = {metric: self._growth_percentage(float(current_metrics[metric]), float(previous_metrics[metric])) for metric in ("cost", "impressions", "clicks", "ctr", "cpm", "cpc")}
         return {
             "current_period": {"from_date": current_from.isoformat(), "to_date": current_to.isoformat(), "metrics": current_metrics},
@@ -86,12 +107,19 @@ class BrandAwarenessCampaignMixin:
             "growth_percentage": growth,
         }
 
-    async def brand_awareness_spend_chart(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def brand_awareness_spend_chart(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> dict[str, object]:
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
-        daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date)
+        daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date, ad_type=ad_type)
         source_label = data.strip().replace("_", " ").title()
         if daily.empty:
             figure = go.Figure()
@@ -105,12 +133,19 @@ class BrandAwarenessCampaignMixin:
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)
         return {"source": data.strip().lower(), "from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "rows": rows, "figure": json.loads(chart_json)}
 
-    async def brand_awareness_performance_chart(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def brand_awareness_performance_chart(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> dict[str, object]:
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
-        daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date)
+        daily = await self._brand_awareness_daily_dataframe(data=data, from_date=start_date, to_date=end_date, ad_type=ad_type)
         source_label = data.strip().replace("_", " ").title()
         if daily.empty:
             figure = go.Figure()
@@ -134,12 +169,19 @@ class BrandAwarenessCampaignMixin:
         rows = await asyncio.to_thread(self._serialize_daily_rows, daily)
         return {"source": data.strip().lower(), "from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "rows": rows, "figure": json.loads(chart_json)}
 
-    async def brand_awareness_details_table(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def brand_awareness_details_table(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> dict[str, object]:
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
-        details_df = await self._ads_base_details_dataframe(data=data, from_date=start_date, to_date=end_date, ad_type="brand_awareness")
+        details_df = await self._ads_base_details_dataframe(data=data, from_date=start_date, to_date=end_date, ad_type=ad_type)
         if not details_df.empty:
             details_df["ctr"] = details_df.apply(lambda row: round((float(row["clicks"]) / float(row["impressions"])) * 100, 2) if float(row["impressions"]) else 0.0, axis=1)
             details_df["cpm"] = details_df.apply(lambda row: round((float(row["spend"]) / float(row["impressions"])) * 1000, 2) if float(row["impressions"]) else 0.0, axis=1)
@@ -147,7 +189,15 @@ class BrandAwarenessCampaignMixin:
         rows = await asyncio.to_thread(lambda: details_df.to_dict(orient="records"))
         return {"source": data.strip().lower(), "from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "rows": rows}
 
-    async def _brand_awareness_daily_dimension_dataframe(self, data: str, dimension: str, from_date: date, to_date: date) -> pd.DataFrame:
+    async def _brand_awareness_daily_dimension_dataframe(
+        self,
+        data: str,
+        dimension: str,
+        from_date: date,
+        to_date: date,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> pd.DataFrame:
         source = data.strip().lower()
         valid_dimensions = {"campaign_id", "ad_group", "ad_name"}
         if dimension not in valid_dimensions:
@@ -165,7 +215,7 @@ class BrandAwarenessCampaignMixin:
             return pd.DataFrame(columns=columns)
         filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
         filtered = filtered.loc[filtered["campaign_id"] != "No data"]
-        filtered = filtered.loc[filtered["campaign_type"] == "brand_awareness"]
+        filtered = filtered.loc[filtered["campaign_type"] == ad_type]
         if filtered.empty:
             return pd.DataFrame(columns=columns)
         filtered[dimension] = filtered[dimension].fillna("N/A").replace("", "N/A")
@@ -174,7 +224,17 @@ class BrandAwarenessCampaignMixin:
         daily = filtered.groupby(["date", dimension], as_index=False)[["cost", "impressions", "clicks"]].sum().sort_values(["date", dimension]).rename(columns={dimension: "dimension_name"})
         return daily[columns]
 
-    async def brand_awareness_ratio_trend_chart(self, data: str, dimension: str, metric: str, top_n: int = 6, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def brand_awareness_ratio_trend_chart(
+        self,
+        data: str,
+        dimension: str,
+        metric: str,
+        top_n: int = 6,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        *,
+        ad_type: str = "brand_awareness",
+    ) -> dict[str, object]:
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
@@ -184,7 +244,7 @@ class BrandAwarenessCampaignMixin:
         metric_key = metric.strip().lower()
         if metric_key not in {"ctr", "cpm", "cpc"}:
             raise ValueError("metric must be one of: ctr, cpm, cpc.")
-        daily = await self._brand_awareness_daily_dimension_dataframe(data=data, dimension=dimension, from_date=start_date, to_date=end_date)
+        daily = await self._brand_awareness_daily_dimension_dataframe(data=data, dimension=dimension, from_date=start_date, to_date=end_date, ad_type=ad_type)
         source_label = data.strip().replace("_", " ").title()
         metric_title = {"ctr": "CTR", "cpm": "CPM", "cpc": "CPC"}[metric_key]
         if daily.empty:

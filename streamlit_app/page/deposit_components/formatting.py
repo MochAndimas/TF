@@ -27,7 +27,20 @@ def compact_currency_value(value: float, currency_unit: str) -> str:
         scaled, unit = value / 1_000, "K"
     else:
         scaled, unit = value, ""
-    compact = f"{scaled:,.0f}" if not unit else f"{scaled:.{max(0, 3 - len(str(int(abs(scaled))) if scaled else '1'))}f}".rstrip("0").rstrip(".") + unit
+    if not unit:
+        compact = f"{scaled:,.0f}"
+    else:
+        abs_scaled = abs(scaled)
+        if abs_scaled >= 100:
+            decimals = 0
+        elif abs_scaled >= 10:
+            decimals = 1
+        else:
+            decimals = 2
+        compact_base = f"{scaled:.{decimals}f}"
+        if "." in compact_base:
+            compact_base = compact_base.rstrip("0").rstrip(".")
+        compact = compact_base + unit
     return f"{currency_label(currency_unit)}{compact}"
 
 

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.models.user import TfUser
 from app.db.session import get_db
-from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
+from app.utils.rbac import ANALYTICS_ROLES
 from app.api.v1.endpoint.auth_helpers import (
     clear_auth_session_cookie,
     enforce_rate_limit,

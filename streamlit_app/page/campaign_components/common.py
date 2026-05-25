@@ -43,12 +43,13 @@ def render_campaign_page_filters(
     date_range_key: str,
     source_key: str,
     source_label: str = "Performance Source",
+    source_options: dict[str, str] | None = None,
 ) -> tuple[dt.date, dt.date, str]:
     """Render the shared date/source filter row used by campaign pages."""
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
     st.markdown(f'<div class="campaign-title">{page_title}</div>', unsafe_allow_html=True)
 
-    source_options = {
+    source_options = source_options or {
         "Google Ads": "google",
         "Facebook Ads": "facebook",
         "TikTok Ads": "tiktok",

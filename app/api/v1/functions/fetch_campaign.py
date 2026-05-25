@@ -449,6 +449,147 @@ async def fetch_user_acquisition_overview_payload(
     }
 
 
+async def fetch_remarketing_metrics_with_growth_payload(
+    campaign_data: CampaignData,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    google_task = campaign_data.brand_awareness_metrics_with_growth(
+        data="google",
+        from_date=start_date,
+        to_date=end_date,
+        ad_type="remarketing",
+    )
+    facebook_task = campaign_data.brand_awareness_metrics_with_growth(
+        data="facebook",
+        from_date=start_date,
+        to_date=end_date,
+        ad_type="remarketing",
+    )
+    google, facebook = await asyncio.gather(google_task, facebook_task)
+    return {
+        "google": google,
+        "facebook": facebook,
+    }
+
+
+async def fetch_remarketing_performance_charts_payload(
+    campaign_data: CampaignData,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    sources = ("google", "facebook")
+    tasks = []
+    for source in sources:
+        tasks.extend(
+            [
+                campaign_data.brand_awareness_spend_chart(source, start_date, end_date, ad_type="remarketing"),
+                campaign_data.brand_awareness_performance_chart(source, start_date, end_date, ad_type="remarketing"),
+            ]
+        )
+    results = await asyncio.gather(*tasks)
+    payload: dict[str, object] = {}
+    for index, source in enumerate(sources):
+        base_index = index * 2
+        payload[source] = {
+            "spend": results[base_index],
+            "performance": results[base_index + 1],
+        }
+    return payload
+
+
+async def fetch_remarketing_details_tables_payload(
+    campaign_data: CampaignData,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    sources = ("google", "facebook")
+    results = await asyncio.gather(
+        *[campaign_data.brand_awareness_details_table(source, start_date, end_date, ad_type="remarketing") for source in sources]
+    )
+    return {source: result for source, result in zip(sources, results)}
+
+
+async def fetch_remarketing_insight_charts_payload(
+    campaign_data: CampaignData,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    sources = ("google", "facebook")
+    dimensions = ("campaign_id", "ad_group", "ad_name")
+    ratio_top_n = 8
+    ratio_metrics = ("ctr", "cpm", "cpc")
+    ratio_tasks = []
+    for source in sources:
+        for dimension in dimensions:
+            for metric in ratio_metrics:
+                ratio_tasks.append(
+                    campaign_data.brand_awareness_ratio_trend_chart(
+                        data=source,
+                        dimension=dimension,
+                        metric=metric,
+                        top_n=ratio_top_n,
+                        from_date=start_date,
+                        to_date=end_date,
+                        ad_type="remarketing",
+                    )
+                )
+    ratio_results = await asyncio.gather(*ratio_tasks)
+    ratio_trends: dict[str, dict[str, dict[str, object]]] = {source: {} for source in sources}
+    ratio_index = 0
+    for source in sources:
+        for dimension in dimensions:
+            ratio_trends[source][dimension] = {}
+            for metric in ratio_metrics:
+                ratio_trends[source][dimension][metric] = ratio_results[ratio_index]
+                ratio_index += 1
+
+    return {
+        "ratio_trends": ratio_trends,
+        "ratio_top_n": ratio_top_n,
+    }
+
+
+async def fetch_remarketing_overview_payload(
+    campaign_data: CampaignData,
+    start_date: date,
+    end_date: date,
+) -> dict[str, object]:
+    (
+        metrics_growth,
+        performance_charts,
+        details_tables,
+        insight_charts,
+    ) = await asyncio.gather(
+        fetch_remarketing_metrics_with_growth_payload(
+            campaign_data=campaign_data,
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        fetch_remarketing_performance_charts_payload(
+            campaign_data=campaign_data,
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        fetch_remarketing_details_tables_payload(
+            campaign_data=campaign_data,
+            start_date=start_date,
+            end_date=end_date,
+        ),
+        fetch_remarketing_insight_charts_payload(
+            campaign_data=campaign_data,
+            start_date=start_date,
+            end_date=end_date,
+        ),
+    )
+    return {
+        "metrics_with_growth": metrics_growth,
+        "charts": performance_charts,
+        "details": details_tables,
+        "insight_charts": insight_charts,
+    }
+
+
 async def fetch_brand_awareness_overview_payload(
     campaign_data: CampaignData,
     start_date: date,

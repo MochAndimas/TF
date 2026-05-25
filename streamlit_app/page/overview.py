@@ -59,6 +59,7 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
     cached_active_payload_map = st.session_state.get("overview_active_users_payload_by_source", {})
     cached_leads_payload = st.session_state.get("overview_leads_payload", {})
     cached_brand_payload = st.session_state.get("overview_brand_payload", {})
+    cached_remarketing_payload = st.session_state.get("overview_remarketing_payload", {})
 
     should_fetch_cost = (
         "overview_campaign_cost_payload" not in st.session_state
@@ -83,15 +84,20 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         or not _has_metric(cached_brand_payload, "data", "metrics_with_growth", "current_period", "metrics", "ctr")
         or st.session_state.get("overview_brand_range") != selected_range
     )
+    should_fetch_remarketing = (
+        "overview_remarketing_payload" not in st.session_state
+        or not _has_metric(cached_remarketing_payload, "data", "metrics_with_growth", "current_period", "metrics", "ctr")
+        or st.session_state.get("overview_remarketing_range") != selected_range
+    )
 
-    if not any([should_fetch_cost, should_fetch_active, should_fetch_leads, should_fetch_brand]):
+    if not any([should_fetch_cost, should_fetch_active, should_fetch_leads, should_fetch_brand, should_fetch_remarketing]):
         return True
 
     if not st.session_state.get("access_token"):
         st.error("Session invalid. Please log in again.")
         return False
 
-    response_cost = response_leads = response_brand = None
+    response_cost = response_leads = response_brand = response_remarketing = None
     response_app = response_web = response_combined = None
     with st.spinner("Fetching data..."):
         if should_fetch_cost:
@@ -106,6 +112,8 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
             response_leads = await fetch_data(st=st, host=host, uri="overview/leads-acquisition", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
         if should_fetch_brand:
             response_brand = await fetch_data(st=st, host=host, uri="overview/brand-awareness", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
+        if should_fetch_remarketing:
+            response_remarketing = await fetch_data(st=st, host=host, uri="overview/remarketing", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
 
     if should_fetch_cost:
         if not isinstance(response_cost, dict) or not response_cost.get("success", False):
@@ -125,6 +133,12 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
             return False
         st.session_state["overview_brand_payload"] = response_brand
         st.session_state["overview_brand_range"] = selected_range
+    if should_fetch_remarketing:
+        if not isinstance(response_remarketing, dict) or not response_remarketing.get("success", False):
+            st.error((response_remarketing or {}).get("detail") or (response_remarketing or {}).get("message") or "Failed to fetch overview remarketing.")
+            return False
+        st.session_state["overview_remarketing_payload"] = response_remarketing
+        st.session_state["overview_remarketing_range"] = selected_range
     if should_fetch_active:
         responses = [response_app, response_web, response_combined]
         if any(not isinstance(response, dict) or not response.get("success", False) for response in responses):
@@ -201,8 +215,9 @@ async def show_overview_page(host: str) -> None:
 
     leads_data = st.session_state.get("overview_leads_payload", {}).get("data", {})
     brand_data = st.session_state.get("overview_brand_payload", {}).get("data", {})
+    remarketing_data = st.session_state.get("overview_remarketing_payload", {}).get("data", {})
     st.markdown('<div class="metric-section-title">Overall Performance Campaign</div>', unsafe_allow_html=True)
-    performance_options = {"User Acquisition": "user_acquisition", "Brand Awareness": "brand_awareness"}
+    performance_options = {"User Acquisition": "user_acquisition", "Brand Awareness": "brand_awareness", "Remarketing": "remarketing"}
     _, performance_control, _ = st.columns([1.2, 1.2, 1.2], gap="small")
     with performance_control:
         selected_performance_label = st.selectbox("Campaign Performance Type", options=list(performance_options.keys()), index=0, key="overview_campaign_performance_type")
@@ -214,6 +229,16 @@ async def show_overview_page(host: str) -> None:
         brand_spend_figure.update_layout(height=430)
         brand_performance_figure.update_layout(height=430)
         for column, figure in zip(st.columns(2, gap="small"), [brand_spend_figure, brand_performance_figure]):
+            with column:
+                with st.container(border=True):
+                    st.plotly_chart(figure, width="stretch")
+    elif performance_options[selected_performance_label] == "remarketing":
+        render_brand_awareness_metric_cards(st, remarketing_data.get("metrics_with_growth", {}), "")
+        remarketing_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("spend_chart", {}).get("figure"), "Remarketing Spend"))
+        remarketing_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("performance_chart", {}).get("figure"), "Remarketing Performance"))
+        remarketing_spend_figure.update_layout(height=430)
+        remarketing_performance_figure.update_layout(height=430)
+        for column, figure in zip(st.columns(2, gap="small"), [remarketing_spend_figure, remarketing_performance_figure]):
             with column:
                 with st.container(border=True):
                     st.plotly_chart(figure, width="stretch")

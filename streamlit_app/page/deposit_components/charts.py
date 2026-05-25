@@ -21,16 +21,16 @@ def _format_heatmap_tick(value: float, currency_unit: str) -> str:
     abs_value = abs(float(value or 0))
     if currency_unit == "IDR":
         if abs_value >= 1_000_000_000:
-            return f"{value / 1_000_000_000:.1f}B"
+            return f"{value / 1_000_000_000:.1f}".rstrip("0").rstrip(".") + "B"
         if abs_value >= 1_000_000:
-            return f"{value / 1_000_000:.1f}M"
+            return f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
         if abs_value >= 1_000:
-            return f"{value / 1_000:.0f}K"
+            return f"{value / 1_000:.1f}".rstrip("0").rstrip(".") + "K"
         return f"{value:.0f}"
     if abs_value >= 1_000_000:
-        return f"{value / 1_000_000:.1f}M"
+        return f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
     if abs_value >= 1_000:
-        return f"{value / 1_000:.0f}k"
+        return f"{value / 1_000:.1f}".rstrip("0").rstrip(".") + "K"
     return f"{value:.0f}"
 
 

@@ -43,10 +43,15 @@ def _campaign_format_compact_number(value: float | int, suffix: str = "") -> str
     if not unit:
         return f"{_campaign_format_number(scaled)}{suffix}"
 
-    integer_digits = len(str(int(abs(scaled)))) if scaled else 1
-    decimal_places = max(0, 3 - integer_digits)
+    abs_scaled = abs(scaled)
+    if abs_scaled >= 100:
+        decimal_places = 0
+    elif abs_scaled >= 10:
+        decimal_places = 1
+    else:
+        decimal_places = 2
     compact_value = f"{scaled:.{decimal_places}f}"
-    if decimal_places > 0:
+    if "." in compact_value:
         compact_value = compact_value.rstrip("0").rstrip(".")
     return f"{compact_value}{unit}{suffix}"
 
@@ -108,7 +113,14 @@ def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -
     return round(((current_value - previous_value) / previous_value) * 100, 2)
 
 
-def render_campaign_metric_cards(st_module, source_metrics: dict[str, object], source_label: str) -> None:
+def render_campaign_metric_cards(
+    st_module,
+    source_metrics: dict[str, object],
+    source_label: str,
+    *,
+    lead_label: str = "Register",
+    cpl_label: str = "Cost/Register",
+) -> None:
     st_module.markdown(f'<div class="metric-section-title">{source_label} Performance</div>', unsafe_allow_html=True)
 
     current_metrics = source_metrics.get("current_period", {}).get("metrics", {})
@@ -117,8 +129,8 @@ def render_campaign_metric_cards(st_module, source_metrics: dict[str, object], s
         ("Cost Spend", "cost"),
         ("Impressions", "impressions"),
         ("Clicks", "clicks"),
-        ("Register", "leads"),
-        ("Cost/Register", "cost_leads"),
+        (lead_label, "leads"),
+        (cpl_label, "cost_leads"),
     ]
 
     for column, (label, key) in zip(st_module.columns(5, gap="small"), cards):

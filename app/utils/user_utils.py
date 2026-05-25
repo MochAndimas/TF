@@ -1,7 +1,7 @@
 """User/account/domain helpers for authentication and profile management."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
 
 from fastapi import HTTPException, status
@@ -135,11 +135,7 @@ async def authenticate_user(
         return active_user, active_user.role
 
     deleted_user = await get_user_by_email(email=normalized_email, session=session, include_deleted=True)
-    throttle.failed_attempts += 1
-    throttle.last_failed_at = now
-    throttle.updated_at = now
-    if throttle.failed_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
-        throttle.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
+    _apply_failed_login_throttle(throttle=throttle, now=now)
     await record_auth_event(
         session=session,
         email=normalized_email,
@@ -188,6 +184,20 @@ async def _get_or_create_login_throttle(
     session.add(throttle)
     await session.flush()
     return throttle
+
+
+def _apply_failed_login_throttle(*, throttle: LoginThrottle, now: datetime) -> None:
+    """Update lockout counters after one failed authentication attempt.
+
+    Args:
+        throttle (LoginThrottle): Login throttle row associated with the email.
+        now (datetime): Current timestamp used for deterministic state update.
+    """
+    throttle.failed_attempts += 1
+    throttle.last_failed_at = now
+    throttle.updated_at = now
+    if throttle.failed_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+        throttle.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
 
 
 async def record_auth_event(

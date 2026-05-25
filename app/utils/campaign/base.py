@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from datetime import date, timedelta
 
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.utils
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
-from app.db.models.external_api import Campaign, DailyRegister, DataDepo, FacebookAds, GoogleAds, TikTokAds
+from app.db.models.external_api import Campaign, DailyRegister, DataDepo, DataMsDeposit, FacebookAds, GoogleAds, TikTokAds
 from app.utils.analytics_cache import (
     CAMPAIGN_CACHE_PREFIX,
     analytics_dataframe_cache_enabled,
@@ -121,17 +118,61 @@ class CampaignDataBase:
         df["leads"] = pd.to_numeric(df["leads"], errors="coerce").fillna(0.0)
         return self._set_cached_dataframe(cache_key, df)
 
-    async def _attach_register_leads(self, df: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
+    async def _read_daily_login_db(self, from_date: date, to_date: date) -> pd.DataFrame:
+        cache_key = self._campaign_cache_key("daily_login", from_date, to_date)
+        cached = self._get_cached_dataframe(cache_key)
+        if cached is not None:
+            return cached
+
+        query = (
+            select(
+                DataMsDeposit.last_activity.label("date"),
+                DataMsDeposit.campaign_id.label("campaign_id"),
+                func.count(func.distinct(DataMsDeposit.email)).label("leads"),
+            )
+            .where(DataMsDeposit.last_activity.between(from_date, to_date))
+            .group_by(DataMsDeposit.last_activity, DataMsDeposit.campaign_id)
+        )
+        result = await self._execute_query(query)
+        rows = result.fetchall()
+        if not rows:
+            return self._set_cached_dataframe(
+                cache_key,
+                pd.DataFrame(columns=["date", "campaign_id", "leads"]),
+            )
+        df = pd.DataFrame(rows)
+        df["date"] = pd.to_datetime(df["date"]).dt.date
+        df["campaign_id"] = df["campaign_id"].astype(str)
+        df["leads"] = pd.to_numeric(df["leads"], errors="coerce").fillna(0.0)
+        return self._set_cached_dataframe(cache_key, df)
+
+    async def _read_daily_activity_db(self, from_date: date, to_date: date, lead_metric: str = "register") -> pd.DataFrame:
+        metric_key = lead_metric.strip().lower()
+        if metric_key == "login":
+            return await self._read_daily_login_db(from_date=from_date, to_date=to_date)
+        return await self._read_daily_register_db(from_date=from_date, to_date=to_date)
+
+    async def _attach_activity_leads(
+        self,
+        df: pd.DataFrame,
+        from_date: date,
+        to_date: date,
+        lead_metric: str = "register",
+    ) -> pd.DataFrame:
         if df.empty:
             df["leads"] = 0.0
             return df
 
-        regis_df = await self._read_daily_register_db(from_date=from_date, to_date=to_date)
-        if regis_df.empty:
+        activity_df = await self._read_daily_activity_db(
+            from_date=from_date,
+            to_date=to_date,
+            lead_metric=lead_metric,
+        )
+        if activity_df.empty:
             df["leads"] = 0.0
             return df
 
-        merged = df.merge(regis_df, on=["date", "campaign_id"], how="left")
+        merged = df.merge(activity_df, on=["date", "campaign_id"], how="left")
         merged["leads"] = pd.to_numeric(merged["leads"], errors="coerce").fillna(0.0)
         merged["cost"] = pd.to_numeric(merged["cost"], errors="coerce").fillna(0.0)
         group_keys = ["date", "campaign_id"]
@@ -146,6 +187,14 @@ class CampaignDataBase:
             axis=1,
         )
         return merged.drop(columns=["_row_count", "_cost_total"])
+
+    async def _attach_register_leads(self, df: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
+        return await self._attach_activity_leads(
+            df=df,
+            from_date=from_date,
+            to_date=to_date,
+            lead_metric="register",
+        )
 
     async def _read_depo_db(self) -> pd.DataFrame:
         cache_key = self._campaign_cache_key("depo", self.from_date, self.to_date)

@@ -4,7 +4,6 @@ This module is part of `streamlit_app.page` and contains runtime logic used by t
 Traders Family application.
 """
 
-import asyncio
 import httpx
 import streamlit as st
 

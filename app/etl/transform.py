@@ -403,7 +403,7 @@ def parse_ms_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     parsed["last_depo_amount"] = pd.to_numeric(parsed["last_depo_amount"], errors="coerce")
     parsed = parsed.loc[
         parsed["last_activity"].notna()
-        & (parsed["first_depo"] > 0)
+        & (parsed["first_depo"] >= 0)
         & parsed["tag"].fillna("").str.contains("MS1", case=False, na=False)
     ].copy()
     parsed = parsed.loc[parsed["email"].notna()].copy()

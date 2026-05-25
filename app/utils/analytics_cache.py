@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from app.core.config import settings
-from app.utils.dataframe_cache import CacheKey, DataFrameCache, DataFrameCacheStats
+from app.utils.dataframe_cache import CacheKey, DataFrameCache
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +27,3 @@ def clear_campaign_analytics_cache() -> int:
     removed = campaign_dataframe_cache.clear(prefix=CAMPAIGN_CACHE_PREFIX)
     logger.info("Cleared %s campaign analytics DataFrame cache entries", removed)
     return removed
-
-
-def campaign_analytics_cache_stats() -> DataFrameCacheStats:
-    """Return cache stats for diagnostics."""
-    return campaign_dataframe_cache.stats()
