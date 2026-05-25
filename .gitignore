@@ -67,7 +67,7 @@ coverage.xml
 .pytest_cache/
 cover/
 tests/
-pytest.ini
+pytests.ini
 ruff.toml
 
 # Translations

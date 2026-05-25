@@ -450,12 +450,15 @@ Dev dependency sudah menyediakan:
 - `pytest-cov`
 - `ruff`
 
-Namun kondisi repo saat ini perlu dicatat:
+Baseline test saat ini mencakup:
 
-- folder `tests/` saat ini tidak lagi berisi file test `.py`, hanya artefak `__pycache__`
-- environment aktif tempat audit ini dijalankan belum memiliki `pytest` terinstall
+- auth lockout regression (`tests/test_user_utils_authenticate.py`)
+- endpoint helper contract (`tests/test_endpoint_common.py`)
+- campaign payload contracts (`tests/test_fetch_campaign_payloads.py`)
+- campaign allocator math (`tests/test_campaign_allocator.py`)
+- campaign repository transform/cache behavior (`tests/test_campaign_repository.py`)
 
-Jika ingin mengaktifkan workflow test lagi:
+Menjalankan test suite:
 
 ```bash
 pip install -r requirements-dev.txt
@@ -472,13 +475,13 @@ Berikut poin penting dari hasil pengecekan repo saat ini:
 - ada dukungan secret encryption untuk token eksternal dan support `*_FILE` untuk secret injection
 - scheduler ETL sudah punya locking via `flock` atau lock file fallback
 - dokumentasi sebelumnya belum cukup menonjolkan risiko besar: `.env` di repo saat ini berisi secret sensitif dan sebaiknya segera diganti serta di-rotate di provider terkait
-- status testing sekarang tidak sepenuhnya sehat dari sisi repository hygiene karena file test sumber sudah hilang dari `tests/`
+- pipeline testing dasar sudah tersedia untuk area auth dan campaign analytics
 
 ## Rekomendasi Lanjutan
 
 - rotate semua secret yang pernah tersimpan di `.env` repo ini
 - sediakan `.env.example` yang steril dari secret riil
-- kembalikan file test sumber ke `tests/` agar `python3 -m pytest -q` punya coverage nyata
+- tambah integration test endpoint (`TestClient`) untuk auth flow dan ETL lifecycle
 - pertimbangkan migrasi ke PostgreSQL jika concurrency dan deployment mulai berkembang
 
 ## Entry Point Penting
