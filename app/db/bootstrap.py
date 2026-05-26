@@ -56,6 +56,8 @@ async def apply_schema_maintenance(connection) -> None:
         "CREATE INDEX IF NOT EXISTS ix_log_data_created_at ON log_data(created_at)",
         "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_created_at ON auth_audit_event(created_at)",
         "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_event_type ON auth_audit_event(event_type)",
+        "CREATE INDEX IF NOT EXISTS ix_auth_rate_limit_event_bucket_key ON auth_rate_limit_event(bucket_key)",
+        "CREATE INDEX IF NOT EXISTS ix_auth_rate_limit_event_request_at ON auth_rate_limit_event(request_at)",
     )
     for ddl in auth_indexes:
         await connection.execute(text(ddl))

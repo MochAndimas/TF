@@ -12,7 +12,9 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from google.auth.exceptions import GoogleAuthError
 from google_auth_oauthlib.flow import Flow
+from requests import RequestException
 
 from app.core.config import settings
 from app.core.security import encrypt_secret
@@ -27,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/adwords"]
 GOOGLE_ADS_OAUTH_STATE_PURPOSE = "google_ads_oauth"
+GOOGLE_ADS_OAUTH_FLOW_ERRORS = (
+    GoogleAuthError,
+    RequestException,
+    ValueError,
+    HTTPException,
+)
 
 
 class GoogleAdsOAuthStartResponse(ApiResponseV1):
@@ -271,7 +279,7 @@ async def google_ads_oauth_callback(
         flow = _build_flow(state=state)
         flow.fetch_token(code=code)
         credentials = flow.credentials
-    except Exception:
+    except GOOGLE_ADS_OAUTH_FLOW_ERRORS:
         logger.exception("Google Ads OAuth token exchange failed")
         return _html_page(
             "Google Ads OAuth Error",
@@ -329,7 +337,7 @@ async def google_ads_oauth_start(
 
     try:
         authorization_url = _prepare_google_ads_authorization_url(current_user)
-    except Exception as exc:
+    except GOOGLE_ADS_OAUTH_FLOW_ERRORS as exc:
         logger.exception("Failed to prepare Google Ads OAuth redirect")
         raise HTTPException(status_code=500, detail="Unable to start Google Ads OAuth flow.") from exc
 
@@ -346,7 +354,7 @@ async def google_ads_oauth_start_payload(
         authorization_url = _prepare_google_ads_authorization_url(current_user)
     except PermissionError as error:
         raise HTTPException(status_code=403, detail=str(error)) from error
-    except Exception as exc:
+    except GOOGLE_ADS_OAUTH_FLOW_ERRORS as exc:
         logger.exception("Failed to prepare Google Ads OAuth authorization URL")
         raise HTTPException(status_code=500, detail="Unable to start Google Ads OAuth flow.") from exc
 

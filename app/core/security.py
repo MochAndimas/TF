@@ -15,6 +15,7 @@ from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import now
 from app.core.config import settings
 from app.db.models.user import AuthAuditEvent, TfUser, UserToken
 from app.schemas.user import TokenData
@@ -69,7 +70,7 @@ def create_session_access_token(
         str: Encoded JWT access token carrying standard claims and session
         binding metadata.
     """
-    expiry = datetime.now() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTE))
+    expiry = now() + (expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTE))
     return _encode_token(
         subject=subject,
         session_id=session_id,
@@ -95,7 +96,7 @@ def create_session_refresh_token(
     Returns:
         str: Encoded JWT refresh token used for session rotation.
     """
-    expiry = datetime.now() + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
+    expiry = now() + (expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
     return _encode_token(
         subject=subject,
         session_id=session_id,
@@ -256,7 +257,7 @@ async def _record_security_event(
             ip_address=ip_address,
             user_agent=user_agent,
             detail=detail,
-            created_at=datetime.now(),
+            created_at=now(),
         )
     )
 
@@ -302,6 +303,7 @@ async def rotate_session_handle(
     *,
     ip_address: str | None = None,
     user_agent: str | None = None,
+    auto_commit: bool = True,
 ) -> tuple[str, str, str, str]:
     """Issue a fresh access token for an active persisted session handle.
 
@@ -330,10 +332,11 @@ async def rotate_session_handle(
             user_agent=user_agent,
             detail="Session cookie does not match any active session.",
         )
-        await sqlite_session.commit()
+        if auto_commit:
+            await sqlite_session.commit()
         raise JWTError("Invalid session handle")
 
-    if stored_token.is_revoked or not stored_token.logged_in or stored_token.expiry < datetime.now():
+    if stored_token.is_revoked or not stored_token.logged_in or stored_token.expiry < now():
         await _record_security_event(
             sqlite_session,
             event_type="refresh_failed",
@@ -343,7 +346,8 @@ async def rotate_session_handle(
             user_agent=user_agent,
             detail="Session cookie belongs to a revoked or expired session.",
         )
-        await sqlite_session.commit()
+        if auto_commit:
+            await sqlite_session.commit()
         raise JWTError("Invalid session handle")
 
     new_access_token = create_session_access_token(
@@ -356,11 +360,11 @@ async def rotate_session_handle(
     )
     stored_token.access_token = fingerprint_token(new_access_token)
     stored_token.refresh_token = fingerprint_token(new_refresh_token)
-    stored_token.expiry = datetime.now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    stored_token.updated_at = datetime.now()
+    stored_token.expiry = now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    stored_token.updated_at = now()
     stored_token.last_seen_ip = ip_address
     stored_token.last_seen_user_agent = user_agent
-    stored_token.last_rotated_at = datetime.now()
+    stored_token.last_rotated_at = now()
     await _record_security_event(
         sqlite_session,
         event_type="refresh_success",
@@ -370,7 +374,8 @@ async def rotate_session_handle(
         user_agent=user_agent,
         detail="Session cookie rotated successfully.",
     )
-    await sqlite_session.commit()
+    if auto_commit:
+        await sqlite_session.commit()
     return new_access_token, stored_token.role, stored_token.user_id, session_id
 
 
@@ -397,7 +402,7 @@ async def verify_access_token(sqlite_session: AsyncSession, token: str) -> Token
         or payload.get("type") != "access"
         or stored_token.is_revoked
         or not stored_token.logged_in
-        or stored_token.expiry < datetime.now()
+        or stored_token.expiry < now()
         or stored_token.access_token != fingerprint_token(token)
     ):
         raise JWTError("Invalid access token")

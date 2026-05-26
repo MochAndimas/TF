@@ -1,17 +1,10 @@
-"""Auth module.
-
-This module is part of `app.api.v1.endpoint` and contains runtime logic used by the
-Traders Family application.
-"""
-
-import secrets
+"""Auth HTTP endpoints."""
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security.oauth2 import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.api.v1.endpoint.common import (
     raise_bad_request,
     raise_forbidden,
@@ -21,31 +14,25 @@ from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.utils.rbac import ANALYTICS_ROLES
 from app.api.v1.endpoint.auth_helpers import (
-    clear_auth_session_cookie,
     enforce_rate_limit,
     serialize_account,
     serialize_latest_run,
-    set_auth_session_cookie,
+)
+from app.services.auth_orchestrator import (
+    login_response,
+    logout_all_response,
+    logout_response,
+    refresh_response,
 )
 from app.utils.user_utils import (
-    authenticate_user,
     create_account,
     delete_account,
     get_home_context,
     get_current_token_data,
     get_current_user,
     list_accounts,
-    logout,
-    logout_all_sessions,
-    record_auth_event,
     update_account,
-    user_token,
     validate_role_assignment,
-)
-from app.core.security import (
-    create_session_access_token,
-    create_session_refresh_token,
-    rotate_session_handle,
 )
 from app.schemas.user import (
     AccountListResponse,
@@ -225,58 +212,20 @@ async def login_user(
     Raises:
         HTTPException: Raised when account is deleted or credentials are invalid.
     """
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request=request,
+        session=session,
         scope="login",
         max_requests=8,
         window_seconds=60,
         extra=creds.username,
     )
-    user, user_role = await authenticate_user(
-        email=creds.username,
-        password=creds.password,
+    return await login_response(
+        request=request,
+        creds=creds,
+        remember_me=remember_me,
         session=session,
-        client_ip=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
     )
-    
-    # Create JWT token and store it to database
-    provisional_session_id = secrets.token_urlsafe(32)
-    access_token = create_session_access_token(subject=user.user_id, session_id=provisional_session_id)
-    refresh_token = create_session_refresh_token(subject=user.user_id, session_id=provisional_session_id)
-    personal_token = await user_token(
-        session=session,
-        user_id=user.user_id,
-        role=user_role,
-        access_token=access_token,
-        refresh_token=refresh_token,
-        session_id=provisional_session_id,
-        client_ip=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-
-    # Return only the short-lived access token in JSON response. The persistent
-    # session handle stays cookie-only so browser-side code never sees it.
-    payload = LoginResponse(
-        access_token=personal_token.get("access_token"),
-        token_type="Bearer",
-        role=user_role,
-        user_id=user.user_id,
-        success=True,
-        message="Authentication successful.",
-    )
-    response = JSONResponse(
-        content=payload.model_dump(mode="json")
-    )
-    if remember_me:
-        set_auth_session_cookie(response, personal_token["session_id"])
-    else:
-        clear_auth_session_cookie(response)
-
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Pragma"] = "no-cache"
-
-    return response
 
 
 @router.post("/api/token/refresh", response_model=TokenRefreshResponse | MessageResponse)
@@ -285,50 +234,17 @@ async def refresh_user_token(
     session: AsyncSession = Depends(get_db),
 ):
     """Rotate bearer tokens using an active persisted session handle."""
-    enforce_rate_limit(
+    await enforce_rate_limit(
         request=request,
+        session=session,
         scope="token_refresh",
         max_requests=15,
         window_seconds=60,
     )
-    session_id = request.cookies.get(settings.auth_cookie_name)
-
-    if not session_id:
-        return MessageResponse(success=False, message="No persisted session found.")
-
-    try:
-        access_token, role, user_id, refreshed_session_id = await rotate_session_handle(
-            sqlite_session=session,
-            session_id=session_id,
-            ip_address=request.client.host if request.client else None,
-            user_agent=request.headers.get("user-agent"),
-        )
-    except Exception:
-        response = JSONResponse(
-            content=MessageResponse(
-                success=False,
-                message="Refresh session is invalid or expired.",
-            ).model_dump(mode="json"),
-            status_code=status.HTTP_401_UNAUTHORIZED,
-        )
-        clear_auth_session_cookie(response)
-        return response
-
-    payload = TokenRefreshResponse(
-        access_token=access_token,
-        token_type="Bearer",
-        role=role,
-        user_id=user_id,
-        success=True,
-        message="Token refreshed successfully.",
+    return await refresh_response(
+        request=request,
+        session=session,
     )
-    response = JSONResponse(
-        content=payload.model_dump(mode="json")
-    )
-    set_auth_session_cookie(response, refreshed_session_id)
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Pragma"] = "no-cache"
-    return response
 
 
 @router.post("/api/logout", response_model=MessageResponse)
@@ -347,40 +263,12 @@ async def logout_user(
     Returns:
         JSONResponse: Success/failure status message for logout action.
     """
-    result = await logout(
+    return await logout_response(
+        request=request,
         session=session,
-        user_id=current_user.user_id,
-        session_id=token_data.session_id,
+        current_user=current_user,
+        token_data=token_data,
     )
-    await record_auth_event(
-        session=session,
-        email=current_user.email,
-        user_id=current_user.user_id,
-        event_type="logout_success" if result else "logout_failed",
-        success=result,
-        detail="User logged out from current session." if result else "Session data not found during logout.",
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-    await session.commit()
-    if not result:
-        return JSONResponse(
-            content=MessageResponse(
-                message="Session data not found",
-                success=False,
-            ).model_dump(mode="json"),
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
-
-    response = JSONResponse(
-        content=MessageResponse(
-            message="Successfully logged out",
-            success=True,
-        ).model_dump(mode="json"),
-        status_code=status.HTTP_200_OK,
-    )
-    clear_auth_session_cookie(response)
-    return response
 
 
 @router.post("/api/logout-all", response_model=LogoutAllSessionsResponse)
@@ -392,38 +280,14 @@ async def logout_all_user_sessions(
 ):
     """Revoke all sessions owned by the caller or by a superadmin-selected user."""
     try:
-        revoked_sessions = await logout_all_sessions(
+        return await logout_all_response(
+            request=request,
             session=session,
-            actor=current_user,
+            current_user=current_user,
             target_user_id=payload.user_id,
         )
     except PermissionError as error:
         raise_forbidden(error)
-
-    target_user_id = payload.user_id or current_user.user_id
-    await record_auth_event(
-        session=session,
-        email=current_user.email,
-        user_id=current_user.user_id,
-        event_type="logout_all_sessions",
-        success=True,
-        detail=f"Revoked {revoked_sessions} session(s) for user {target_user_id}.",
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-    )
-    await session.commit()
-    payload = LogoutAllSessionsResponse(
-        success=True,
-        message="All matching sessions have been revoked.",
-        revoked_sessions=revoked_sessions,
-    )
-    response = JSONResponse(
-        content=payload.model_dump(mode="json"),
-        status_code=status.HTTP_200_OK,
-    )
-    if target_user_id == current_user.user_id:
-        clear_auth_session_cookie(response)
-    return response
 
 
 @router.delete(

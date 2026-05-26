@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
-from datetime import datetime
-from threading import Lock
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.models.etl_run import EtlRun
-from app.db.models.user import TfUser
+from app.db.models.user import AuthRateLimitEvent, TfUser
 from app.schemas.user import AccountSummary, LatestEtlRunSummary
-
-_RATE_LIMIT_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
-_RATE_LIMIT_LOCK = Lock()
 
 
 def serialize_account(user: TfUser) -> AccountSummary:
@@ -81,23 +78,45 @@ def _client_identifier(request: Request, scope: str, extra: str | None = None) -
     return f"{scope}:{client_host}{suffix}"
 
 
-def enforce_rate_limit(
+async def enforce_rate_limit(
     request: Request,
+    session: AsyncSession,
     scope: str,
     max_requests: int,
     window_seconds: int,
     extra: str | None = None,
 ) -> None:
-    """Enforce a simple sliding-window rate limit for sensitive auth actions."""
-    now = datetime.now().timestamp()
+    """Enforce a SQLite-backed sliding-window rate limit for auth actions."""
+    now = datetime.now()
+    window_start = now - timedelta(seconds=window_seconds)
     bucket_key = _client_identifier(request, scope, extra)
-    with _RATE_LIMIT_LOCK:
-        bucket = _RATE_LIMIT_BUCKETS[bucket_key]
-        while bucket and now - bucket[0] > window_seconds:
-            bucket.popleft()
-        if len(bucket) >= max_requests:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later.",
-            )
-        bucket.append(now)
+
+    await session.execute(
+        delete(AuthRateLimitEvent).where(
+            AuthRateLimitEvent.bucket_key == bucket_key,
+            AuthRateLimitEvent.request_at < window_start,
+        )
+    )
+    count_result = await session.execute(
+        select(func.count())
+        .select_from(AuthRateLimitEvent)
+        .where(
+            AuthRateLimitEvent.bucket_key == bucket_key,
+            AuthRateLimitEvent.request_at >= window_start,
+        )
+    )
+    request_count = int(count_result.scalar_one())
+    if request_count >= max_requests:
+        await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests. Please try again later.",
+        )
+
+    session.add(
+        AuthRateLimitEvent(
+            bucket_key=bucket_key,
+            request_at=now,
+        )
+    )
+    await session.commit()

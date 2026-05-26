@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import now
 from app.core.security import fingerprint_session_id, fingerprint_token
 from app.db.models.user import TfUser, UserToken
 
@@ -21,9 +22,10 @@ async def user_token(
     session_id: str | None = None,
     client_ip: str | None = None,
     user_agent: str | None = None,
+    auto_commit: bool = True,
 ):
     """Create or update token/session row for a user login."""
-    today = datetime.now()
+    today = now()
     session_id = session_id or str(uuid.uuid4())
     expiry = today + timedelta(days=7)
 
@@ -66,7 +68,8 @@ async def user_token(
                 last_rotated_at=today,
             )
         )
-    await session.commit()
+    if auto_commit:
+        await session.commit()
 
     return {
         "access_token": access_token,
@@ -79,9 +82,10 @@ async def logout(
     session: AsyncSession,
     user_id,
     session_id: str | None = None,
+    auto_commit: bool = True,
 ):
     """Revoke a user's active token row and mark the session as logged out."""
-    today = datetime.now()
+    today = now()
     query = select(UserToken).where(UserToken.user_id == user_id)
     if session_id:
         query = query.where(UserToken.session_id == fingerprint_session_id(session_id))
@@ -96,7 +100,8 @@ async def logout(
     user.expiry = today
     user.updated_at = today
 
-    await session.commit()
+    if auto_commit:
+        await session.commit()
     return True
 
 
@@ -105,6 +110,7 @@ async def logout_all_sessions(
     *,
     actor: TfUser,
     target_user_id: str | None = None,
+    auto_commit: bool = True,
 ) -> int:
     """Revoke all sessions for the actor or a superadmin-selected target user."""
     normalized_role = (actor.role or "").strip().lower()
@@ -121,12 +127,13 @@ async def logout_all_sessions(
     if not token_rows:
         return 0
 
-    now = datetime.now()
+    current_time = now()
     for token_row in token_rows:
         token_row.logged_in = False
         token_row.is_revoked = True
-        token_row.expiry = now
-        token_row.updated_at = now
+        token_row.expiry = current_time
+        token_row.updated_at = current_time
 
-    await session.commit()
+    if auto_commit:
+        await session.commit()
     return len(token_rows)

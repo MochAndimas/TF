@@ -162,8 +162,35 @@ def render_campaign_metric_cards(
 
 
 def render_brand_awareness_metric_cards(st_module, source_metrics: dict[str, object], source_label: str) -> None:
+    render_performance_metric_cards(
+        st_module=st_module,
+        source_metrics=source_metrics,
+        source_label=source_label,
+        campaign_label="Brand Awareness",
+    )
+
+
+def render_remarketing_metric_cards(st_module, source_metrics: dict[str, object], source_label: str) -> None:
+    render_performance_metric_cards(
+        st_module=st_module,
+        source_metrics=source_metrics,
+        source_label=source_label,
+        campaign_label="Remarketing",
+    )
+
+
+def render_performance_metric_cards(
+    st_module,
+    source_metrics: dict[str, object],
+    source_label: str,
+    *,
+    campaign_label: str,
+) -> None:
     if source_label:
-        st_module.markdown(f'<div class="metric-section-title">{source_label} - Brand Awareness</div>', unsafe_allow_html=True)
+        st_module.markdown(
+            f'<div class="metric-section-title">{source_label} - {campaign_label}</div>',
+            unsafe_allow_html=True,
+        )
     st_module.markdown(
         """
         <style>

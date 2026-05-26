@@ -138,3 +138,17 @@ class AuthAuditEvent(SqliteBase):
     user_agent = Column("user_agent", String, nullable=True)
     detail = Column("detail", String, nullable=True)
     created_at = Column("created_at", DateTime, nullable=False)
+
+
+class AuthRateLimitEvent(SqliteBase):
+    """Persist auth rate-limit hits so quotas survive process restarts."""
+
+    __tablename__ = "auth_rate_limit_event"
+    __table_args__ = (
+        Index("ix_auth_rate_limit_event_bucket_key", "bucket_key"),
+        Index("ix_auth_rate_limit_event_request_at", "request_at"),
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    bucket_key = Column("bucket_key", String, nullable=False)
+    request_at = Column("request_at", DateTime, nullable=False)

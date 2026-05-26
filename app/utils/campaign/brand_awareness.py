@@ -298,3 +298,74 @@ class BrandAwarenessCampaignMixin:
             rows = await asyncio.to_thread(lambda: serializable.to_dict(orient="records"))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         return {"source": data.strip().lower(), "dimension": dimension, "metric": metric_key, "top_n": top_n, "from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "rows": rows, "figure": json.loads(chart_json)}
+
+    async def remarketing_metrics_with_growth(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        return await self.brand_awareness_metrics_with_growth(
+            data=data,
+            from_date=from_date,
+            to_date=to_date,
+            ad_type="remarketing",
+        )
+
+    async def remarketing_spend_chart(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        return await self.brand_awareness_spend_chart(
+            data=data,
+            from_date=from_date,
+            to_date=to_date,
+            ad_type="remarketing",
+        )
+
+    async def remarketing_performance_chart(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        return await self.brand_awareness_performance_chart(
+            data=data,
+            from_date=from_date,
+            to_date=to_date,
+            ad_type="remarketing",
+        )
+
+    async def remarketing_details_table(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        return await self.brand_awareness_details_table(
+            data=data,
+            from_date=from_date,
+            to_date=to_date,
+            ad_type="remarketing",
+        )
+
+    async def remarketing_ratio_trend_chart(
+        self,
+        data: str,
+        dimension: str,
+        metric: str,
+        top_n: int = 6,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> dict[str, object]:
+        return await self.brand_awareness_ratio_trend_chart(
+            data=data,
+            dimension=dimension,
+            metric=metric,
+            top_n=top_n,
+            from_date=from_date,
+            to_date=to_date,
+            ad_type="remarketing",
+        )

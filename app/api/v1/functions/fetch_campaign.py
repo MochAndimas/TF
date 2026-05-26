@@ -363,11 +363,10 @@ async def fetch_remarketing_metrics_with_growth_payload(
 ) -> dict[str, object]:
     return await _run_source_map(
         sources=REMARKETING_SOURCES,
-        task_factory=lambda source: campaign_data.brand_awareness_metrics_with_growth(
+        task_factory=lambda source: campaign_data.remarketing_metrics_with_growth(
             data=source,
             from_date=start_date,
             to_date=end_date,
-            ad_type="remarketing",
         ),
     )
 
@@ -380,20 +379,18 @@ async def fetch_remarketing_performance_charts_payload(
     task_specs = (
         PerSourceTaskSpec(
             key="spend",
-            task_factory=lambda source: campaign_data.brand_awareness_spend_chart(
+            task_factory=lambda source: campaign_data.remarketing_spend_chart(
                 source,
                 start_date,
                 end_date,
-                ad_type="remarketing",
             ),
         ),
         PerSourceTaskSpec(
             key="performance",
-            task_factory=lambda source: campaign_data.brand_awareness_performance_chart(
+            task_factory=lambda source: campaign_data.remarketing_performance_chart(
                 source,
                 start_date,
                 end_date,
-                ad_type="remarketing",
             ),
         ),
     )
@@ -407,11 +404,10 @@ async def fetch_remarketing_details_tables_payload(
 ) -> dict[str, object]:
     return await _run_source_map(
         sources=REMARKETING_SOURCES,
-        task_factory=lambda source: campaign_data.brand_awareness_details_table(
+        task_factory=lambda source: campaign_data.remarketing_details_table(
             source,
             start_date,
             end_date,
-            ad_type="remarketing",
         ),
     )
 
@@ -426,14 +422,13 @@ async def fetch_remarketing_insight_charts_payload(
         sources=REMARKETING_SOURCES,
         dimensions=DEFAULT_DIMENSIONS,
         metrics=BA_RATIO_METRICS,
-        task_factory=lambda source, dimension, metric: campaign_data.brand_awareness_ratio_trend_chart(
+        task_factory=lambda source, dimension, metric: campaign_data.remarketing_ratio_trend_chart(
             data=source,
             dimension=dimension,
             metric=metric,
             top_n=ratio_top_n,
             from_date=start_date,
             to_date=end_date,
-            ad_type="remarketing",
         ),
     )
 

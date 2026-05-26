@@ -4,12 +4,12 @@ import streamlit as st
 
 from streamlit_app.functions.api import fetch_data
 from streamlit_app.functions.charting import campaign_figure_from_payload
-from streamlit_app.functions.metrics import render_brand_awareness_metric_cards
+from streamlit_app.functions.metrics import render_remarketing_metric_cards
 from streamlit_app.page.campaign_components.common import (
     render_campaign_page_filters,
     set_transparent_chart_background,
 )
-from streamlit_app.page.campaign_components.brand_awareness import (
+from streamlit_app.page.campaign_components.remarketing import (
     build_performance_table,
     render_performance_table,
 )
@@ -55,7 +55,7 @@ async def show_remarketing_page(host: str) -> None:
         f'<div class="metric-section-title">{selected_source} - Remarketing</div>',
         unsafe_allow_html=True,
     )
-    render_brand_awareness_metric_cards(
+    render_remarketing_metric_cards(
         st,
         overview_data.get("metrics_with_growth", {}).get(selected_key, {}),
         "",

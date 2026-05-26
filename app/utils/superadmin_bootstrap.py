@@ -34,7 +34,7 @@ class SuperadminBootstrapService:
             existing_user_result = await session.execute(
                 select(TfUser).where(
                     TfUser.email == bootstrap_email,
-                    TfUser.deleted_at == None,
+                    TfUser.deleted_at.is_(None),
                 )
             )
             existing_user = existing_user_result.scalars().first()
@@ -46,7 +46,7 @@ class SuperadminBootstrapService:
                 return
 
             active_users_result = await session.execute(
-                select(TfUser.user_id).where(TfUser.deleted_at == None)
+                select(TfUser.user_id).where(TfUser.deleted_at.is_(None))
             )
             if active_users_result.first() is not None:
                 self._logger.warning(

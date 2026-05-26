@@ -51,14 +51,22 @@ def format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFra
     return formatted
 
 
-def build_performance_table(detail_rows: list[dict]):
+def build_performance_table(
+    detail_rows: list[dict],
+    *,
+    selectbox_key: str = "brand_awareness_performance_level",
+):
     """Build BA performance table data and return the active level selection."""
     level_options = {
         "Ad Campaign Performance": ("campaign_id", "Campaign ID"),
         "Ad Group Performance": ("ad_group", "Ad Group"),
         "Ad Name Performance": ("ad_name", "Ad Name"),
     }
-    selected_level = st.selectbox("Performance Table", options=list(level_options.keys()), key="brand_awareness_performance_level")
+    selected_level = st.selectbox(
+        "Performance Table",
+        options=list(level_options.keys()),
+        key=selectbox_key,
+    )
     level_column, level_label = level_options[selected_level]
     performance_df = build_performance_dataframe(detail_rows=detail_rows, level_column=level_column)
     if performance_df.empty:

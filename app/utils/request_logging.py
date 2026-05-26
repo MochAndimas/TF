@@ -173,7 +173,6 @@ class RequestLogService:
 
         cutoff = datetime.now() - timedelta(days=retention_days)
         await session.execute(delete(LogData).where(LogData.created_at < cutoff))
-        await session.commit()
 
     async def _request_log_worker(self) -> None:
         flush_interval = max(0.1, float(settings.REQUEST_LOG_FLUSH_INTERVAL_SECONDS))
@@ -216,6 +215,7 @@ class RequestLogService:
     async def _persist_request_log_batch(self, *, batch: list[RequestLogEvent]) -> None:
         try:
             async with sqlite_async_session() as session:
+                await self._cleanup_old_request_logs(session)
                 session.add_all(
                     [
                         LogData(
@@ -230,6 +230,5 @@ class RequestLogService:
                     ]
                 )
                 await session.commit()
-                await self._cleanup_old_request_logs(session)
         except Exception:
             self._logger.exception("Failed to persist request log batch")

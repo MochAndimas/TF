@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.clock import now
 from app.db.models.etl_run import EtlRun
 from app.db.models.user import AuthAuditEvent, LoginThrottle, TfUser
 from app.utils.auth_dependencies import (
@@ -69,7 +70,7 @@ async def get_user_by_email(
     normalized_email = normalize_email(email)
     query = select(TfUser).where(TfUser.email == normalized_email)
     if not include_deleted:
-        query = query.where(TfUser.deleted_at == None)
+        query = query.where(TfUser.deleted_at.is_(None))
 
     result = await session.execute(query)
     return result.scalars().first()
@@ -97,8 +98,8 @@ async def authenticate_user(
     """
     normalized_email = normalize_email(email)
     throttle = await _get_or_create_login_throttle(session=session, email=normalized_email)
-    now = datetime.now()
-    if throttle.locked_until and throttle.locked_until > now:
+    current_time = now()
+    if throttle.locked_until and throttle.locked_until > current_time:
         await record_auth_event(
             session=session,
             email=normalized_email,
@@ -120,7 +121,7 @@ async def authenticate_user(
     if active_user and verify_password(password, active_user.password):
         throttle.failed_attempts = 0
         throttle.locked_until = None
-        throttle.updated_at = now
+        throttle.updated_at = current_time
         await record_auth_event(
             session=session,
             email=normalized_email,
@@ -135,7 +136,7 @@ async def authenticate_user(
         return active_user, active_user.role
 
     deleted_user = await get_user_by_email(email=normalized_email, session=session, include_deleted=True)
-    _apply_failed_login_throttle(throttle=throttle, now=now)
+    _apply_failed_login_throttle(throttle=throttle, now=current_time)
     await record_auth_event(
         session=session,
         email=normalized_email,
@@ -172,14 +173,14 @@ async def _get_or_create_login_throttle(
     if throttle is not None:
         return throttle
 
-    now = datetime.now()
+    current_time = now()
     throttle = LoginThrottle(
         email=email,
         failed_attempts=0,
         locked_until=None,
         last_failed_at=None,
-        created_at=now,
-        updated_at=now,
+        created_at=current_time,
+        updated_at=current_time,
     )
     session.add(throttle)
     await session.flush()
@@ -234,7 +235,7 @@ async def record_auth_event(
             ip_address=ip_address,
             user_agent=user_agent,
             detail=detail,
-            created_at=datetime.now(),
+            created_at=now(),
         )
     )
 
@@ -243,7 +244,8 @@ async def create_account(
         fullname: str,
         email: str,
         role: str,
-        password: str
+        password: str,
+        auto_commit: bool = True,
 ):
     """Create a new user account record.
 
@@ -258,7 +260,7 @@ async def create_account(
         TfUser | None: Created user object, or `None` when email already exists.
     """
     email = email.lower()
-    today = datetime.now()
+    today = now()
     validate_password_policy(password)
 
     query = select(TfUser).filter_by(email=email)
@@ -279,7 +281,8 @@ async def create_account(
     )
 
     session.add(new_account)
-    await session.commit()
+    if auto_commit:
+        await session.commit()
 
     return new_account
 
@@ -288,7 +291,7 @@ async def list_accounts(session: AsyncSession) -> list[TfUser]:
     """Return all active accounts ordered for admin presentation."""
     result = await session.execute(
         select(TfUser)
-        .where(TfUser.deleted_at == None)
+        .where(TfUser.deleted_at.is_(None))
         .order_by(TfUser.created_at.desc(), TfUser.email.asc())
     )
     return result.scalars().all()
@@ -302,6 +305,7 @@ async def update_account(
     fullname: str | None = None,
     email: str | None = None,
     role: str | None = None,
+    auto_commit: bool = True,
 ) -> TfUser | None:
     """Update mutable account fields through the backend authorization layer."""
     require_roles(actor, "superadmin")
@@ -323,7 +327,7 @@ async def update_account(
                 select(TfUser).where(
                     TfUser.email == normalized_email,
                     TfUser.user_id != user_id,
-                    TfUser.deleted_at == None,
+                    TfUser.deleted_at.is_(None),
                 )
             )
             if duplicate_result.scalar_one_or_none() is not None:
@@ -335,8 +339,9 @@ async def update_account(
         validate_role_assignment(actor.role, normalized_role)
         target_user.role = normalized_role
 
-    target_user.updated_at = datetime.now()
-    await session.commit()
+    target_user.updated_at = now()
+    if auto_commit:
+        await session.commit()
     await session.refresh(target_user)
     return target_user
 
@@ -381,7 +386,7 @@ async def delete_account(
     query = await session.execute(
         select(TfUser).where(
             TfUser.user_id == user_id,
-            TfUser.deleted_at == None
+            TfUser.deleted_at.is_(None)
         )
     )
     user = query.scalar_one_or_none()
@@ -389,8 +394,8 @@ async def delete_account(
     if not user:
         return None
 
-    user.deleted_at = datetime.now()
-    user.updated_at = datetime.now()
+    user.deleted_at = now()
+    user.updated_at = now()
     await session.commit()
 
     return user
