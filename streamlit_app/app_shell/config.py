@@ -88,6 +88,7 @@ ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "admin": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
     "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity"],
     "finance": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "deposit_report", "remarketing_deposit"],
+    "tech_it": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
     "sales": [],
 }
 

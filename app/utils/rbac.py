@@ -10,13 +10,33 @@ LEGACY_ROLE_ALIASES: Final[dict[str, str]] = {
     "admin": "analyst",
 }
 
-ALLOWED_ROLES: Final[set[str]] = {"superadmin", "analyst", "digital_marketing", "finance", "sales", *LEGACY_ROLE_ALIASES}
+ALLOWED_ROLES: Final[set[str]] = {
+    "superadmin",
+    "analyst",
+    "digital_marketing",
+    "finance",
+    "sales",
+    "tech_it",
+    *LEGACY_ROLE_ALIASES,
+}
 ROLE_CREATION_POLICY: Final[dict[str, set[str]]] = {
     "superadmin": ALLOWED_ROLES,
 }
 
-ANALYTICS_ROLES: Final[tuple[str, ...]] = ("superadmin", "analyst", "admin", "digital_marketing")
-FINANCE_ANALYTICS_ROLES: Final[tuple[str, ...]] = ("superadmin", "analyst", "admin", "finance")
+ANALYTICS_ROLES: Final[tuple[str, ...]] = (
+    "superadmin",
+    "analyst",
+    "admin",
+    "digital_marketing",
+    "tech_it",
+)
+FINANCE_ANALYTICS_ROLES: Final[tuple[str, ...]] = (
+    "superadmin",
+    "analyst",
+    "admin",
+    "finance",
+    "tech_it",
+)
 
 
 def validate_role_assignment(actor_role: str, target_role: str) -> None:

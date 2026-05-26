@@ -88,9 +88,10 @@ def _render_stats(users) -> None:
     superadmin_users = len(users[users["role"] == "superadmin"])
     finance_users = len(users[users["role"] == "finance"])
     digital_marketing_users = len(users[users["role"] == "digital_marketing"])
+    tech_it_users = len(users[users["role"] == "tech_it"])
     sales_users = len(users[users["role"] == "sales"])
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6, gap="small")
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7, gap="small")
     with col1:
         st.metric("Total Accounts", total_users)
     with col2:
@@ -102,6 +103,8 @@ def _render_stats(users) -> None:
     with col5:
         st.metric("Digital Marketing", digital_marketing_users)
     with col6:
+        st.metric("Tech/IT", tech_it_users)
+    with col7:
         st.metric("Sales", sales_users)
 
 

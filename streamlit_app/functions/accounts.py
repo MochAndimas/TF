@@ -13,6 +13,7 @@ ROLE_LABELS: dict[str, str] = {
     "analyst": "Analyst",
     "digital_marketing": "Digital Marketing",
     "finance": "Finance",
+    "tech_it": "Tech/IT",
     "sales": "Sales",
     "admin": "Analyst",
 }
@@ -22,6 +23,7 @@ ROLE_OPTIONS: dict[str, str] = {
     "Analyst": "analyst",
     "Digital Marketing": "digital_marketing",
     "Finance": "finance",
+    "Tech/IT": "tech_it",
     "Sales": "sales",
 }
 
