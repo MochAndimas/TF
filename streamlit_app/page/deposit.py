@@ -72,12 +72,14 @@ async def show_deposit_page(host: str) -> None:
     type_options = {"All": "all", "User Acquisition": "user_acquisition", "Brand Awareness": "brand_awareness"}
     date_range_key = "deposit_date_range"
     if date_range_key not in st.session_state:
-        st.session_state[date_range_key] = presets["Last 7 Day"]
+        st.session_state[date_range_key] = presets["This Month"]
+    if "deposit_period" not in st.session_state:
+        st.session_state["deposit_period"] = "This Month"
 
     with st.container(border=True):
         left_col, right_col = st.columns([2, 2], gap="small")
         with left_col:
-            period_key = st.selectbox("Periods", options=list(presets.keys()), index=0, key="deposit_period")
+            period_key = st.selectbox("Periods", options=list(presets.keys()), key="deposit_period")
             if period_key == "Custom Range":
                 selected = st.date_input("Select Date Range", key=date_range_key)
                 if not isinstance(selected, tuple) or len(selected) != 2:

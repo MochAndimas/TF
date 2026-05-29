@@ -32,7 +32,7 @@ async def show_remarketing_deposit_page(host: str) -> None:
     }
     date_range_key = "remarketing_deposit_date_range"
     if date_range_key not in st.session_state:
-        st.session_state[date_range_key] = presets["Last 7 Day"]
+        st.session_state[date_range_key] = presets["This Month"]
 
     with st.container(border=True):
         left_col, right_col = st.columns([2, 2], gap="small")

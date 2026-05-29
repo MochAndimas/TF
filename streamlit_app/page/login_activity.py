@@ -27,12 +27,14 @@ def _render_filters() -> tuple[dt.date | None, dt.date | None, str | None]:
 
     presets = campaign_preset_ranges(dt.date.today())
     if "login_activity_date_range" not in st.session_state:
-        st.session_state["login_activity_date_range"] = presets["Last 7 Day"]
+        st.session_state["login_activity_date_range"] = presets["This Month"]
+    if "login_activity_period" not in st.session_state:
+        st.session_state["login_activity_period"] = "This Month"
 
     with st.container(border=True):
         period_col, source_col = st.columns([2, 2], gap="small")
         with period_col:
-            selected_period = st.selectbox("Periods", options=list(presets.keys()), index=0, key="login_activity_period")
+            selected_period = st.selectbox("Periods", options=list(presets.keys()), key="login_activity_period")
             if selected_period == "Custom Range":
                 selected = st.date_input("Select Date Range", key="login_activity_date_range")
                 if not isinstance(selected, tuple) or len(selected) != 2:

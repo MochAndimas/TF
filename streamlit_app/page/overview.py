@@ -211,10 +211,12 @@ async def show_overview_page(host: str) -> None:
     presets = campaign_preset_ranges(dt.date.today())
     date_range_key = "overview_date_range"
     if date_range_key not in st.session_state:
-        st.session_state[date_range_key] = presets["Last 7 Day"]
+        st.session_state[date_range_key] = presets["This Month"]
+    if "overview_period" not in st.session_state:
+        st.session_state["overview_period"] = "This Month"
 
     with st.container(border=True):
-        period_key = st.selectbox("Periods", options=list(presets.keys()), index=0, key="overview_period")
+        period_key = st.selectbox("Periods", options=list(presets.keys()), key="overview_period")
         if period_key == "Custom Range":
             selected = st.date_input("Select Date Range", key=date_range_key)
             if not isinstance(selected, tuple) or len(selected) != 2:

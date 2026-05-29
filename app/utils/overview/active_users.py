@@ -116,15 +116,15 @@ class OverviewData:
         previous_last = float(previous_df.iloc[-1]["stickiness"]) if not previous_df.empty else 0.0
         current_avg = float(current_df["stickiness"].mean()) if not current_df.empty else 0.0
         previous_avg = float(previous_df["stickiness"].mean()) if not previous_df.empty else 0.0
-        current_active_user = float(current_df["active_users"].sum()) if not current_df.empty else 0.0
-        previous_active_user = float(previous_df["active_users"].sum()) if not previous_df.empty else 0.0
+        current_active_user = float(current_df["active_users"].mean()) if not current_df.empty else 0.0
+        previous_active_user = float(previous_df["active_users"].mean()) if not previous_df.empty else 0.0
 
         if not current_raw.empty:
             current_working = current_raw.copy()
             for column in ("daily_active_users", "monthly_active_users", "active_users"):
                 current_working[column] = pd.to_numeric(current_working[column], errors="coerce").fillna(0)
             latest_current = current_working.sort_values("date").iloc[-1]
-            current_active_user = float(current_working["active_users"].sum())
+            current_active_user = float(current_working["active_users"].mean())
             monthly_current = float(latest_current.get("monthly_active_users", 0) or 0)
             if monthly_current:
                 current_last = round((float(latest_current.get("daily_active_users", 0) or 0) / monthly_current) * 100, 2)
@@ -134,7 +134,7 @@ class OverviewData:
             for column in ("daily_active_users", "monthly_active_users", "active_users"):
                 previous_working[column] = pd.to_numeric(previous_working[column], errors="coerce").fillna(0)
             latest_previous = previous_working.sort_values("date").iloc[-1]
-            previous_active_user = float(previous_working["active_users"].sum())
+            previous_active_user = float(previous_working["active_users"].mean())
             monthly_previous = float(latest_previous.get("monthly_active_users", 0) or 0)
             if monthly_previous:
                 previous_last = round((float(latest_previous.get("daily_active_users", 0) or 0) / monthly_previous) * 100, 2)
@@ -143,8 +143,8 @@ class OverviewData:
         previous_last = round(previous_last, 2)
         current_avg = round(current_avg, 2)
         previous_avg = round(previous_avg, 2)
-        current_active_user = int(current_active_user)
-        previous_active_user = int(previous_active_user)
+        current_active_user = round(current_active_user, 2)
+        previous_active_user = round(previous_active_user, 2)
 
         return {
             "current_period": {"from_date": from_date.isoformat(), "to_date": to_date.isoformat(), "metrics": {"last_day_stickiness": current_last, "average_stickiness": current_avg, "active_user": current_active_user}},

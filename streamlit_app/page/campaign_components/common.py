@@ -56,12 +56,14 @@ def render_campaign_page_filters(
     }
     presets = campaign_preset_ranges(dt.date.today())
     if date_range_key not in st.session_state:
-        st.session_state[date_range_key] = presets["Last 7 Day"]
+        st.session_state[date_range_key] = presets["This Month"]
+    if period_key not in st.session_state:
+        st.session_state[period_key] = "This Month"
 
     with st.container(border=True):
         filter_col, source_col = st.columns([2, 2], gap="small")
         with filter_col:
-            selected_period = st.selectbox("Periods", options=list(presets.keys()), index=0, key=period_key)
+            selected_period = st.selectbox("Periods", options=list(presets.keys()), key=period_key)
             if selected_period == "Custom Range":
                 selected = st.date_input("Select Date Range", key=date_range_key)
                 if not isinstance(selected, tuple) or len(selected) != 2:

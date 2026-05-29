@@ -258,7 +258,7 @@ def render_performance_metric_cards(
 def render_overview_metric_cards(st_module, summary_payload: dict[str, object]) -> None:
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
-    cards = [("Last Day Stickiness", "last_day_stickiness"), ("Average Stickiness", "average_stickiness"), ("Active User", "active_user")]
+    cards = [("Last Day Stickiness", "last_day_stickiness"), ("Average Stickiness", "average_stickiness"), ("Avg Active User", "active_user")]
 
     for column, (label, key) in zip(st_module.columns(3, gap="small"), cards):
         with column:
