@@ -125,6 +125,48 @@ def validate_daily_register_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: daily register duplicate key ratio {dup_ratio:.2%}.")
 
 
+def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed Instagram insights data before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: Instagram insights data has {int(missing_key)} rows with missing date."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: Instagram insights data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    metric_columns = [
+        "total_followers",
+        "new_followers",
+        "total_engagement",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: Instagram insights data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["date"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: Instagram insights duplicate key ratio {dup_ratio:.2%}.")
+
+
 def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed first-deposit data before the load step.
 

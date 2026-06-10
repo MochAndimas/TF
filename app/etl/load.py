@@ -17,6 +17,7 @@ from app.db.models.external_api import (
     FacebookAds,
     Ga4DailyMetrics,
     GoogleAds,
+    InstagramInsights,
     TikTokAds,
 )
 
@@ -189,6 +190,26 @@ def build_daily_register_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     return rows
 
 
+def build_instagram_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized Instagram insights rows into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "date": row["date"],
+                "total_followers": int(row["total_followers"]),
+                "new_followers": int(row["new_followers"]),
+                "total_engagement": int(row["total_engagement"]),
+                "likes": int(row["likes"]),
+                "comments": int(row["comments"]),
+                "shares": int(row["shares"]),
+                "saves": int(row["saves"]),
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
 def _infer_ad_type_from_campaign_name(campaign_name: str) -> str:
     """Infer campaign objective label from naming convention when available."""
     normalized_name = str(campaign_name or "").upper()
@@ -335,6 +356,30 @@ async def upsert_daily_register_rows(session: AsyncSession, rows: list[dict]) ->
             index_elements=["date", "campaign_id"],
             set_={
                 "total_regis": insert_stmt.excluded.total_regis,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_instagram_insights_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``instagram_insights`` using date as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(InstagramInsights).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date"],
+            set_={
+                "total_followers": insert_stmt.excluded.total_followers,
+                "new_followers": insert_stmt.excluded.new_followers,
+                "total_engagement": insert_stmt.excluded.total_engagement,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "saves": insert_stmt.excluded.saves,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

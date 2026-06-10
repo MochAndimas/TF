@@ -378,6 +378,31 @@ class DailyRegister(SqliteBase):
     )
 
 
+class InstagramInsights(SqliteBase):
+    """Store daily Instagram account/content insight metrics."""
+
+    __tablename__ = "instagram_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "date",
+            name="uq_instagram_insights_date",
+        ),
+        Index("ix_instagram_insights_date", "date"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    total_followers = Column("total_followers", Integer, nullable=False, default=0)
+    new_followers = Column("new_followers", Integer, nullable=False, default=0)
+    total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    saves = Column("saves", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class StgAdsRaw(SqliteBase):
     """Raw staging table for ads and GA4 source payload.
 

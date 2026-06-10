@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from decouple import config
 from google.ads.googleads.client import GoogleAdsClient
@@ -94,6 +94,12 @@ class ExternalApiExtractor:
         self.meta_app_secret = config("META_APP_SECRET", default="", cast=str).strip() or None
         self.meta_api_version = config("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
         self.meta_ad_id = config("META_AD_ID", default="", cast=str).strip() or None
+        self.instagram_user_id = config("INSTAGRAM_USER_ID", default="", cast=str).strip() or None
+        self.instagram_media_insight_concurrency = config(
+            "INSTAGRAM_MEDIA_INSIGHT_CONCURRENCY",
+            default=5,
+            cast=int,
+        )
         self.google_ads_client = None
 
     async def _load_managed_secret(self, secret_key: str) -> str:
@@ -380,6 +386,301 @@ class ExternalApiExtractor:
                 params = None
 
         return parsed_rows
+
+    async def fetch_instagram_insights(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Instagram daily insight metrics for the requested date range."""
+        access_token = await self._load_managed_secret("instagram_access_token")
+        if not access_token:
+            access_token = config("INSTAGRAM_ACCESS_TOKEN", default="", cast=str).strip()
+
+        if not access_token:
+            raise ValueError(
+                "Instagram credentials are not fully configured. "
+                "Store `instagram_access_token` from the Instagram Token page "
+                "or set fallback `INSTAGRAM_ACCESS_TOKEN`."
+            )
+
+        base_url = f"https://graph.instagram.com/{self.meta_api_version}"
+        rows_by_date = {
+            target_date: {
+                "date": target_date.isoformat(),
+                "total_followers": 0,
+                "new_followers": 0,
+                "total_engagement": 0,
+                "likes": 0,
+                "comments": 0,
+                "shares": 0,
+                "saves": 0,
+            }
+            for target_date in self._iter_dates(start_date, end_date)
+        }
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            profile = await self._fetch_instagram_profile(
+                client=client,
+                base_url=base_url,
+                access_token=access_token,
+            )
+            instagram_user_path = self.instagram_user_id or "me"
+            if instagram_user_path != "me" and not str(instagram_user_path).strip():
+                raise ValueError("Instagram user id is missing. Set `INSTAGRAM_USER_ID` or validate the stored token.")
+
+            total_followers = int(float(profile.get("followers_count") or 0))
+            for row in rows_by_date.values():
+                row["total_followers"] = total_followers
+
+            metric_values = await self._fetch_instagram_account_metric_values(
+                client=client,
+                base_url=base_url,
+                instagram_user_path=instagram_user_path,
+                access_token=access_token,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            for metric_name, values_by_date in metric_values.items():
+                target_column = "new_followers" if metric_name == "follower_count" else metric_name
+                if target_column == "saved":
+                    target_column = "saves"
+                for metric_date, value in values_by_date.items():
+                    if metric_date in rows_by_date and target_column in rows_by_date[metric_date]:
+                        rows_by_date[metric_date][target_column] = int(float(value or 0))
+
+            missing_engagement_columns = [
+                column
+                for column in ("likes", "comments", "shares", "saves")
+                if not any(row[column] for row in rows_by_date.values())
+            ]
+            if missing_engagement_columns:
+                media_totals = await self._fetch_instagram_media_engagement_totals(
+                    client=client,
+                    base_url=base_url,
+                    instagram_user_path=instagram_user_path,
+                    access_token=access_token,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                for metric_date, totals in media_totals.items():
+                    if metric_date not in rows_by_date:
+                        continue
+                    for column in missing_engagement_columns:
+                        rows_by_date[metric_date][column] = int(totals.get(column) or 0)
+
+        for row in rows_by_date.values():
+            if not row["total_engagement"]:
+                row["total_engagement"] = (
+                    int(row["likes"])
+                    + int(row["comments"])
+                    + int(row["shares"])
+                    + int(row["saves"])
+                )
+
+        return [rows_by_date[target_date] for target_date in sorted(rows_by_date)]
+
+    @staticmethod
+    def _iter_dates(start_date: date, end_date: date):
+        current_date = start_date
+        while current_date <= end_date:
+            yield current_date
+            current_date += timedelta(days=1)
+
+    async def _fetch_instagram_profile(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        access_token: str,
+    ) -> dict:
+        response = await client.get(
+            f"{base_url}/me",
+            params={
+                "fields": "id,username,account_type,followers_count",
+                "access_token": access_token,
+            },
+        )
+        if response.status_code >= 400:
+            self._raise_instagram_api_error(response, "profile")
+        return response.json()
+
+    async def _fetch_instagram_account_metric_values(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        instagram_user_path: str,
+        access_token: str,
+        start_date: date,
+        end_date: date,
+    ) -> dict[str, dict[date, int]]:
+        metric_aliases = {
+            "follower_count": ("follower_count",),
+            "total_interactions": ("total_interactions",),
+            "likes": ("likes",),
+            "comments": ("comments",),
+            "shares": ("shares",),
+            "saves": ("saves", "saved"),
+        }
+        metric_values: dict[str, dict[date, int]] = {}
+        since = start_date.isoformat()
+        until = (end_date + timedelta(days=1)).isoformat()
+
+        for target_name, candidate_metrics in metric_aliases.items():
+            for candidate_metric in candidate_metrics:
+                response = await client.get(
+                    f"{base_url}/{instagram_user_path}/insights",
+                    params={
+                        "metric": candidate_metric,
+                        "period": "day",
+                        "since": since,
+                        "until": until,
+                        "access_token": access_token,
+                    },
+                )
+                if response.status_code >= 400:
+                    continue
+                payload = response.json()
+                values_by_date: dict[date, int] = {}
+                for metric_payload in payload.get("data", []):
+                    for item in metric_payload.get("values", []):
+                        metric_date = self._instagram_metric_date(item.get("end_time"))
+                        if metric_date is None:
+                            continue
+                        values_by_date[metric_date] = int(float(item.get("value") or 0))
+                if values_by_date:
+                    metric_values[target_name] = values_by_date
+                    break
+        return metric_values
+
+    @staticmethod
+    def _parse_instagram_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        normalized = str(value).replace("Z", "+00:00")
+        if len(normalized) >= 5 and normalized[-5] in {"+", "-"} and normalized[-3] != ":":
+            normalized = f"{normalized[:-2]}:{normalized[-2:]}"
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+
+    def _instagram_metric_date(self, end_time: str | None) -> date | None:
+        parsed = self._parse_instagram_datetime(end_time)
+        if parsed is None:
+            return None
+        return parsed.date()
+
+    async def _fetch_instagram_media_engagement_totals(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        instagram_user_path: str,
+        access_token: str,
+        start_date: date,
+        end_date: date,
+    ) -> dict[date, dict[str, int]]:
+        totals = {
+            target_date: {"likes": 0, "comments": 0, "shares": 0, "saves": 0}
+            for target_date in self._iter_dates(start_date, end_date)
+        }
+        request_url = f"{base_url}/{instagram_user_path}/media"
+        params = {
+            "fields": "id,timestamp,like_count,comments_count",
+            "access_token": access_token,
+            "limit": 100,
+        }
+        media_items: list[tuple[date, str]] = []
+        reached_older_media = False
+        while request_url:
+            response = await client.get(request_url, params=params)
+            if response.status_code >= 400:
+                self._raise_instagram_api_error(response, "media")
+            payload = response.json()
+            for media in payload.get("data", []):
+                timestamp = media.get("timestamp")
+                if not timestamp:
+                    continue
+                parsed_timestamp = self._parse_instagram_datetime(timestamp)
+                if parsed_timestamp is None:
+                    continue
+                media_date = parsed_timestamp.date()
+                if media_date < start_date:
+                    reached_older_media = True
+                    continue
+                if media_date > end_date:
+                    continue
+                totals[media_date]["likes"] += int(float(media.get("like_count") or 0))
+                totals[media_date]["comments"] += int(float(media.get("comments_count") or 0))
+                media_items.append((media_date, str(media.get("id") or "")))
+
+            if reached_older_media:
+                break
+            request_url = payload.get("paging", {}).get("next")
+            params = None
+
+        semaphore = asyncio.Semaphore(max(1, self.instagram_media_insight_concurrency))
+
+        async def fetch_one_media_insight(media_date: date, media_id: str) -> tuple[date, dict[str, int]]:
+            async with semaphore:
+                return media_date, await self._fetch_instagram_media_insights(
+                    client=client,
+                    base_url=base_url,
+                    media_id=media_id,
+                    access_token=access_token,
+                )
+
+        if media_items:
+            insight_results = await asyncio.gather(
+                *(fetch_one_media_insight(media_date, media_id) for media_date, media_id in media_items)
+            )
+            for media_date, insight_totals in insight_results:
+                totals[media_date]["shares"] += int(insight_totals.get("shares") or 0)
+                totals[media_date]["saves"] += int(insight_totals.get("saves") or 0)
+        return totals
+
+    @staticmethod
+    def _raise_instagram_api_error(response: httpx.Response, context: str) -> None:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        error_payload = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(error_payload, dict):
+            message = error_payload.get("message") or error_payload.get("error_user_msg")
+        else:
+            message = None
+        raise ValueError(f"Instagram {context} request failed ({response.status_code}): {message or 'Unknown error'}")
+
+    async def _fetch_instagram_media_insights(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        media_id: str,
+        access_token: str,
+    ) -> dict[str, int]:
+        if not media_id:
+            return {}
+        totals: dict[str, int] = {}
+        for metric in ("shares", "saves", "saved"):
+            response = await client.get(
+                f"{base_url}/{media_id}/insights",
+                params={
+                    "metric": metric,
+                    "access_token": access_token,
+                },
+            )
+            if response.status_code >= 400:
+                continue
+            payload = response.json()
+            for metric_payload in payload.get("data", []):
+                name = metric_payload.get("name")
+                values = metric_payload.get("values") or []
+                value = values[0].get("value") if values else 0
+                if name == "saved":
+                    name = "saves"
+                if name in {"shares", "saves"}:
+                    totals[name] = int(float(value or 0))
+        return totals
 
     async def fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured Google Sheet."""

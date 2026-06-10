@@ -128,7 +128,7 @@ services:
       - ./run:/app/run
       - ./backups/sqlite:/app/backups/sqlite
     healthcheck:
-      test: ["CMD-SHELL", "pgrep cron >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "pidof cron >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

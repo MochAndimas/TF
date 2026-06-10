@@ -245,6 +245,35 @@ def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
     return parsed
 
 
+def parse_instagram_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse Instagram insight rows into normalized daily metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "total_followers",
+        "new_followers",
+        "total_engagement",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in Instagram insights payload: {missing_columns}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    for column in required_columns:
+        if column == "date":
+            continue
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df = df[df["date"].notna()]
+    return df.sort_values("date")
+
+
 def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse raw first-deposit API payload into a load-ready dataframe.
 

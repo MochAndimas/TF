@@ -10,6 +10,8 @@ from streamlit_app.page import (
     google_ads_token,
     home,
     internal_register,
+    instagram,
+    instagram_token,
     login_activity,
     login,
     meta_ads_token,
@@ -29,6 +31,7 @@ PAGE_LABELS: dict[str, str] = {
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
     "remarketing": "Remarketing",
+    "instagram": "Instagram",
     "internal_register": "Register",
     "login_activity": "Login",
     "deposit_report": "First Deposit",
@@ -36,6 +39,7 @@ PAGE_LABELS: dict[str, str] = {
     "register": "Create Account",
     "update_data": "Update Data",
     "google_ads_token": "Google Ads Token",
+    "instagram_token": "Instagram Token",
     "meta_ads_token": "Meta Ads Token",
 }
 
@@ -45,6 +49,7 @@ PAGE_SLUGS: dict[str, str] = {
     "user_acquisition": "user-acquisition",
     "brand_awareness": "brand-awareness",
     "remarketing": "remarketing",
+    "instagram": "instagram",
     "internal_register": "internal-register",
     "login_activity": "login-activity",
     "deposit_report": "first-deposit",
@@ -52,6 +57,7 @@ PAGE_SLUGS: dict[str, str] = {
     "register": "create-account",
     "update_data": "update-data",
     "google_ads_token": "google-ads-token",
+    "instagram_token": "instagram-token",
     "meta_ads_token": "meta-ads-token",
 }
 
@@ -63,6 +69,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "user_acquisition": "tertiary",
     "brand_awareness": "tertiary",
     "remarketing": "tertiary",
+    "instagram": "tertiary",
     "internal_register": "tertiary",
     "login_activity": "tertiary",
     "deposit_report": "tertiary",
@@ -70,6 +77,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "register": "tertiary",
     "update_data": "tertiary",
     "google_ads_token": "tertiary",
+    "instagram_token": "tertiary",
     "meta_ads_token": "tertiary",
 }
 
@@ -78,17 +86,19 @@ NAV_GROUPS: dict[str, list[str]] = {
     "Overall": ["overview"],
     "Revenue": ["deposit_report", "remarketing_deposit"],
     "Campaign": ["user_acquisition", "brand_awareness", "remarketing"],
+    "Socmed": ["instagram"],
     "Activity": ["internal_register", "login_activity"],
-    "Settings": ["register", "update_data", "google_ads_token", "meta_ads_token"],
+    "Settings": ["register", "update_data", "google_ads_token", "meta_ads_token", "instagram_token"],
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit", "register", "update_data", "google_ads_token", "meta_ads_token"],
-    "analyst": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
-    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity"],
+    "superadmin": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "internal_register", "login_activity", "deposit_report", "remarketing_deposit", "register", "update_data", "google_ads_token", "meta_ads_token", "instagram_token"],
+    "analyst": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
+    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
+    "digital_marketing": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "internal_register", "login_activity"],
     "finance": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "deposit_report", "remarketing_deposit"],
-    "tech_it": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
+    "social_media": ["home", "instagram"],
+    "tech_it": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "internal_register", "login_activity", "deposit_report", "remarketing_deposit"],
     "sales": [],
 }
 
@@ -98,6 +108,7 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "user_acquisition": user_acquisition.show_user_acquisition_page,
     "brand_awareness": brand_awareness.show_brand_awareness_page,
     "remarketing": remarketing.show_remarketing_page,
+    "instagram": instagram.show_instagram_page,
     "internal_register": internal_register.show_internal_register_page,
     "login_activity": login_activity.show_login_activity_page,
     "deposit_report": deposit.show_deposit_page,
@@ -105,7 +116,8 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "register": register.create_account,
     "update_data": update_data.show_update_page,
     "google_ads_token": google_ads_token.show_google_ads_token_page,
+    "instagram_token": instagram_token.show_instagram_token_page,
     "meta_ads_token": meta_ads_token.show_meta_ads_token_page,
 }
 
-PUBLIC_PAGE_KEYS = {"google_ads_token", "meta_ads_token"}
+PUBLIC_PAGE_KEYS = {"google_ads_token", "meta_ads_token", "instagram_token"}

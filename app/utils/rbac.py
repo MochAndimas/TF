@@ -15,6 +15,7 @@ ALLOWED_ROLES: Final[set[str]] = {
     "analyst",
     "digital_marketing",
     "finance",
+    "social_media",
     "sales",
     "tech_it",
     *LEGACY_ROLE_ALIASES,
@@ -36,6 +37,14 @@ FINANCE_ANALYTICS_ROLES: Final[tuple[str, ...]] = (
     "admin",
     "finance",
     "tech_it",
+)
+SOCMED_ANALYTICS_ROLES: Final[tuple[str, ...]] = (
+    "superadmin",
+    "analyst",
+    "admin",
+    "digital_marketing",
+    "tech_it",
+    "social_media",
 )
 
 

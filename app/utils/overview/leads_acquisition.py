@@ -94,6 +94,12 @@ class OverviewLeadsAcquisitionData:
         dataframe["leads"] = pd.to_numeric(dataframe["leads"], errors="coerce").fillna(0)
         return dataframe
 
+    async def _total_register_for_range(self, from_date: date, to_date: date) -> int:
+        register_df = await self._read_daily_register_db(from_date=from_date, to_date=to_date)
+        if register_df.empty:
+            return 0
+        return int(pd.to_numeric(register_df["leads"], errors="coerce").fillna(0).sum())
+
     async def _attach_register_leads(self, dataframe: pd.DataFrame, from_date: date, to_date: date) -> pd.DataFrame:
         regis_df = await self._read_daily_register_db(from_date=from_date, to_date=to_date)
         if regis_df.empty:
@@ -202,12 +208,12 @@ class OverviewLeadsAcquisitionData:
         current_google_ua_cost = float(pd.to_numeric(current_ads.loc[current_ads["source"] == "google", "cost"] if not current_ads.empty else pd.Series(dtype=float), errors="coerce").fillna(0).sum())
         current_impressions = int(current_daily["impressions"].sum())
         current_clicks = int(current_daily["clicks"].sum())
-        current_leads = int(current_daily["leads"].sum())
+        current_leads = await self._total_register_for_range(from_date, to_date)
         previous_cost = float(previous_daily["cost"].sum())
         previous_google_ua_cost = float(pd.to_numeric(previous_ads.loc[previous_ads["source"] == "google", "cost"] if not previous_ads.empty else pd.Series(dtype=float), errors="coerce").fillna(0).sum())
         previous_impressions = int(previous_daily["impressions"].sum())
         previous_clicks = int(previous_daily["clicks"].sum())
-        previous_leads = int(previous_daily["leads"].sum())
+        previous_leads = await self._total_register_for_range(previous_from, previous_to)
         current_metrics = {"cost": round(current_cost, 2), "google_user_acquisition_cost": round(current_google_ua_cost, 2), "impressions": current_impressions, "clicks": current_clicks, "leads": current_leads, "cost_leads": round(current_cost / current_leads, 2) if current_leads else 0.0, "first_deposit": round(current_first_deposit_idr, 2), "cost_to_first_deposit": round((current_first_deposit_idr / current_cost) * 100, 2) if current_cost else 0.0}
         previous_metrics = {"cost": round(previous_cost, 2), "google_user_acquisition_cost": round(previous_google_ua_cost, 2), "impressions": previous_impressions, "clicks": previous_clicks, "leads": previous_leads, "cost_leads": round(previous_cost / previous_leads, 2) if previous_leads else 0.0, "first_deposit": round(previous_first_deposit_idr, 2), "cost_to_first_deposit": round((previous_first_deposit_idr / previous_cost) * 100, 2) if previous_cost else 0.0}
         growth = {metric: self._growth_percentage(float(current_metrics[metric]), float(previous_metrics[metric])) for metric in current_metrics.keys()}

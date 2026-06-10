@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import DailyRegister, DataDepo, DataMsDeposit, Ga4DailyMetrics
+from app.db.models.external_api import DailyRegister, DataDepo, DataMsDeposit, Ga4DailyMetrics, InstagramInsights
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
     build_ads_rows,
@@ -12,6 +13,7 @@ from app.etl.load import (
     build_first_deposit_rows,
     build_ms_deposit_rows,
     build_ga4_rows,
+    build_instagram_insights_rows,
     delete_first_deposit_rows_in_window,
     delete_ms_deposit_rows_in_window,
     delete_rows_in_date_window,
@@ -20,6 +22,7 @@ from app.etl.load import (
     upsert_first_deposit_rows,
     upsert_ms_deposit_rows,
     upsert_ga4_rows,
+    upsert_instagram_insights_rows,
 )
 from app.etl.quality import (
     validate_ads_dataframe,
@@ -27,15 +30,23 @@ from app.etl.quality import (
     validate_first_deposit_dataframe,
     validate_ms_deposit_dataframe,
     validate_ga4_dataframe,
+    validate_instagram_insights_dataframe,
 )
 from app.etl.pipeline_core import DateWindowPipelineRunner, DateWindowPipelineSpec
-from app.etl.staging import stage_ads_raw, stage_first_deposit_raw, stage_ga4_raw, stage_ms_deposit_raw
+from app.etl.staging import (
+    stage_ads_raw,
+    stage_first_deposit_raw,
+    stage_ga4_raw,
+    stage_instagram_insights_raw,
+    stage_ms_deposit_raw,
+)
 from app.etl.transform import (
     parse_ads_dataframe,
     parse_daily_register_dataframe,
     parse_first_deposit_dataframe,
     parse_ms_deposit_dataframe,
     parse_ga4_dataframe,
+    parse_instagram_insights_dataframe,
 )
 
 
@@ -87,6 +98,10 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             list[dict]: Raw GA4 report rows normalized by the extractor.
         """
         return await self.extractor.fetch_ga4_daily_metrics(start_date=start_date, end_date=end_date)
+
+    async def _fetch_instagram_insights(self, start_date, end_date) -> list[dict]:
+        """Fetch raw Instagram daily insight metrics for the requested ETL window."""
+        return await self.extractor.fetch_instagram_insights(start_date=start_date, end_date=end_date)
 
     async def _fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured external endpoint.
@@ -152,6 +167,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return parse_daily_register_dataframe(raw_rows)
 
     @staticmethod
+    def _parse_instagram_insights_dataframe(raw_rows: list[dict]):
+        """Parse raw Instagram insights into a normalized dataframe."""
+        return parse_instagram_insights_dataframe(raw_rows)
+
+    @staticmethod
     def _build_ads_models(df, model_cls, pull_date):
         """Convert normalized ads dataframe into insert payload rows.
 
@@ -202,6 +222,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _build_daily_register_models(df, pull_date):
         """Convert validated daily register dataframe into load payload rows."""
         return build_daily_register_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_instagram_insights_models(df, pull_date):
+        """Convert validated Instagram insights dataframe into load payload rows."""
+        return build_instagram_insights_rows(df=df, pull_date=pull_date)
 
     async def campaign_ads(
         self,
@@ -397,6 +422,85 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_daily_register_models,
             delete_window=delete_window,
             load_rows=upsert_daily_register_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def instagram_insights(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run Instagram Insights ETL flow into ``instagram_insights``."""
+        existing_total_followers: dict = {}
+        snapshot_date = None
+
+        async def extract(target_start, target_end):
+            return await self._fetch_instagram_insights(start_date=target_start, end_date=target_end)
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_instagram_insights_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="instagram_insights",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            nonlocal existing_total_followers, snapshot_date
+            snapshot_date = target_end if target_start == target_end else None
+            existing_rows = await session_.execute(
+                select(
+                    InstagramInsights.date,
+                    InstagramInsights.total_followers,
+                ).where(InstagramInsights.date.between(target_start, target_end))
+            )
+            existing_total_followers = {
+                row.date: int(row.total_followers or 0)
+                for row in existing_rows
+                if int(row.total_followers or 0) > 0
+            }
+            return await delete_rows_in_date_window(
+                session=session_,
+                model_cls=InstagramInsights,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        async def load_rows(session_: AsyncSession, rows: list[dict]) -> None:
+            safe_rows = []
+            for row in rows:
+                safe_row = dict(row)
+                row_date = safe_row.get("date")
+                if row_date in existing_total_followers:
+                    safe_row["total_followers"] = existing_total_followers[row_date]
+                elif snapshot_date is not None and row_date != snapshot_date:
+                    safe_row["total_followers"] = 0
+                safe_rows.append(safe_row)
+            await upsert_instagram_insights_rows(session=session_, rows=safe_rows)
+
+        spec = DateWindowPipelineSpec(
+            label="instagram_insights",
+            source="instagram_insights",
+            empty_metric_name="Instagram insights",
+            date_column="date",
+            auto_skip_model=InstagramInsights,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_instagram_insights_dataframe,
+            validate=validate_instagram_insights_dataframe,
+            build_rows=self._build_instagram_insights_models,
+            delete_window=delete_window,
+            load_rows=load_rows,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

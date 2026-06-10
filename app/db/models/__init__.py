@@ -11,6 +11,7 @@ from app.db.models.external_api import (  # noqa: F401
     FacebookAds,
     Ga4DailyMetrics,
     GoogleAds,
+    InstagramInsights,
     StgAdsRaw,
     TikTokAds,
 )

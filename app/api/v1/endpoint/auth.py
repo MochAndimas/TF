@@ -164,7 +164,7 @@ async def patch_account(
 @router.get("/api/home/context", response_model=HomeContextResponse)
 async def home_context(
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance")),
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance", "social_media")),
 ):
     """Return the authenticated user's home-page context payload."""
     account, latest_run = await get_home_context(
