@@ -5,7 +5,14 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import DailyRegister, DataDepo, DataMsDeposit, Ga4DailyMetrics, InstagramInsights
+from app.db.models.external_api import (
+    DailyRegister,
+    DataDepo,
+    DataMsDeposit,
+    Ga4DailyMetrics,
+    InstagramInsights,
+    InstagramMediaInsights,
+)
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
     build_ads_rows,
@@ -14,6 +21,7 @@ from app.etl.load import (
     build_ms_deposit_rows,
     build_ga4_rows,
     build_instagram_insights_rows,
+    build_instagram_media_insights_rows,
     delete_first_deposit_rows_in_window,
     delete_ms_deposit_rows_in_window,
     delete_rows_in_date_window,
@@ -23,6 +31,7 @@ from app.etl.load import (
     upsert_ms_deposit_rows,
     upsert_ga4_rows,
     upsert_instagram_insights_rows,
+    upsert_instagram_media_insights_rows,
 )
 from app.etl.quality import (
     validate_ads_dataframe,
@@ -31,6 +40,7 @@ from app.etl.quality import (
     validate_ms_deposit_dataframe,
     validate_ga4_dataframe,
     validate_instagram_insights_dataframe,
+    validate_instagram_media_insights_dataframe,
 )
 from app.etl.pipeline_core import DateWindowPipelineRunner, DateWindowPipelineSpec
 from app.etl.staging import (
@@ -38,6 +48,7 @@ from app.etl.staging import (
     stage_first_deposit_raw,
     stage_ga4_raw,
     stage_instagram_insights_raw,
+    stage_instagram_media_insights_raw,
     stage_ms_deposit_raw,
 )
 from app.etl.transform import (
@@ -47,6 +58,7 @@ from app.etl.transform import (
     parse_ms_deposit_dataframe,
     parse_ga4_dataframe,
     parse_instagram_insights_dataframe,
+    parse_instagram_media_insights_dataframe,
 )
 
 
@@ -102,6 +114,10 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     async def _fetch_instagram_insights(self, start_date, end_date) -> list[dict]:
         """Fetch raw Instagram daily insight metrics for the requested ETL window."""
         return await self.extractor.fetch_instagram_insights(start_date=start_date, end_date=end_date)
+
+    async def _fetch_instagram_media_insights(self, start_date, end_date) -> list[dict]:
+        """Fetch raw Instagram post/reels media insight metrics for the requested ETL window."""
+        return await self.extractor.fetch_instagram_media_insights(start_date=start_date, end_date=end_date)
 
     async def _fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured external endpoint.
@@ -172,6 +188,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return parse_instagram_insights_dataframe(raw_rows)
 
     @staticmethod
+    def _parse_instagram_media_insights_dataframe(raw_rows: list[dict]):
+        """Parse raw Instagram media insights into a normalized dataframe."""
+        return parse_instagram_media_insights_dataframe(raw_rows)
+
+    @staticmethod
     def _build_ads_models(df, model_cls, pull_date):
         """Convert normalized ads dataframe into insert payload rows.
 
@@ -227,6 +248,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _build_instagram_insights_models(df, pull_date):
         """Convert validated Instagram insights dataframe into load payload rows."""
         return build_instagram_insights_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_instagram_media_insights_models(df, pull_date):
+        """Convert validated Instagram media insights dataframe into load payload rows."""
+        return build_instagram_media_insights_rows(df=df, pull_date=pull_date)
 
     async def campaign_ads(
         self,
@@ -501,6 +527,57 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_instagram_insights_models,
             delete_window=delete_window,
             load_rows=load_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def instagram_media_insights(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run Instagram post/reels media Insights ETL into ``instagram_media_insights``."""
+        async def extract(target_start, target_end):
+            return await self._fetch_instagram_media_insights(start_date=target_start, end_date=target_end)
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_instagram_media_insights_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="instagram_media_insights",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
+                model_cls=InstagramMediaInsights,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="instagram_media_insights",
+            source="instagram_media_insights",
+            empty_metric_name="Instagram media insights",
+            date_column="date",
+            auto_skip_model=InstagramMediaInsights,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_instagram_media_insights_dataframe,
+            validate=validate_instagram_media_insights_dataframe,
+            build_rows=self._build_instagram_media_insights_models,
+            delete_window=delete_window,
+            load_rows=upsert_instagram_media_insights_rows,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

@@ -32,6 +32,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "unique_campaign",
     "ga4_daily_metrics",
     "instagram_insights",
+    "instagram_media_insights",
     "daily_register",
     "first_deposit",
     "ms_deposit",
@@ -159,6 +160,23 @@ async def _run_instagram_insights(
     )
 
 
+async def _run_instagram_media_insights(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.instagram_media_insights(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 async def _run_first_deposit(
     gsheet: GoogleSheetApi,
     session,
@@ -200,6 +218,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "tiktok_ads": _run_tiktok_ads,
     "ga4_daily_metrics": _run_ga4_daily_metrics,
     "instagram_insights": _run_instagram_insights,
+    "instagram_media_insights": _run_instagram_media_insights,
     "daily_register": _run_daily_register,
     "first_deposit": _run_first_deposit,
     "ms_deposit": _run_ms_deposit,

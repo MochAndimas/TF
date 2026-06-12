@@ -18,6 +18,7 @@ from app.db.models.external_api import (
     Ga4DailyMetrics,
     GoogleAds,
     InstagramInsights,
+    InstagramMediaInsights,
     TikTokAds,
 )
 
@@ -210,6 +211,34 @@ def build_instagram_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dic
     return rows
 
 
+def build_instagram_media_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized Instagram media insights rows into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        payload = {
+            "date": row["date"],
+            "media_id": row["media_id"],
+            "media_type": row["media_type"],
+            "media_product_type": row["media_product_type"],
+            "timestamp": row.get("timestamp"),
+            "caption": row.get("caption") or None,
+            "permalink": row.get("permalink") or None,
+            "media_url": row.get("media_url") or None,
+            "thumbnail_url": row.get("thumbnail_url") or None,
+            "likes": int(row["likes"]),
+            "comments": int(row["comments"]),
+            "shares": int(row["shares"]),
+            "saves": int(row["saves"]),
+            "reach": int(row["reach"]),
+            "impressions": int(row["impressions"]),
+            "plays": int(row["plays"]),
+            "total_engagement": int(row["total_engagement"]),
+            "pull_date": pull_date,
+        }
+        rows.append({key: _normalize_sql_value(value) for key, value in payload.items()})
+    return rows
+
+
 def _infer_ad_type_from_campaign_name(campaign_name: str) -> str:
     """Infer campaign objective label from naming convention when available."""
     normalized_name = str(campaign_name or "").upper()
@@ -380,6 +409,39 @@ async def upsert_instagram_insights_rows(session: AsyncSession, rows: list[dict]
                 "comments": insert_stmt.excluded.comments,
                 "shares": insert_stmt.excluded.shares,
                 "saves": insert_stmt.excluded.saves,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_instagram_media_insights_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``instagram_media_insights`` using media_id as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(InstagramMediaInsights).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["media_id"],
+            set_={
+                "date": insert_stmt.excluded.date,
+                "media_type": insert_stmt.excluded.media_type,
+                "media_product_type": insert_stmt.excluded.media_product_type,
+                "timestamp": insert_stmt.excluded.timestamp,
+                "caption": insert_stmt.excluded.caption,
+                "permalink": insert_stmt.excluded.permalink,
+                "media_url": insert_stmt.excluded.media_url,
+                "thumbnail_url": insert_stmt.excluded.thumbnail_url,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "saves": insert_stmt.excluded.saves,
+                "reach": insert_stmt.excluded.reach,
+                "impressions": insert_stmt.excluded.impressions,
+                "plays": insert_stmt.excluded.plays,
+                "total_engagement": insert_stmt.excluded.total_engagement,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

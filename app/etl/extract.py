@@ -476,6 +476,119 @@ class ExternalApiExtractor:
 
         return [rows_by_date[target_date] for target_date in sorted(rows_by_date)]
 
+    async def fetch_instagram_media_insights(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Instagram post and reels media insight snapshots for a date range."""
+        access_token = await self._load_managed_secret("instagram_access_token")
+        if not access_token:
+            access_token = config("INSTAGRAM_ACCESS_TOKEN", default="", cast=str).strip()
+
+        if not access_token:
+            raise ValueError(
+                "Instagram credentials are not fully configured. "
+                "Store `instagram_access_token` from the Instagram Token page "
+                "or set fallback `INSTAGRAM_ACCESS_TOKEN`."
+            )
+
+        base_url = f"https://graph.instagram.com/{self.meta_api_version}"
+        instagram_user_path = self.instagram_user_id or "me"
+        media_rows: list[dict] = []
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            request_url = f"{base_url}/{instagram_user_path}/media"
+            params = {
+                "fields": (
+                    "id,caption,media_type,media_product_type,timestamp,permalink,"
+                    "media_url,thumbnail_url,like_count,comments_count"
+                ),
+                "access_token": access_token,
+                "limit": 100,
+            }
+            reached_older_media = False
+            while request_url:
+                response = await client.get(request_url, params=params)
+                if response.status_code >= 400:
+                    self._raise_instagram_api_error(response, "media")
+                payload = response.json()
+                for media in payload.get("data", []):
+                    parsed_timestamp = self._parse_instagram_datetime(media.get("timestamp"))
+                    if parsed_timestamp is None:
+                        continue
+                    media_date = parsed_timestamp.date()
+                    if media_date < start_date:
+                        reached_older_media = True
+                        continue
+                    if media_date > end_date:
+                        continue
+
+                    normalized_product_type = self._instagram_media_product_type(media)
+                    if normalized_product_type not in {"FEED", "REELS"}:
+                        continue
+
+                    media_rows.append(
+                        {
+                            "date": media_date.isoformat(),
+                            "media_id": str(media.get("id") or "").strip(),
+                            "media_type": str(media.get("media_type") or "").strip().upper() or "UNKNOWN",
+                            "media_product_type": normalized_product_type,
+                            "timestamp": parsed_timestamp.isoformat(),
+                            "caption": media.get("caption"),
+                            "permalink": media.get("permalink"),
+                            "media_url": media.get("media_url"),
+                            "thumbnail_url": media.get("thumbnail_url"),
+                            "likes": int(float(media.get("like_count") or 0)),
+                            "comments": int(float(media.get("comments_count") or 0)),
+                            "shares": 0,
+                            "saves": 0,
+                            "reach": 0,
+                            "impressions": 0,
+                            "plays": 0,
+                            "total_engagement": 0,
+                        }
+                    )
+
+                if reached_older_media:
+                    break
+                request_url = payload.get("paging", {}).get("next")
+                params = None
+
+            semaphore = asyncio.Semaphore(max(1, self.instagram_media_insight_concurrency))
+
+            async def enrich_media(row: dict) -> dict:
+                async with semaphore:
+                    insights = await self._fetch_instagram_media_insight_metrics(
+                        client=client,
+                        base_url=base_url,
+                        media_id=row["media_id"],
+                        access_token=access_token,
+                    )
+                    enriched = dict(row)
+                    for metric in ("shares", "saves", "reach", "impressions", "plays"):
+                        enriched[metric] = int(insights.get(metric) or 0)
+                    enriched["total_engagement"] = (
+                        int(enriched["likes"])
+                        + int(enriched["comments"])
+                        + int(enriched["shares"])
+                        + int(enriched["saves"])
+                    )
+                    return enriched
+
+            if media_rows:
+                media_rows = list(await asyncio.gather(*(enrich_media(row) for row in media_rows)))
+
+        return sorted(media_rows, key=lambda row: (row["date"], row["media_id"]))
+
+    @staticmethod
+    def _instagram_media_product_type(media: dict) -> str:
+        product_type = str(media.get("media_product_type") or "").strip().upper()
+        media_type = str(media.get("media_type") or "").strip().upper()
+        if product_type == "REELS":
+            return "REELS"
+        if product_type == "FEED":
+            return "FEED"
+        if media_type in {"IMAGE", "VIDEO", "CAROUSEL_ALBUM"}:
+            return "FEED"
+        return product_type or media_type or "UNKNOWN"
+
     @staticmethod
     def _iter_dates(start_date: date, end_date: date):
         current_date = start_date
@@ -680,6 +793,47 @@ class ExternalApiExtractor:
                     name = "saves"
                 if name in {"shares", "saves"}:
                     totals[name] = int(float(value or 0))
+        return totals
+
+    async def _fetch_instagram_media_insight_metrics(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        media_id: str,
+        access_token: str,
+    ) -> dict[str, int]:
+        """Fetch lifetime media insight metrics, tolerating unavailable metrics."""
+        if not media_id:
+            return {}
+        metric_aliases = {
+            "shares": ("shares",),
+            "saves": ("saves", "saved"),
+            "reach": ("reach",),
+            "impressions": ("impressions",),
+            "plays": ("plays",),
+        }
+        totals: dict[str, int] = {}
+        for target_name, candidates in metric_aliases.items():
+            for metric in candidates:
+                response = await client.get(
+                    f"{base_url}/{media_id}/insights",
+                    params={
+                        "metric": metric,
+                        "access_token": access_token,
+                    },
+                )
+                if response.status_code >= 400:
+                    continue
+                payload = response.json()
+                resolved = False
+                for metric_payload in payload.get("data", []):
+                    values = metric_payload.get("values") or []
+                    value = values[0].get("value") if values else 0
+                    totals[target_name] = int(float(value or 0))
+                    resolved = True
+                if resolved:
+                    break
         return totals
 
     async def fetch_first_deposit_records(self) -> list[dict]:

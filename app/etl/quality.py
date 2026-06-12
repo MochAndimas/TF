@@ -167,6 +167,55 @@ def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: Instagram insights duplicate key ratio {dup_ratio:.2%}.")
 
 
+def validate_instagram_media_insights_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed Instagram post/reels media insights before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date", "media_id"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: Instagram media insights data has {int(missing_key)} rows with missing keys."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: Instagram media insights data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    invalid_product_type = (~df["media_product_type"].isin(["FEED", "REELS"])).sum()
+    if invalid_product_type:
+        raise ValueError(
+            f"DQ failed: Instagram media insights data has {int(invalid_product_type)} unsupported media types."
+        )
+
+    metric_columns = [
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "reach",
+        "impressions",
+        "plays",
+        "total_engagement",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: Instagram media insights data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["media_id"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: Instagram media insights duplicate media_id ratio {dup_ratio:.2%}.")
+
+
 def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed first-deposit data before the load step.
 
