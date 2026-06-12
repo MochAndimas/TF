@@ -274,6 +274,75 @@ def parse_instagram_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     return df.sort_values("date")
 
 
+def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse Instagram media insight rows into normalized media-grain metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "media_id",
+        "media_type",
+        "media_product_type",
+        "timestamp",
+        "caption",
+        "permalink",
+        "media_url",
+        "thumbnail_url",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "reach",
+        "impressions",
+        "plays",
+        "total_engagement",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in Instagram media insights payload: {missing_columns}")
+
+    parsed_timestamp = pd.to_datetime(df["timestamp"], errors="coerce")
+    if getattr(parsed_timestamp.dt, "tz", None) is not None:
+        parsed_timestamp = parsed_timestamp.dt.tz_localize(None)
+
+    parsed = pd.DataFrame(
+        {
+            "date": pd.to_datetime(df["date"], errors="coerce").dt.date,
+            "media_id": df["media_id"].fillna("").astype(str).str.strip(),
+            "media_type": df["media_type"].fillna("").astype(str).str.strip().str.upper(),
+            "media_product_type": df["media_product_type"].fillna("").astype(str).str.strip().str.upper(),
+            "timestamp": parsed_timestamp,
+            "caption": df["caption"].where(df["caption"].notna(), None),
+            "permalink": df["permalink"].where(df["permalink"].notna(), None),
+            "media_url": df["media_url"].where(df["media_url"].notna(), None),
+            "thumbnail_url": df["thumbnail_url"].where(df["thumbnail_url"].notna(), None),
+        }
+    )
+    metric_columns = [
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "reach",
+        "impressions",
+        "plays",
+        "total_engagement",
+    ]
+    for column in metric_columns:
+        parsed[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    parsed = parsed[
+        parsed["date"].notna()
+        & (parsed["media_id"] != "")
+        & parsed["media_product_type"].isin(["FEED", "REELS"])
+    ].copy()
+    if parsed.empty:
+        return parsed
+    parsed = parsed.drop_duplicates(subset=["media_id"], keep="last")
+    return parsed.sort_values(["date", "media_product_type", "media_id"])
+
+
 def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse raw first-deposit API payload into a load-ready dataframe.
 

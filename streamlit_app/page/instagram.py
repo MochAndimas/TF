@@ -96,6 +96,48 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     return df.sort_values("date")
 
 
+def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    df["media_product_type"] = df["media_product_type"].fillna("").astype(str)
+    for column in [
+        "media_count",
+        "total_engagement",
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "reach",
+        "impressions",
+        "plays",
+    ]:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    return df.sort_values(["date", "media_product_type"])
+
+
+def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    for column in [
+        "likes",
+        "comments",
+        "shares",
+        "saves",
+        "reach",
+        "impressions",
+        "plays",
+        "total_engagement",
+    ]:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    for column in ["media_id", "media_type", "media_product_type", "caption", "permalink"]:
+        df[column] = df[column].fillna("").astype(str)
+    return df.sort_values(["total_engagement", "reach", "date"], ascending=[False, False, False])
+
+
 def _date_labels(series: pd.Series) -> list[str]:
     return pd.to_datetime(series).dt.strftime("%b %d\n%Y").tolist()
 
@@ -218,6 +260,159 @@ def _build_composition_figure(df: pd.DataFrame) -> go.Figure:
     return figure
 
 
+def _render_media_metrics(media_summary: dict[str, object]) -> None:
+    totals = media_summary.get("totals", {}) if isinstance(media_summary, dict) else {}
+    metric_specs = [
+        ("Media", _fmt_int(totals.get("media_count"))),
+        ("Feed Posts", _fmt_int(totals.get("feed_count"))),
+        ("Reels", _fmt_int(totals.get("reels_count"))),
+        ("Media Engagement", _fmt_int(totals.get("total_engagement"))),
+        ("Media Reach", _fmt_int(totals.get("reach"))),
+        ("Plays", _fmt_int(totals.get("plays"))),
+        ("Avg Engagement", _fmt_float(totals.get("avg_engagement_per_media"))),
+    ]
+    for row_specs, column_count in [(metric_specs[:4], 4), (metric_specs[4:], 3)]:
+        columns = st.columns(column_count, gap="small")
+        for column, (label, value) in zip(columns, row_specs):
+            with column:
+                with st.container(border=True):
+                    st.metric(label, value)
+
+
+def _build_media_engagement_figure(df: pd.DataFrame) -> go.Figure:
+    figure = go.Figure()
+    if df.empty:
+        figure.update_layout(
+            title="Media Engagement by Upload Date",
+            annotations=[{"text": "No media data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
+        )
+        return figure
+
+    for media_type in ["FEED", "REELS"]:
+        subset = df[df["media_product_type"] == media_type]
+        if subset.empty:
+            continue
+        figure.add_trace(
+            go.Bar(
+                x=_date_labels(subset["date"]),
+                y=subset["total_engagement"],
+                name=media_type.title(),
+                customdata=subset[["media_count", "reach"]].values,
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    + media_type.title()
+                    + " Engagement: %{y:,}<br>"
+                    + "Media: %{customdata[0]:,}<br>"
+                    + "Reach: %{customdata[1]:,}<extra></extra>"
+                ),
+            )
+        )
+    figure.update_layout(
+        title="Media Engagement by Upload Date",
+        xaxis_title="Upload Date",
+        yaxis_title="Engagement",
+        barmode="group",
+        xaxis=dict(type="category"),
+        legend=dict(orientation="h", y=1.14, x=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
+def _build_media_type_figure(media_summary: dict[str, object]) -> go.Figure:
+    rows = media_summary.get("by_type", []) if isinstance(media_summary, dict) else []
+    df = pd.DataFrame(rows)
+    figure = go.Figure()
+    if df.empty:
+        figure.update_layout(
+            title="Media Type Performance",
+            annotations=[{"text": "No media data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
+        )
+        return figure
+
+    for column, label in [
+        ("likes", "Likes"),
+        ("comments", "Comments"),
+        ("shares", "Shares"),
+        ("saves", "Saves"),
+    ]:
+        figure.add_trace(
+            go.Bar(
+                x=df["media_product_type"],
+                y=pd.to_numeric(df[column], errors="coerce").fillna(0),
+                name=label,
+                hovertemplate=f"<b>%{{x}}</b><br>{label}: %{{y:,}}<extra></extra>",
+            )
+        )
+    figure.update_layout(
+        title="Media Type Performance",
+        xaxis_title="Media Type",
+        yaxis_title="Engagement",
+        barmode="stack",
+        legend=dict(orientation="h", y=1.14, x=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
+def _build_top_media_figure(df: pd.DataFrame) -> go.Figure:
+    figure = go.Figure()
+    if df.empty:
+        figure.update_layout(
+            title="Top 5 Post/Reels",
+            annotations=[{"text": "No media data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
+        )
+        return figure
+
+    top_df = df.sort_values(["total_engagement", "reach", "date"], ascending=[False, False, False]).head(5).copy()
+    top_df = top_df.sort_values("total_engagement", ascending=True)
+    caption = top_df["caption"].fillna("").astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+    caption = caption.where(caption != "", top_df["media_id"].astype(str))
+    top_df["label"] = (
+        top_df["media_product_type"].str.title()
+        + " | "
+        + pd.to_datetime(top_df["date"]).dt.strftime("%b %d")
+        + " | "
+        + caption.str.slice(0, 48)
+    )
+
+    for column, label in [
+        ("likes", "Likes"),
+        ("comments", "Comments"),
+        ("shares", "Shares"),
+        ("saves", "Saves"),
+    ]:
+        figure.add_trace(
+            go.Bar(
+                y=top_df["label"],
+                x=top_df[column],
+                name=label,
+                orientation="h",
+                customdata=top_df[["total_engagement", "reach", "media_product_type"]].values,
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    + f"{label}: %{{x:,}}<br>"
+                    + "Total Engagement: %{customdata[0]:,}<br>"
+                    + "Reach: %{customdata[1]:,}<br>"
+                    + "Type: %{customdata[2]}<extra></extra>"
+                ),
+            )
+        )
+    figure.update_layout(
+        title="Top 5 Post/Reels by Engagement",
+        xaxis_title="Engagement",
+        yaxis_title=None,
+        barmode="stack",
+        legend=dict(orientation="h", y=1.12, x=0),
+        margin=dict(l=18, r=18, t=70, b=36),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
 def _render_daily_table(df: pd.DataFrame) -> None:
     st.markdown("### Daily Instagram Metrics")
     if df.empty:
@@ -249,6 +444,67 @@ def _render_daily_table(df: pd.DataFrame) -> None:
             "Comments": st.column_config.NumberColumn("Comments", format="%d"),
             "Shares": st.column_config.NumberColumn("Shares", format="%d"),
             "Saves": st.column_config.NumberColumn("Saves", format="%d"),
+        },
+    )
+
+
+def _render_media_table(df: pd.DataFrame) -> None:
+    st.markdown("### Top Instagram Media")
+    if df.empty:
+        st.info("No post/reels media data for selected date range.")
+        return
+
+    display_df = df[
+        [
+            "date",
+            "media_product_type",
+            "media_type",
+            "caption",
+            "total_engagement",
+            "likes",
+            "comments",
+            "shares",
+            "saves",
+            "reach",
+            "impressions",
+            "plays",
+            "permalink",
+        ]
+    ].copy()
+    display_df["caption"] = display_df["caption"].str.slice(0, 140)
+    display_df = display_df.rename(
+        columns={
+            "date": "Date",
+            "media_product_type": "Product",
+            "media_type": "Type",
+            "caption": "Caption",
+            "total_engagement": "Engagement",
+            "likes": "Likes",
+            "comments": "Comments",
+            "shares": "Shares",
+            "saves": "Saves",
+            "reach": "Reach",
+            "impressions": "Impressions",
+            "plays": "Plays",
+            "permalink": "Permalink",
+        }
+    )
+    st.dataframe(
+        display_df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Date": st.column_config.DateColumn("Date"),
+            "Caption": st.column_config.TextColumn("Caption", width="large"),
+            "Permalink": st.column_config.LinkColumn("Permalink"),
+            "Engagement": st.column_config.NumberColumn("Engagement", format="%d"),
+            "Likes": st.column_config.NumberColumn("Likes", format="%d"),
+            "Comments": st.column_config.NumberColumn("Comments", format="%d"),
+            "Shares": st.column_config.NumberColumn("Shares", format="%d"),
+            "Saves": st.column_config.NumberColumn("Saves", format="%d"),
+            "Reach": st.column_config.NumberColumn("Reach", format="%d"),
+            "Impressions": st.column_config.NumberColumn("Impressions", format="%d"),
+            "Plays": st.column_config.NumberColumn("Plays", format="%d"),
         },
     )
 
@@ -289,6 +545,8 @@ async def show_instagram_page(host: str) -> None:
 
     payload = st.session_state.get("instagram_analytics_payload", {}).get("data", {})
     df = _daily_dataframe(payload.get("daily_rows", []))
+    media_daily_df = _media_daily_dataframe(payload.get("media_daily_rows", []))
+    media_df = _media_dataframe(payload.get("media_rows", []))
     _render_metrics(payload.get("metrics", {}))
 
     growth_figure = _build_growth_figure(df)
@@ -307,3 +565,23 @@ async def show_instagram_page(host: str) -> None:
 
     with st.container(border=True):
         _render_daily_table(df)
+
+    st.markdown("## Media Insights")
+    _render_media_metrics(payload.get("media_summary", {}))
+
+    media_engagement_figure = _build_media_engagement_figure(media_daily_df)
+    media_type_figure = _build_media_type_figure(payload.get("media_summary", {}))
+    media_engagement_figure.update_layout(height=430)
+    media_type_figure.update_layout(height=430)
+    for column, figure in zip(st.columns(2, gap="small"), [media_engagement_figure, media_type_figure]):
+        with column:
+            with st.container(border=True):
+                st.plotly_chart(figure, width="stretch")
+
+    top_media_figure = _build_top_media_figure(media_df)
+    top_media_figure.update_layout(height=430)
+    with st.container(border=True):
+        st.plotly_chart(top_media_figure, width="stretch")
+
+    with st.container(border=True):
+        _render_media_table(media_df)

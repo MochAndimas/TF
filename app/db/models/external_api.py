@@ -403,6 +403,42 @@ class InstagramInsights(SqliteBase):
     pull_date = Column("pull_date", Date, nullable=False)
 
 
+class InstagramMediaInsights(SqliteBase):
+    """Store Instagram post and reels lifetime media insight snapshots."""
+
+    __tablename__ = "instagram_media_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "media_id",
+            name="uq_instagram_media_insights_media_id",
+        ),
+        Index("ix_instagram_media_insights_date", "date"),
+        Index("ix_instagram_media_insights_media_type", "media_type"),
+        Index("ix_instagram_media_insights_media_product_type", "media_product_type"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    media_id = Column("media_id", String, nullable=False)
+    media_type = Column("media_type", String, nullable=False)
+    media_product_type = Column("media_product_type", String, nullable=False)
+    timestamp = Column("timestamp", DateTime, nullable=True)
+    caption = Column("caption", String, nullable=True)
+    permalink = Column("permalink", String, nullable=True)
+    media_url = Column("media_url", String, nullable=True)
+    thumbnail_url = Column("thumbnail_url", String, nullable=True)
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    saves = Column("saves", Integer, nullable=False, default=0)
+    reach = Column("reach", Integer, nullable=False, default=0)
+    impressions = Column("impressions", Integer, nullable=False, default=0)
+    plays = Column("plays", Integer, nullable=False, default=0)
+    total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class StgAdsRaw(SqliteBase):
     """Raw staging table for ads and GA4 source payload.
 
