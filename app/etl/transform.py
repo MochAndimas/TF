@@ -343,6 +343,46 @@ def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFra
     return parsed.sort_values(["date", "media_product_type", "media_id"])
 
 
+def parse_facebook_page_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse Facebook Page daily insight rows into normalized metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "page_id",
+        "date",
+        "page_fans",
+        "page_fan_adds",
+        "page_fan_removes",
+        "page_impressions",
+        "page_impressions_unique",
+        "page_impressions_paid",
+        "page_impressions_organic_v2",
+        "page_post_engagements",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "page_video_views",
+        "page_views_total",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in Facebook Page insights payload: {missing_columns}")
+
+    df["page_id"] = df["page_id"].fillna("").astype(str).str.strip()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    for column in required_columns:
+        if column in {"page_id", "date"}:
+            continue
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df = df[(df["date"].notna()) & (df["page_id"] != "")].copy()
+    return df.sort_values(["date", "page_id"])
+
+
 def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse raw first-deposit API payload into a load-ready dataframe.
 

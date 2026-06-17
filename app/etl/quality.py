@@ -216,6 +216,57 @@ def validate_instagram_media_insights_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: Instagram media insights duplicate media_id ratio {dup_ratio:.2%}.")
 
 
+def validate_facebook_page_insights_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed Facebook Page daily insights before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["page_id", "date"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: Facebook Page insights data has {int(missing_key)} rows with missing keys."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: Facebook Page insights data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    metric_columns = [
+        "page_fans",
+        "page_fan_adds",
+        "page_fan_removes",
+        "page_impressions",
+        "page_impressions_unique",
+        "page_impressions_paid",
+        "page_impressions_organic_v2",
+        "page_post_engagements",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "page_video_views",
+        "page_views_total",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: Facebook Page insights data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["page_id", "date"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: Facebook Page insights duplicate key ratio {dup_ratio:.2%}.")
+
+
 def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed first-deposit data before the load step.
 

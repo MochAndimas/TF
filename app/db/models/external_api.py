@@ -439,6 +439,43 @@ class InstagramMediaInsights(SqliteBase):
     pull_date = Column("pull_date", Date, nullable=False)
 
 
+class FacebookPageInsights(SqliteBase):
+    """Store daily Facebook Page insight metrics."""
+
+    __tablename__ = "facebook_page_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "page_id",
+            "date",
+            name="uq_facebook_page_insights_page_date",
+        ),
+        Index("ix_facebook_page_insights_date", "date"),
+        Index("ix_facebook_page_insights_page_id", "page_id"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    page_id = Column("page_id", String, nullable=False)
+    date = Column("date", Date, nullable=False)
+    page_fans = Column("page_fans", Integer, nullable=False, default=0)
+    page_fan_adds = Column("page_fan_adds", Integer, nullable=False, default=0)
+    page_fan_removes = Column("page_fan_removes", Integer, nullable=False, default=0)
+    page_impressions = Column("page_impressions", Integer, nullable=False, default=0)
+    page_impressions_unique = Column("page_impressions_unique", Integer, nullable=False, default=0)
+    page_impressions_paid = Column("page_impressions_paid", Integer, nullable=False, default=0)
+    page_impressions_organic_v2 = Column("page_impressions_organic_v2", Integer, nullable=False, default=0)
+    page_post_engagements = Column("page_post_engagements", Integer, nullable=False, default=0)
+    reaction_like = Column("reaction_like", Integer, nullable=False, default=0)
+    reaction_love = Column("reaction_love", Integer, nullable=False, default=0)
+    reaction_wow = Column("reaction_wow", Integer, nullable=False, default=0)
+    reaction_haha = Column("reaction_haha", Integer, nullable=False, default=0)
+    reaction_sorry = Column("reaction_sorry", Integer, nullable=False, default=0)
+    reaction_anger = Column("reaction_anger", Integer, nullable=False, default=0)
+    page_video_views = Column("page_video_views", Integer, nullable=False, default=0)
+    page_views_total = Column("page_views_total", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class StgAdsRaw(SqliteBase):
     """Raw staging table for ads and GA4 source payload.
 

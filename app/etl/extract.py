@@ -94,6 +94,7 @@ class ExternalApiExtractor:
         self.meta_app_secret = config("META_APP_SECRET", default="", cast=str).strip() or None
         self.meta_api_version = config("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
         self.meta_ad_id = config("META_AD_ID", default="", cast=str).strip() or None
+        self.facebook_page_id = config("FB_PAGE_ID", default="", cast=str).strip() or None
         self.instagram_user_id = config("INSTAGRAM_USER_ID", default="", cast=str).strip() or None
         self.instagram_media_insight_concurrency = config(
             "INSTAGRAM_MEDIA_INSIGHT_CONCURRENCY",
@@ -476,6 +477,109 @@ class ExternalApiExtractor:
 
         return [rows_by_date[target_date] for target_date in sorted(rows_by_date)]
 
+    async def fetch_facebook_page_insights(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Facebook Page daily insight metrics for the requested date range."""
+        meta_access_token = await self._load_managed_secret("meta_ads_access_token")
+        if not meta_access_token:
+            meta_access_token = config("META_ADS_ACCESS_TOKEN", default="", cast=str).strip()
+
+        if not meta_access_token or not self.facebook_page_id:
+            raise ValueError(
+                "Facebook Page credentials are not fully configured. "
+                "Required: managed secret `meta_ads_access_token` and env `FB_PAGE_ID`."
+            )
+
+        base_url = f"https://graph.facebook.com/{self.meta_api_version}"
+        metric_columns = [
+            "page_fans",
+            "page_fan_adds",
+            "page_fan_removes",
+            "page_impressions",
+            "page_impressions_unique",
+            "page_impressions_paid",
+            "page_impressions_organic_v2",
+            "page_post_engagements",
+            "page_video_views",
+            "page_views_total",
+        ]
+        reaction_columns = [
+            "reaction_like",
+            "reaction_love",
+            "reaction_wow",
+            "reaction_haha",
+            "reaction_sorry",
+            "reaction_anger",
+        ]
+        rows_by_date = {
+            target_date: {
+                "page_id": self.facebook_page_id,
+                "date": target_date.isoformat(),
+                **{column: 0 for column in metric_columns + reaction_columns},
+            }
+            for target_date in self._iter_dates(start_date, end_date)
+        }
+        metric_aliases = {
+            "page_fans": ("page_follows", "page_fans"),
+            "page_fan_adds": ("page_daily_follows", "page_fan_adds"),
+            "page_fan_removes": ("page_daily_unfollows", "page_fan_removes"),
+            "page_impressions": ("page_posts_impressions", "page_impressions"),
+            "page_impressions_unique": ("page_impressions_unique",),
+            "page_impressions_paid": ("page_posts_impressions_paid", "page_impressions_paid"),
+            "page_impressions_organic_v2": ("page_posts_impressions_organic", "page_impressions_organic_v2", "page_impressions_organic"),
+            "page_post_engagements": ("page_post_engagements",),
+            "page_video_views": ("page_video_views",),
+            "page_views_total": ("page_views_total",),
+            "page_actions_post_reactions_total": ("page_actions_post_reactions_total",),
+        }
+        fetched_metric_count = 0
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            access_token = await self._resolve_facebook_page_access_token(
+                client=client,
+                base_url=base_url,
+                user_access_token=meta_access_token,
+            )
+            for target_name, candidates in metric_aliases.items():
+                for metric_name in candidates:
+                    values_by_date = await self._fetch_facebook_page_metric_values(
+                        client=client,
+                        base_url=base_url,
+                        access_token=access_token,
+                        metric_name=metric_name,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                    resolved = False
+                    for metric_date, value in values_by_date.items():
+                        if metric_date not in rows_by_date:
+                            continue
+                        if target_name == "page_actions_post_reactions_total":
+                            reaction_values = value if isinstance(value, dict) else {}
+                            for reaction_key, column in {
+                                "like": "reaction_like",
+                                "love": "reaction_love",
+                                "wow": "reaction_wow",
+                                "haha": "reaction_haha",
+                                "sorry": "reaction_sorry",
+                                "anger": "reaction_anger",
+                            }.items():
+                                rows_by_date[metric_date][column] = int(float(reaction_values.get(reaction_key) or 0))
+                        else:
+                            rows_by_date[metric_date][target_name] = int(float(value or 0))
+                        resolved = True
+                    if resolved:
+                        fetched_metric_count += 1
+                        break
+
+        if fetched_metric_count == 0:
+            raise ValueError(
+                "Facebook Page insights request returned no usable metrics. "
+                "Make sure `meta_ads_access_token` can resolve a Page Access Token for `FB_PAGE_ID` "
+                "and has pages_read_engagement/read_insights permissions."
+            )
+
+        return [rows_by_date[target_date] for target_date in sorted(rows_by_date)]
+
     async def fetch_instagram_media_insights(self, start_date: date, end_date: date) -> list[dict]:
         """Fetch Instagram post and reels media insight snapshots for a date range."""
         access_token = await self._load_managed_secret("instagram_access_token")
@@ -680,6 +784,100 @@ class ExternalApiExtractor:
         if parsed is None:
             return None
         return parsed.date()
+
+    def _facebook_metric_date(self, end_time: str | None) -> date | None:
+        parsed = self._parse_instagram_datetime(end_time)
+        if parsed is None:
+            return None
+        return (parsed - timedelta(days=1)).date()
+
+    async def _resolve_facebook_page_access_token(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        user_access_token: str,
+    ) -> str:
+        """Resolve a Page Access Token from the stored Meta user token when possible."""
+        stored_page_token = await self._load_managed_secret("facebook_page_access_token")
+        if stored_page_token:
+            return stored_page_token
+
+        fallback_page_token = config("FB_PAGE_ACCESS_TOKEN", default="", cast=str).strip()
+        if fallback_page_token:
+            return fallback_page_token
+
+        response = await client.get(
+            f"{base_url}/{self.facebook_page_id}",
+            params={
+                "fields": "access_token",
+                "access_token": user_access_token,
+            },
+        )
+        if response.status_code < 400:
+            page_token = response.json().get("access_token")
+            if page_token:
+                return page_token
+
+        response = await client.get(
+            f"{base_url}/me/accounts",
+            params={
+                "fields": "id,access_token",
+                "access_token": user_access_token,
+                "limit": 100,
+            },
+        )
+        if response.status_code < 400:
+            for page in response.json().get("data", []):
+                if str(page.get("id")) == str(self.facebook_page_id) and page.get("access_token"):
+                    return str(page["access_token"])
+
+        raise ValueError(
+            "Could not resolve a Facebook Page Access Token from `meta_ads_access_token`. "
+            "Generate a token with `pages_show_list`, `pages_read_engagement`, and `read_insights`, "
+            "or store `facebook_page_access_token` / `FB_PAGE_ACCESS_TOKEN`."
+        )
+
+    async def _fetch_facebook_page_metric_values(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        access_token: str,
+        metric_name: str,
+        start_date: date,
+        end_date: date,
+    ) -> dict[date, object]:
+        """Fetch one Page Insights metric in safe date chunks."""
+        values_by_date: dict[date, object] = {}
+        for window_start, window_end in self._iter_date_windows(start_date, end_date, max_days=90):
+            response = await client.get(
+                f"{base_url}/{self.facebook_page_id}/insights",
+                params={
+                    "metric": metric_name,
+                    "period": "day",
+                    "since": window_start.isoformat(),
+                    "until": (window_end + timedelta(days=1)).isoformat(),
+                    "access_token": access_token,
+                },
+            )
+            if response.status_code >= 400:
+                return {}
+            payload = response.json()
+            for metric_payload in payload.get("data", []):
+                for item in metric_payload.get("values", []):
+                    metric_date = self._facebook_metric_date(item.get("end_time"))
+                    if metric_date is not None:
+                        values_by_date[metric_date] = item.get("value") or 0
+        return values_by_date
+
+    @staticmethod
+    def _iter_date_windows(start_date: date, end_date: date, *, max_days: int):
+        window_start = start_date
+        while window_start <= end_date:
+            window_end = min(window_start + timedelta(days=max_days - 1), end_date)
+            yield window_start, window_end
+            window_start = window_end + timedelta(days=1)
 
     async def _fetch_instagram_media_engagement_totals(
         self,

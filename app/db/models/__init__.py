@@ -9,6 +9,7 @@ from app.db.models.external_api import (  # noqa: F401
     DataMsDeposit,
     DailyRegister,
     FacebookAds,
+    FacebookPageInsights,
     Ga4DailyMetrics,
     GoogleAds,
     InstagramInsights,

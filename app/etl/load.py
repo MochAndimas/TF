@@ -15,6 +15,7 @@ from app.db.models.external_api import (
     DataMsDeposit,
     DailyRegister,
     FacebookAds,
+    FacebookPageInsights,
     Ga4DailyMetrics,
     GoogleAds,
     InstagramInsights,
@@ -239,6 +240,39 @@ def build_instagram_media_insights_rows(df: pd.DataFrame, pull_date: date) -> li
     return rows
 
 
+def build_facebook_page_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized Facebook Page insights rows into insert dictionaries."""
+    metric_columns = [
+        "page_fans",
+        "page_fan_adds",
+        "page_fan_removes",
+        "page_impressions",
+        "page_impressions_unique",
+        "page_impressions_paid",
+        "page_impressions_organic_v2",
+        "page_post_engagements",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "page_video_views",
+        "page_views_total",
+    ]
+    rows = []
+    for _, row in df.iterrows():
+        payload = {
+            "page_id": row["page_id"],
+            "date": row["date"],
+            "pull_date": pull_date,
+        }
+        for column in metric_columns:
+            payload[column] = int(row[column])
+        rows.append(payload)
+    return rows
+
+
 def _infer_ad_type_from_campaign_name(campaign_name: str) -> str:
     """Infer campaign objective label from naming convention when available."""
     normalized_name = str(campaign_name or "").upper()
@@ -442,6 +476,39 @@ async def upsert_instagram_media_insights_rows(session: AsyncSession, rows: list
                 "impressions": insert_stmt.excluded.impressions,
                 "plays": insert_stmt.excluded.plays,
                 "total_engagement": insert_stmt.excluded.total_engagement,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_facebook_page_insights_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``facebook_page_insights`` using page_id and date."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(FacebookPageInsights).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["page_id", "date"],
+            set_={
+                "page_fans": insert_stmt.excluded.page_fans,
+                "page_fan_adds": insert_stmt.excluded.page_fan_adds,
+                "page_fan_removes": insert_stmt.excluded.page_fan_removes,
+                "page_impressions": insert_stmt.excluded.page_impressions,
+                "page_impressions_unique": insert_stmt.excluded.page_impressions_unique,
+                "page_impressions_paid": insert_stmt.excluded.page_impressions_paid,
+                "page_impressions_organic_v2": insert_stmt.excluded.page_impressions_organic_v2,
+                "page_post_engagements": insert_stmt.excluded.page_post_engagements,
+                "reaction_like": insert_stmt.excluded.reaction_like,
+                "reaction_love": insert_stmt.excluded.reaction_love,
+                "reaction_wow": insert_stmt.excluded.reaction_wow,
+                "reaction_haha": insert_stmt.excluded.reaction_haha,
+                "reaction_sorry": insert_stmt.excluded.reaction_sorry,
+                "reaction_anger": insert_stmt.excluded.reaction_anger,
+                "page_video_views": insert_stmt.excluded.page_video_views,
+                "page_views_total": insert_stmt.excluded.page_views_total,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

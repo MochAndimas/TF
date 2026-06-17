@@ -33,6 +33,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "ga4_daily_metrics",
     "instagram_insights",
     "instagram_media_insights",
+    "facebook_page_insights",
     "daily_register",
     "first_deposit",
     "ms_deposit",
@@ -177,6 +178,23 @@ async def _run_instagram_media_insights(
     )
 
 
+async def _run_facebook_page_insights(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.facebook_page_insights(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 async def _run_first_deposit(
     gsheet: GoogleSheetApi,
     session,
@@ -219,6 +237,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "ga4_daily_metrics": _run_ga4_daily_metrics,
     "instagram_insights": _run_instagram_insights,
     "instagram_media_insights": _run_instagram_media_insights,
+    "facebook_page_insights": _run_facebook_page_insights,
     "daily_register": _run_daily_register,
     "first_deposit": _run_first_deposit,
     "ms_deposit": _run_ms_deposit,
@@ -301,7 +320,7 @@ async def execute_update_job(
                 raise HTTPException(status_code=404, detail="Something is error, data update is failed!")
 
             await _mark_success(message=message)
-            if data in {"google_ads", "facebook_ads", "tiktok_ads", "daily_register", "first_deposit", "ms_deposit", "unique_campaign", "instagram_insights"}:
+            if data in {"google_ads", "facebook_ads", "tiktok_ads", "daily_register", "first_deposit", "ms_deposit", "unique_campaign", "instagram_insights", "instagram_media_insights", "facebook_page_insights"}:
                 clear_campaign_analytics_cache()
             logger.info(
                 json.dumps(
