@@ -57,6 +57,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
     metric_specs = [
         ("Total Followers", "total_followers", _fmt_int(current_metrics.get("total_followers"))),
         ("New Followers", "new_followers", _fmt_int(current_metrics.get("new_followers"))),
+        ("Unfollowers", "unfollowers", _fmt_int(current_metrics.get("unfollowers"))),
         ("Total Engagement", "total_engagement", _fmt_int(current_metrics.get("total_engagement"))),
         ("Likes", "likes", _fmt_int(current_metrics.get("likes"))),
         ("Comments", "comments", _fmt_int(current_metrics.get("comments"))),
@@ -64,9 +65,9 @@ def _render_metrics(metrics: dict[str, object]) -> None:
         ("Saves", "saves", _fmt_int(current_metrics.get("saves"))),
         ("Engagement / New Follower", "engagement_per_new_follower", _fmt_float(current_metrics.get("engagement_per_new_follower"))),
     ]
-    for row_start in range(0, len(metric_specs), 4):
-        columns = st.columns(4, gap="small")
-        for column, (label, key, value) in zip(columns, metric_specs[row_start : row_start + 4]):
+    for row_start in range(0, len(metric_specs), 3):
+        columns = st.columns(3, gap="small")
+        for column, (label, key, value) in zip(columns, metric_specs[row_start : row_start + 3]):
             with column:
                 with st.container(border=True):
                     growth_value = growth_metrics.get(key, 0.0)
@@ -86,6 +87,7 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     for column in [
         "total_followers",
         "new_followers",
+        "unfollowers",
         "total_engagement",
         "likes",
         "comments",
@@ -162,6 +164,16 @@ def _build_growth_figure(df: pd.DataFrame) -> go.Figure:
             hovertemplate="<b>%{x}</b><br>New Followers: %{y:,}<extra></extra>",
         )
     )
+    figure.add_trace(
+        go.Bar(
+            x=labels,
+            y=df["unfollowers"],
+            name="Unfollowers",
+            text=[f"{value:,}" for value in df["unfollowers"]],
+            textposition="auto",
+            hovertemplate="<b>%{x}</b><br>Unfollowers: %{y:,}<extra></extra>",
+        )
+    )
     follower_snapshot = df.loc[df["total_followers"] > 0].copy()
     if not follower_snapshot.empty:
         figure.add_trace(
@@ -177,9 +189,10 @@ def _build_growth_figure(df: pd.DataFrame) -> go.Figure:
     figure.update_layout(
         title="Followers Growth",
         xaxis_title="Date",
-        yaxis_title="New Followers",
+        yaxis_title="Followers Activity",
         yaxis2=dict(title="Total Followers", overlaying="y", side="right", showgrid=False),
         xaxis=dict(type="category"),
+        barmode="group",
         legend=dict(orientation="h", y=1.14, x=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
@@ -424,6 +437,7 @@ def _render_daily_table(df: pd.DataFrame) -> None:
             "date": "Date",
             "total_followers": "Total Followers",
             "new_followers": "New Followers",
+            "unfollowers": "Unfollowers",
             "total_engagement": "Total Engagement",
             "likes": "Likes",
             "comments": "Comments",
@@ -439,6 +453,7 @@ def _render_daily_table(df: pd.DataFrame) -> None:
             "Date": st.column_config.DateColumn("Date"),
             "Total Followers": st.column_config.NumberColumn("Total Followers", format="%d"),
             "New Followers": st.column_config.NumberColumn("New Followers", format="%d"),
+            "Unfollowers": st.column_config.NumberColumn("Unfollowers", format="%d"),
             "Total Engagement": st.column_config.NumberColumn("Total Engagement", format="%d"),
             "Likes": st.column_config.NumberColumn("Likes", format="%d"),
             "Comments": st.column_config.NumberColumn("Comments", format="%d"),
@@ -466,8 +481,6 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "shares",
             "saves",
             "reach",
-            "impressions",
-            "plays",
             "permalink",
         ]
     ].copy()
@@ -484,8 +497,6 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "shares": "Shares",
             "saves": "Saves",
             "reach": "Reach",
-            "impressions": "Impressions",
-            "plays": "Plays",
             "permalink": "Permalink",
         }
     )
@@ -503,8 +514,6 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "Shares": st.column_config.NumberColumn("Shares", format="%d"),
             "Saves": st.column_config.NumberColumn("Saves", format="%d"),
             "Reach": st.column_config.NumberColumn("Reach", format="%d"),
-            "Impressions": st.column_config.NumberColumn("Impressions", format="%d"),
-            "Plays": st.column_config.NumberColumn("Plays", format="%d"),
         },
     )
 

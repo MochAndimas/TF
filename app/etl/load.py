@@ -16,6 +16,7 @@ from app.db.models.external_api import (
     DailyRegister,
     FacebookAds,
     FacebookPageInsights,
+    FacebookPageMediaInsights,
     Ga4DailyMetrics,
     GoogleAds,
     InstagramInsights,
@@ -201,6 +202,7 @@ def build_instagram_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dic
                 "date": row["date"],
                 "total_followers": int(row["total_followers"]),
                 "new_followers": int(row["new_followers"]),
+                "unfollowers": int(row["unfollowers"]),
                 "total_engagement": int(row["total_engagement"]),
                 "likes": int(row["likes"]),
                 "comments": int(row["comments"]),
@@ -270,6 +272,43 @@ def build_facebook_page_insights_rows(df: pd.DataFrame, pull_date: date) -> list
         for column in metric_columns:
             payload[column] = int(row[column])
         rows.append(payload)
+    return rows
+
+
+def build_facebook_page_media_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized Facebook Page post/media insight rows into insert dictionaries."""
+    metric_columns = [
+        "likes",
+        "comments",
+        "shares",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "post_media_view",
+        "post_clicks",
+        "post_video_views",
+        "total_engagement",
+    ]
+    rows = []
+    for _, row in df.iterrows():
+        payload = {
+            "page_id": row["page_id"],
+            "date": row["date"],
+            "post_id": row["post_id"],
+            "post_type": row["post_type"],
+            "status_type": row.get("status_type") or None,
+            "created_time": row.get("created_time"),
+            "message": row.get("message") or None,
+            "permalink_url": row.get("permalink_url") or None,
+            "full_picture": row.get("full_picture") or None,
+            "pull_date": pull_date,
+        }
+        for column in metric_columns:
+            payload[column] = int(row[column])
+        rows.append({key: _normalize_sql_value(value) for key, value in payload.items()})
     return rows
 
 
@@ -438,6 +477,7 @@ async def upsert_instagram_insights_rows(session: AsyncSession, rows: list[dict]
             set_={
                 "total_followers": insert_stmt.excluded.total_followers,
                 "new_followers": insert_stmt.excluded.new_followers,
+                "unfollowers": insert_stmt.excluded.unfollowers,
                 "total_engagement": insert_stmt.excluded.total_engagement,
                 "likes": insert_stmt.excluded.likes,
                 "comments": insert_stmt.excluded.comments,
@@ -509,6 +549,44 @@ async def upsert_facebook_page_insights_rows(session: AsyncSession, rows: list[d
                 "reaction_anger": insert_stmt.excluded.reaction_anger,
                 "page_video_views": insert_stmt.excluded.page_video_views,
                 "page_views_total": insert_stmt.excluded.page_views_total,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_facebook_page_media_insights_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``facebook_page_media_insights`` using post_id as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(FacebookPageMediaInsights).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["post_id"],
+            set_={
+                "page_id": insert_stmt.excluded.page_id,
+                "date": insert_stmt.excluded.date,
+                "post_type": insert_stmt.excluded.post_type,
+                "status_type": insert_stmt.excluded.status_type,
+                "created_time": insert_stmt.excluded.created_time,
+                "message": insert_stmt.excluded.message,
+                "permalink_url": insert_stmt.excluded.permalink_url,
+                "full_picture": insert_stmt.excluded.full_picture,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "reaction_like": insert_stmt.excluded.reaction_like,
+                "reaction_love": insert_stmt.excluded.reaction_love,
+                "reaction_wow": insert_stmt.excluded.reaction_wow,
+                "reaction_haha": insert_stmt.excluded.reaction_haha,
+                "reaction_sorry": insert_stmt.excluded.reaction_sorry,
+                "reaction_anger": insert_stmt.excluded.reaction_anger,
+                "post_media_view": insert_stmt.excluded.post_media_view,
+                "post_clicks": insert_stmt.excluded.post_clicks,
+                "post_video_views": insert_stmt.excluded.post_video_views,
+                "total_engagement": insert_stmt.excluded.total_engagement,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

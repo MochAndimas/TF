@@ -145,6 +145,7 @@ def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
     metric_columns = [
         "total_followers",
         "new_followers",
+        "unfollowers",
         "total_engagement",
         "likes",
         "comments",
@@ -265,6 +266,54 @@ def validate_facebook_page_insights_dataframe(df: pd.DataFrame) -> None:
     dup_ratio = _duplicate_ratio(df, ["page_id", "date"])
     if dup_ratio > 0:
         raise ValueError(f"DQ failed: Facebook Page insights duplicate key ratio {dup_ratio:.2%}.")
+
+
+def validate_facebook_page_media_insights_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed Facebook Page post/media insights before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["page_id", "date", "post_id"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: Facebook Page media insights data has {int(missing_key)} rows with missing keys."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: Facebook Page media insights data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    metric_columns = [
+        "likes",
+        "comments",
+        "shares",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "post_media_view",
+        "post_clicks",
+        "post_video_views",
+        "total_engagement",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: Facebook Page media insights data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["post_id"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: Facebook Page media insights duplicate post_id ratio {dup_ratio:.2%}.")
 
 
 def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:

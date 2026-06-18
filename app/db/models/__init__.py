@@ -10,6 +10,7 @@ from app.db.models.external_api import (  # noqa: F401
     DailyRegister,
     FacebookAds,
     FacebookPageInsights,
+    FacebookPageMediaInsights,
     Ga4DailyMetrics,
     GoogleAds,
     InstagramInsights,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import (
@@ -10,6 +12,7 @@ from app.db.models.external_api import (
     DataDepo,
     DataMsDeposit,
     FacebookPageInsights,
+    FacebookPageMediaInsights,
     Ga4DailyMetrics,
     InstagramInsights,
     InstagramMediaInsights,
@@ -19,6 +22,7 @@ from app.etl.load import (
     build_ads_rows,
     build_daily_register_rows,
     build_facebook_page_insights_rows,
+    build_facebook_page_media_insights_rows,
     build_first_deposit_rows,
     build_ms_deposit_rows,
     build_ga4_rows,
@@ -30,6 +34,7 @@ from app.etl.load import (
     upsert_ads_rows,
     upsert_daily_register_rows,
     upsert_facebook_page_insights_rows,
+    upsert_facebook_page_media_insights_rows,
     upsert_first_deposit_rows,
     upsert_ms_deposit_rows,
     upsert_ga4_rows,
@@ -40,6 +45,7 @@ from app.etl.quality import (
     validate_ads_dataframe,
     validate_daily_register_dataframe,
     validate_facebook_page_insights_dataframe,
+    validate_facebook_page_media_insights_dataframe,
     validate_first_deposit_dataframe,
     validate_ms_deposit_dataframe,
     validate_ga4_dataframe,
@@ -50,6 +56,7 @@ from app.etl.pipeline_core import DateWindowPipelineRunner, DateWindowPipelineSp
 from app.etl.staging import (
     stage_ads_raw,
     stage_facebook_page_insights_raw,
+    stage_facebook_page_media_insights_raw,
     stage_first_deposit_raw,
     stage_ga4_raw,
     stage_instagram_insights_raw,
@@ -60,6 +67,7 @@ from app.etl.transform import (
     parse_ads_dataframe,
     parse_daily_register_dataframe,
     parse_facebook_page_insights_dataframe,
+    parse_facebook_page_media_insights_dataframe,
     parse_first_deposit_dataframe,
     parse_ms_deposit_dataframe,
     parse_ga4_dataframe,
@@ -117,9 +125,20 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         """
         return await self.extractor.fetch_ga4_daily_metrics(start_date=start_date, end_date=end_date)
 
-    async def _fetch_instagram_insights(self, start_date, end_date) -> list[dict]:
+    async def _fetch_instagram_insights(
+        self,
+        start_date,
+        end_date,
+        cached_follow_activity: dict | None = None,
+        cached_media_totals: dict | None = None,
+    ) -> list[dict]:
         """Fetch raw Instagram daily insight metrics for the requested ETL window."""
-        return await self.extractor.fetch_instagram_insights(start_date=start_date, end_date=end_date)
+        return await self.extractor.fetch_instagram_insights(
+            start_date=start_date,
+            end_date=end_date,
+            cached_follow_activity=cached_follow_activity,
+            cached_media_totals=cached_media_totals,
+        )
 
     async def _fetch_instagram_media_insights(self, start_date, end_date) -> list[dict]:
         """Fetch raw Instagram post/reels media insight metrics for the requested ETL window."""
@@ -128,6 +147,10 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     async def _fetch_facebook_page_insights(self, start_date, end_date) -> list[dict]:
         """Fetch raw Facebook Page daily insight metrics for the requested ETL window."""
         return await self.extractor.fetch_facebook_page_insights(start_date=start_date, end_date=end_date)
+
+    async def _fetch_facebook_page_media_insights(self, start_date, end_date) -> list[dict]:
+        """Fetch raw Facebook Page post/media insight metrics for the requested ETL window."""
+        return await self.extractor.fetch_facebook_page_media_insights(start_date=start_date, end_date=end_date)
 
     async def _fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured external endpoint.
@@ -208,6 +231,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return parse_facebook_page_insights_dataframe(raw_rows)
 
     @staticmethod
+    def _parse_facebook_page_media_insights_dataframe(raw_rows: list[dict]):
+        """Parse raw Facebook Page media insights into a normalized dataframe."""
+        return parse_facebook_page_media_insights_dataframe(raw_rows)
+
+    @staticmethod
     def _build_ads_models(df, model_cls, pull_date):
         """Convert normalized ads dataframe into insert payload rows.
 
@@ -273,6 +301,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _build_facebook_page_insights_models(df, pull_date):
         """Convert validated Facebook Page insights dataframe into load payload rows."""
         return build_facebook_page_insights_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_facebook_page_media_insights_models(df, pull_date):
+        """Convert validated Facebook Page media insights dataframe into load payload rows."""
+        return build_facebook_page_media_insights_rows(df=df, pull_date=pull_date)
 
     async def campaign_ads(
         self,
@@ -491,7 +524,49 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         snapshot_date = None
 
         async def extract(target_start, target_end):
-            return await self._fetch_instagram_insights(start_date=target_start, end_date=target_end)
+            refresh_from = max(target_start, target_end - timedelta(days=2))
+            existing_rows = await session.execute(
+                select(
+                    InstagramInsights.date,
+                    InstagramInsights.new_followers,
+                    InstagramInsights.unfollowers,
+                ).where(
+                    InstagramInsights.date.between(target_start, refresh_from - timedelta(days=1))
+                )
+            )
+            cached_follow_activity = {
+                row.date: {
+                    "followers": int(row.new_followers or 0),
+                    "unfollowers": int(row.unfollowers or 0),
+                }
+                for row in existing_rows
+            }
+            media_totals_result = await session.execute(
+                select(
+                    InstagramMediaInsights.date,
+                    func.sum(InstagramMediaInsights.likes).label("likes"),
+                    func.sum(InstagramMediaInsights.comments).label("comments"),
+                    func.sum(InstagramMediaInsights.shares).label("shares"),
+                    func.sum(InstagramMediaInsights.saves).label("saves"),
+                )
+                .where(InstagramMediaInsights.date.between(target_start, target_end))
+                .group_by(InstagramMediaInsights.date)
+            )
+            cached_media_totals = {
+                row.date: {
+                    "likes": int(row.likes or 0),
+                    "comments": int(row.comments or 0),
+                    "shares": int(row.shares or 0),
+                    "saves": int(row.saves or 0),
+                }
+                for row in media_totals_result
+            }
+            return await self._fetch_instagram_insights(
+                start_date=target_start,
+                end_date=target_end,
+                cached_follow_activity=cached_follow_activity,
+                cached_media_totals=cached_media_totals,
+            )
 
         async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
             return await stage_instagram_insights_raw(
@@ -649,6 +724,57 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_facebook_page_insights_models,
             delete_window=delete_window,
             load_rows=upsert_facebook_page_insights_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def facebook_page_media_insights(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run Facebook Page post/media Insights ETL into ``facebook_page_media_insights``."""
+        async def extract(target_start, target_end):
+            return await self._fetch_facebook_page_media_insights(start_date=target_start, end_date=target_end)
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_facebook_page_media_insights_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="facebook_page_media_insights",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
+                model_cls=FacebookPageMediaInsights,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="facebook_page_media_insights",
+            source="facebook_page_media_insights",
+            empty_metric_name="Facebook Page media insights",
+            date_column="date",
+            auto_skip_model=FacebookPageMediaInsights,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_facebook_page_media_insights_dataframe,
+            validate=validate_facebook_page_media_insights_dataframe,
+            build_rows=self._build_facebook_page_media_insights_models,
+            delete_window=delete_window,
+            load_rows=upsert_facebook_page_media_insights_rows,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

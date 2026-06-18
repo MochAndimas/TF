@@ -25,6 +25,7 @@ from uvicorn import run as uvicorn_run
 from app.api.v1.endpoint.auth import router as auth_router
 from app.api.v1.endpoint.campaign import router as campaign_router
 from app.api.v1.endpoint.deposit import router as deposit_router
+from app.api.v1.endpoint.facebook import router as facebook_router
 from app.api.v1.endpoint.feature import router as feature_router
 from app.api.v1.endpoint.google_ads_oauth import router as google_ads_oauth_router
 from app.api.v1.endpoint.instagram_token import router as instagram_token_router
@@ -218,6 +219,7 @@ class FastApiApp:
         self.app.include_router(overview_router, tags=["Overview Analytics"])
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])
         self.app.include_router(deposit_router, tags=["Deposit Analytics"])
+        self.app.include_router(facebook_router, tags=["Facebook Analytics"])
 
     def run(self) -> None:
         """Start Uvicorn server with environment-aware runtime options.

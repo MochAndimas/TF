@@ -101,6 +101,11 @@ class ExternalApiExtractor:
             default=5,
             cast=int,
         )
+        self.instagram_follow_activity_concurrency = config(
+            "INSTAGRAM_FOLLOW_ACTIVITY_CONCURRENCY",
+            default=10,
+            cast=int,
+        )
         self.google_ads_client = None
 
     async def _load_managed_secret(self, secret_key: str) -> str:
@@ -388,7 +393,13 @@ class ExternalApiExtractor:
 
         return parsed_rows
 
-    async def fetch_instagram_insights(self, start_date: date, end_date: date) -> list[dict]:
+    async def fetch_instagram_insights(
+        self,
+        start_date: date,
+        end_date: date,
+        cached_follow_activity: dict[date, dict[str, int]] | None = None,
+        cached_media_totals: dict[date, dict[str, int]] | None = None,
+    ) -> list[dict]:
         """Fetch Instagram daily insight metrics for the requested date range."""
         access_token = await self._load_managed_secret("instagram_access_token")
         if not access_token:
@@ -407,6 +418,7 @@ class ExternalApiExtractor:
                 "date": target_date.isoformat(),
                 "total_followers": 0,
                 "new_followers": 0,
+                "unfollowers": 0,
                 "total_engagement": 0,
                 "likes": 0,
                 "comments": 0,
@@ -445,6 +457,38 @@ class ExternalApiExtractor:
                 for metric_date, value in values_by_date.items():
                     if metric_date in rows_by_date and target_column in rows_by_date[metric_date]:
                         rows_by_date[metric_date][target_column] = int(float(value or 0))
+
+            for metric_date, totals in (cached_media_totals or {}).items():
+                if metric_date not in rows_by_date:
+                    continue
+                for column in ("likes", "comments", "shares", "saves"):
+                    rows_by_date[metric_date][column] = int(totals.get(column) or 0)
+
+            follow_activity = dict(cached_follow_activity or {})
+            uncached_dates = [
+                target_date
+                for target_date in self._iter_dates(start_date, end_date)
+                if target_date not in follow_activity
+            ]
+            if uncached_dates:
+                follow_activity.update(
+                    await self._fetch_instagram_follow_activity_values(
+                        client=client,
+                        base_url=base_url,
+                        instagram_user_path=instagram_user_path,
+                        access_token=access_token,
+                        start_date=start_date,
+                        end_date=end_date,
+                        target_dates=uncached_dates,
+                    )
+                )
+            for metric_date, values in follow_activity.items():
+                if metric_date not in rows_by_date:
+                    continue
+                if "followers" in values:
+                    rows_by_date[metric_date]["new_followers"] = int(values["followers"] or 0)
+                if "unfollowers" in values:
+                    rows_by_date[metric_date]["unfollowers"] = int(values["unfollowers"] or 0)
 
             missing_engagement_columns = [
                 column
@@ -681,6 +725,145 @@ class ExternalApiExtractor:
 
         return sorted(media_rows, key=lambda row: (row["date"], row["media_id"]))
 
+    async def fetch_facebook_page_media_insights(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Facebook Page post/media lifetime insight snapshots for a date range."""
+        meta_access_token = await self._load_managed_secret("meta_ads_access_token")
+        if not meta_access_token:
+            meta_access_token = config("META_ADS_ACCESS_TOKEN", default="", cast=str).strip()
+
+        if not meta_access_token or not self.facebook_page_id:
+            raise ValueError(
+                "Facebook Page media credentials are not fully configured. "
+                "Required: managed secret `meta_ads_access_token` and env `FB_PAGE_ID`."
+            )
+
+        base_url = f"https://graph.facebook.com/{self.meta_api_version}"
+        media_rows: list[dict] = []
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            access_token = await self._resolve_facebook_page_access_token(
+                client=client,
+                base_url=base_url,
+                user_access_token=meta_access_token,
+            )
+            request_url = f"{base_url}/{self.facebook_page_id}/posts"
+            params = {
+                "fields": (
+                    "id,message,created_time,permalink_url,shares,type,status_type,full_picture"
+                ),
+                "since": start_date.isoformat(),
+                "until": (end_date + timedelta(days=1)).isoformat(),
+                "access_token": access_token,
+                "limit": 100,
+            }
+            reached_older_post = False
+            while request_url:
+                response = await client.get(request_url, params=params)
+                if response.status_code >= 400:
+                    self._raise_facebook_api_error(response, "page posts")
+                payload = response.json()
+                for post in payload.get("data", []):
+                    parsed_created_time = self._parse_instagram_datetime(post.get("created_time"))
+                    if parsed_created_time is None:
+                        continue
+                    post_date = parsed_created_time.date()
+                    if post_date < start_date:
+                        reached_older_post = True
+                        continue
+                    if post_date > end_date:
+                        continue
+
+                    post_id = str(post.get("id") or "").strip()
+                    if not post_id:
+                        continue
+                    media_rows.append(
+                        {
+                            "page_id": self.facebook_page_id,
+                            "date": post_date.isoformat(),
+                            "post_id": post_id,
+                            "post_type": str(post.get("type") or "UNKNOWN").strip().upper(),
+                            "status_type": post.get("status_type"),
+                            "created_time": parsed_created_time.isoformat(),
+                            "message": post.get("message"),
+                            "permalink_url": post.get("permalink_url"),
+                            "full_picture": post.get("full_picture"),
+                            "likes": 0,
+                            "comments": 0,
+                            "shares": int(float((post.get("shares") or {}).get("count") or 0)),
+                            "reaction_like": 0,
+                            "reaction_love": 0,
+                            "reaction_wow": 0,
+                            "reaction_haha": 0,
+                            "reaction_sorry": 0,
+                            "reaction_anger": 0,
+                            "post_media_view": 0,
+                            "post_clicks": 0,
+                            "post_video_views": 0,
+                            "total_engagement": 0,
+                        }
+                    )
+
+                if reached_older_post:
+                    break
+                request_url = payload.get("paging", {}).get("next")
+                params = None
+
+            semaphore = asyncio.Semaphore(max(1, self.instagram_media_insight_concurrency))
+
+            async def enrich_post(row: dict) -> dict:
+                async with semaphore:
+                    social_counts = await self._fetch_facebook_post_social_counts(
+                        client=client,
+                        base_url=base_url,
+                        post_id=row["post_id"],
+                        access_token=access_token,
+                    )
+                    insights = await self._fetch_facebook_post_insight_metrics(
+                        client=client,
+                        base_url=base_url,
+                        post_id=row["post_id"],
+                        access_token=access_token,
+                    )
+                    enriched = dict(row)
+                    enriched["likes"] = int(social_counts.get("likes") or 0)
+                    enriched["comments"] = int(social_counts.get("comments") or 0)
+                    for metric in (
+                        "reaction_like",
+                        "reaction_love",
+                        "reaction_wow",
+                        "reaction_haha",
+                        "reaction_sorry",
+                        "reaction_anger",
+                        "post_media_view",
+                        "post_clicks",
+                        "post_video_views",
+                    ):
+                        enriched[metric] = int(insights.get(metric) or 0)
+                    if not enriched["reaction_like"]:
+                        enriched["reaction_like"] = int(enriched["likes"])
+                    reaction_total = sum(
+                        int(enriched.get(metric) or 0)
+                        for metric in (
+                            "reaction_like",
+                            "reaction_love",
+                            "reaction_wow",
+                            "reaction_haha",
+                            "reaction_sorry",
+                            "reaction_anger",
+                        )
+                    )
+                    enriched["total_engagement"] = (
+                        max(int(enriched["likes"]), reaction_total)
+                        + int(enriched["comments"])
+                        + int(enriched["shares"])
+                    )
+                    return enriched
+
+            if media_rows:
+                media_rows = list(await asyncio.gather(*(enrich_post(row) for row in media_rows)))
+
+        return sorted(media_rows, key=lambda row: (row["date"], row["post_id"]))
+
     @staticmethod
     def _instagram_media_product_type(media: dict) -> str:
         product_type = str(media.get("media_product_type") or "").strip().upper()
@@ -766,6 +949,58 @@ class ExternalApiExtractor:
                     metric_values[target_name] = values_by_date
                     break
         return metric_values
+
+    async def _fetch_instagram_follow_activity_values(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        instagram_user_path: str,
+        access_token: str,
+        start_date: date,
+        end_date: date,
+        target_dates: list[date] | None = None,
+    ) -> dict[date, dict[str, int]]:
+        semaphore = asyncio.Semaphore(max(1, self.instagram_follow_activity_concurrency))
+
+        async def fetch_target_date(target_date: date) -> tuple[date, dict[str, int]]:
+            async with semaphore:
+                response = await client.get(
+                    f"{base_url}/{instagram_user_path}/insights",
+                    params={
+                        "metric": "follows_and_unfollows",
+                        "period": "day",
+                        "metric_type": "total_value",
+                        "breakdown": "follow_type",
+                        "since": target_date.isoformat(),
+                        "until": (target_date + timedelta(days=1)).isoformat(),
+                        "access_token": access_token,
+                    },
+                )
+            if response.status_code >= 400:
+                return target_date, {}
+            payload = response.json()
+            totals: dict[str, int] = {}
+            for metric_payload in payload.get("data", []):
+                total_value = metric_payload.get("total_value") or {}
+                for breakdown in total_value.get("breakdowns", []) or []:
+                    for result in breakdown.get("results", []) or []:
+                        dimension_values = result.get("dimension_values") or []
+                        follow_type = str(dimension_values[0] if dimension_values else "").upper()
+                        value = int(float(result.get("value") or 0))
+                        if follow_type == "FOLLOWER":
+                            totals["followers"] = value
+                        elif follow_type in {"NON_FOLLOWER", "UNFOLLOWER"}:
+                            totals["unfollowers"] = value
+            return target_date, totals
+
+        results = await asyncio.gather(
+            *(
+                fetch_target_date(target_date)
+                for target_date in (target_dates or list(self._iter_dates(start_date, end_date)))
+            )
+        )
+        return {target_date: totals for target_date, totals in results if totals}
 
     @staticmethod
     def _parse_instagram_datetime(value: str | None) -> datetime | None:
@@ -961,6 +1196,24 @@ class ExternalApiExtractor:
             message = None
         raise ValueError(f"Instagram {context} request failed ({response.status_code}): {message or 'Unknown error'}")
 
+    @staticmethod
+    def _raise_facebook_api_error(response: httpx.Response, context: str) -> None:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        error_payload = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if isinstance(error_payload, dict):
+            message = error_payload.get("message") or error_payload.get("error_user_msg")
+        else:
+            message = None
+        raise ValueError(f"Facebook {context} request failed ({response.status_code}): {message or 'Unknown error'}")
+
+    @staticmethod
+    def _facebook_summary_count(edge_payload: dict | None) -> int:
+        summary = (edge_payload or {}).get("summary") or {}
+        return int(float(summary.get("total_count") or 0))
+
     async def _fetch_instagram_media_insights(
         self,
         *,
@@ -1032,6 +1285,85 @@ class ExternalApiExtractor:
                     resolved = True
                 if resolved:
                     break
+        return totals
+
+    async def _fetch_facebook_post_insight_metrics(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        post_id: str,
+        access_token: str,
+    ) -> dict[str, int]:
+        """Fetch lifetime Facebook post insight metrics, tolerating unavailable metrics."""
+        if not post_id:
+            return {}
+        metric_aliases = {
+            "post_media_view": ("post_media_view",),
+            "post_clicks": ("post_clicks",),
+            "post_video_views": ("post_video_views",),
+            "post_reactions_by_type_total": ("post_reactions_by_type_total",),
+        }
+        totals: dict[str, int] = {}
+        for target_name, candidates in metric_aliases.items():
+            for metric in candidates:
+                response = await client.get(
+                    f"{base_url}/{post_id}/insights",
+                    params={
+                        "metric": metric,
+                        "access_token": access_token,
+                    },
+                )
+                if response.status_code >= 400:
+                    continue
+                payload = response.json()
+                resolved = False
+                for metric_payload in payload.get("data", []):
+                    values = metric_payload.get("values") or []
+                    value = values[0].get("value") if values else 0
+                    if target_name == "post_reactions_by_type_total":
+                        reaction_values = value if isinstance(value, dict) else {}
+                        for reaction_key, column in {
+                            "like": "reaction_like",
+                            "love": "reaction_love",
+                            "wow": "reaction_wow",
+                            "haha": "reaction_haha",
+                            "sorry": "reaction_sorry",
+                            "anger": "reaction_anger",
+                        }.items():
+                            totals[column] = int(float(reaction_values.get(reaction_key) or 0))
+                    else:
+                        totals[target_name] = int(float(value or 0))
+                    resolved = True
+                if resolved:
+                    break
+        return totals
+
+    async def _fetch_facebook_post_social_counts(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        base_url: str,
+        post_id: str,
+        access_token: str,
+    ) -> dict[str, int]:
+        """Fetch optional Facebook post social counters without failing the media ETL."""
+        if not post_id:
+            return {}
+        totals: dict[str, int] = {}
+        for edge, target_name in (("likes", "likes"), ("comments", "comments")):
+            response = await client.get(
+                f"{base_url}/{post_id}/{edge}",
+                params={
+                    "summary": "true",
+                    "limit": 0,
+                    "access_token": access_token,
+                },
+            )
+            if response.status_code >= 400:
+                continue
+            payload = response.json()
+            totals[target_name] = self._facebook_summary_count(payload)
         return totals
 
     async def fetch_first_deposit_records(self) -> list[dict]:

@@ -395,6 +395,7 @@ class InstagramInsights(SqliteBase):
     date = Column("date", Date, nullable=False)
     total_followers = Column("total_followers", Integer, nullable=False, default=0)
     new_followers = Column("new_followers", Integer, nullable=False, default=0)
+    unfollowers = Column("unfollowers", Integer, nullable=False, default=0)
     total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
     likes = Column("likes", Integer, nullable=False, default=0)
     comments = Column("comments", Integer, nullable=False, default=0)
@@ -473,6 +474,47 @@ class FacebookPageInsights(SqliteBase):
     reaction_anger = Column("reaction_anger", Integer, nullable=False, default=0)
     page_video_views = Column("page_video_views", Integer, nullable=False, default=0)
     page_views_total = Column("page_views_total", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
+class FacebookPageMediaInsights(SqliteBase):
+    """Store Facebook Page post/media lifetime insight snapshots."""
+
+    __tablename__ = "facebook_page_media_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "post_id",
+            name="uq_facebook_page_media_insights_post_id",
+        ),
+        Index("ix_facebook_page_media_insights_date", "date"),
+        Index("ix_facebook_page_media_insights_page_id", "page_id"),
+        Index("ix_facebook_page_media_insights_post_type", "post_type"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    page_id = Column("page_id", String, nullable=False)
+    date = Column("date", Date, nullable=False)
+    post_id = Column("post_id", String, nullable=False)
+    post_type = Column("post_type", String, nullable=False)
+    status_type = Column("status_type", String, nullable=True)
+    created_time = Column("created_time", DateTime, nullable=True)
+    message = Column("message", String, nullable=True)
+    permalink_url = Column("permalink_url", String, nullable=True)
+    full_picture = Column("full_picture", String, nullable=True)
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    reaction_like = Column("reaction_like", Integer, nullable=False, default=0)
+    reaction_love = Column("reaction_love", Integer, nullable=False, default=0)
+    reaction_wow = Column("reaction_wow", Integer, nullable=False, default=0)
+    reaction_haha = Column("reaction_haha", Integer, nullable=False, default=0)
+    reaction_sorry = Column("reaction_sorry", Integer, nullable=False, default=0)
+    reaction_anger = Column("reaction_anger", Integer, nullable=False, default=0)
+    post_media_view = Column("post_media_view", Integer, nullable=False, default=0)
+    post_clicks = Column("post_clicks", Integer, nullable=False, default=0)
+    post_video_views = Column("post_video_views", Integer, nullable=False, default=0)
+    total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
     pull_date = Column("pull_date", Date, nullable=False)
 
 

@@ -17,6 +17,7 @@ DATA_SOURCE_OPTIONS = {
     "Instagram Insights (API)": "instagram_insights",
     "Instagram Media Insights (Post/Reels)": "instagram_media_insights",
     "Facebook Page Insights (API)": "facebook_page_insights",
+    "Facebook Page Media Insights (API)": "facebook_page_media_insights",
     "Daily Register (GSheet)": "daily_register",
     "First Deposit (GSheet)": "first_deposit",
     "MS Deposit (GSheet)": "ms_deposit",

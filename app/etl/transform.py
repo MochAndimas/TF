@@ -255,6 +255,7 @@ def parse_instagram_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         "date",
         "total_followers",
         "new_followers",
+        "unfollowers",
         "total_engagement",
         "likes",
         "comments",
@@ -381,6 +382,85 @@ def parse_facebook_page_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame
         df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
     df = df[(df["date"].notna()) & (df["page_id"] != "")].copy()
     return df.sort_values(["date", "page_id"])
+
+
+def parse_facebook_page_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse Facebook Page post/media insight rows into normalized media-grain metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "page_id",
+        "date",
+        "post_id",
+        "post_type",
+        "status_type",
+        "created_time",
+        "message",
+        "permalink_url",
+        "full_picture",
+        "likes",
+        "comments",
+        "shares",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "post_media_view",
+        "post_clicks",
+        "post_video_views",
+        "total_engagement",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in Facebook Page media insights payload: {missing_columns}")
+
+    parsed_created_time = pd.to_datetime(df["created_time"], errors="coerce")
+    if getattr(parsed_created_time.dt, "tz", None) is not None:
+        parsed_created_time = parsed_created_time.dt.tz_localize(None)
+
+    parsed = pd.DataFrame(
+        {
+            "page_id": df["page_id"].fillna("").astype(str).str.strip(),
+            "date": pd.to_datetime(df["date"], errors="coerce").dt.date,
+            "post_id": df["post_id"].fillna("").astype(str).str.strip(),
+            "post_type": df["post_type"].fillna("").astype(str).str.strip().str.upper(),
+            "status_type": df["status_type"].where(df["status_type"].notna(), None),
+            "created_time": parsed_created_time,
+            "message": df["message"].where(df["message"].notna(), None),
+            "permalink_url": df["permalink_url"].where(df["permalink_url"].notna(), None),
+            "full_picture": df["full_picture"].where(df["full_picture"].notna(), None),
+        }
+    )
+    metric_columns = [
+        "likes",
+        "comments",
+        "shares",
+        "reaction_like",
+        "reaction_love",
+        "reaction_wow",
+        "reaction_haha",
+        "reaction_sorry",
+        "reaction_anger",
+        "post_media_view",
+        "post_clicks",
+        "post_video_views",
+        "total_engagement",
+    ]
+    for column in metric_columns:
+        parsed[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    parsed = parsed[
+        parsed["date"].notna()
+        & (parsed["page_id"] != "")
+        & (parsed["post_id"] != "")
+    ].copy()
+    if parsed.empty:
+        return parsed
+    parsed = parsed.drop_duplicates(subset=["post_id"], keep="last")
+    return parsed.sort_values(["date", "page_id", "post_id"])
 
 
 def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:

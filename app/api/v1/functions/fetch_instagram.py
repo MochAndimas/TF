@@ -18,6 +18,7 @@ def _empty_instagram_frame() -> pd.DataFrame:
             "date",
             "total_followers",
             "new_followers",
+            "unfollowers",
             "total_engagement",
             "likes",
             "comments",
@@ -61,6 +62,7 @@ async def _read_instagram_rows(
             InstagramInsights.date.label("date"),
             InstagramInsights.total_followers.label("total_followers"),
             InstagramInsights.new_followers.label("new_followers"),
+            InstagramInsights.unfollowers.label("unfollowers"),
             InstagramInsights.total_engagement.label("total_engagement"),
             InstagramInsights.likes.label("likes"),
             InstagramInsights.comments.label("comments"),
@@ -80,6 +82,7 @@ async def _read_instagram_rows(
     metric_columns = [
         "total_followers",
         "new_followers",
+        "unfollowers",
         "total_engagement",
         "likes",
         "comments",
@@ -160,6 +163,7 @@ def _summary_payload(df: pd.DataFrame) -> dict[str, object]:
         current = {
             "total_followers": 0,
             "new_followers": 0,
+            "unfollowers": 0,
             "total_engagement": 0,
             "likes": 0,
             "comments": 0,
@@ -172,6 +176,7 @@ def _summary_payload(df: pd.DataFrame) -> dict[str, object]:
     current = {
         "total_followers": _latest_non_zero(df["total_followers"]),
         "new_followers": int(df["new_followers"].sum()),
+        "unfollowers": int(df["unfollowers"].sum()),
         "total_engagement": int(df["total_engagement"].sum()),
         "likes": int(df["likes"].sum()),
         "comments": int(df["comments"].sum()),
@@ -187,7 +192,7 @@ def _summary_payload(df: pd.DataFrame) -> dict[str, object]:
     previous = df.iloc[:midpoint].copy()
     recent = df.iloc[midpoint:].copy()
     growth = {}
-    for metric in ("new_followers", "total_engagement", "likes", "comments", "shares", "saves"):
+    for metric in ("new_followers", "unfollowers", "total_engagement", "likes", "comments", "shares", "saves"):
         growth[metric] = _growth_percentage(
             float(recent[metric].sum()) if not recent.empty else 0.0,
             float(previous[metric].sum()) if not previous.empty else 0.0,

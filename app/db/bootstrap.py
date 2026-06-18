@@ -62,6 +62,43 @@ async def apply_schema_maintenance(connection) -> None:
     for ddl in auth_indexes:
         await connection.execute(text(ddl))
 
+    instagram_insights_columns = {
+        row[1]
+        for row in (await connection.execute(text("PRAGMA table_info('instagram_insights')"))).fetchall()
+    }
+    if instagram_insights_columns and "unfollowers" not in instagram_insights_columns:
+        await connection.execute(
+            text("ALTER TABLE instagram_insights ADD COLUMN unfollowers INTEGER NOT NULL DEFAULT 0")
+        )
+
+    facebook_media_columns = {
+        row[1]
+        for row in (
+            await connection.execute(text("PRAGMA table_info('facebook_page_media_insights')"))
+        ).fetchall()
+    }
+    if facebook_media_columns and "post_media_view" not in facebook_media_columns:
+        await connection.execute(
+            text(
+                "ALTER TABLE facebook_page_media_insights "
+                "ADD COLUMN post_media_view INTEGER NOT NULL DEFAULT 0"
+            )
+        )
+        facebook_media_columns.add("post_media_view")
+
+    deprecated_facebook_media_columns = (
+        "post_impressions",
+        "post_impressions_unique",
+        "post_impressions_paid",
+        "post_impressions_organic",
+        "post_engaged_users",
+    )
+    for column_name in deprecated_facebook_media_columns:
+        if column_name in facebook_media_columns:
+            await connection.execute(
+                text(f"ALTER TABLE facebook_page_media_insights DROP COLUMN {column_name}")
+            )
+
 
 async def verify_database_ready(
     *,
