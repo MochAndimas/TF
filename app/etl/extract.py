@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from decouple import config
 from google.ads.googleads.client import GoogleAdsClient
-from google.oauth2.credentials import Credentials
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
 import httpx
@@ -92,7 +92,7 @@ class ExternalApiExtractor:
         )
         self.meta_app_id = config("META_APP_ID", default="", cast=str).strip() or None
         self.meta_app_secret = config("META_APP_SECRET", default="", cast=str).strip() or None
-        self.meta_api_version = config("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
+        self.meta_api_version = config("META_API_VERSION", default="v24.0", cast=str).strip() or "v24.0"
         self.meta_ad_id = config("META_AD_ID", default="", cast=str).strip() or None
         self.facebook_page_id = config("FB_PAGE_ID", default="", cast=str).strip() or None
         self.instagram_user_id = config("INSTAGRAM_USER_ID", default="", cast=str).strip() or None
@@ -749,7 +749,8 @@ class ExternalApiExtractor:
             request_url = f"{base_url}/{self.facebook_page_id}/posts"
             params = {
                 "fields": (
-                    "id,message,created_time,permalink_url,shares,type,status_type,full_picture"
+                    "id,message,created_time,permalink_url,shares,"
+                    "attachments{media_type,media,type}"
                 ),
                 "since": start_date.isoformat(),
                 "until": (end_date + timedelta(days=1)).isoformat(),
@@ -776,17 +777,22 @@ class ExternalApiExtractor:
                     post_id = str(post.get("id") or "").strip()
                     if not post_id:
                         continue
+                    attachment = self._facebook_primary_attachment(post)
                     media_rows.append(
                         {
                             "page_id": self.facebook_page_id,
                             "date": post_date.isoformat(),
                             "post_id": post_id,
-                            "post_type": str(post.get("type") or "UNKNOWN").strip().upper(),
-                            "status_type": post.get("status_type"),
+                            "post_type": str(
+                                attachment.get("media_type")
+                                or attachment.get("type")
+                                or "UNKNOWN"
+                            ).strip().upper(),
+                            "status_type": attachment.get("type"),
                             "created_time": parsed_created_time.isoformat(),
                             "message": post.get("message"),
                             "permalink_url": post.get("permalink_url"),
-                            "full_picture": post.get("full_picture"),
+                            "full_picture": self._facebook_attachment_image_url(attachment),
                             "likes": 0,
                             "comments": 0,
                             "shares": int(float((post.get("shares") or {}).get("count") or 0)),
@@ -865,6 +871,25 @@ class ExternalApiExtractor:
         return sorted(media_rows, key=lambda row: (row["date"], row["post_id"]))
 
     @staticmethod
+    def _facebook_primary_attachment(post: dict) -> dict:
+        """Return the first attachment from a Page post Graph API payload."""
+        attachments = post.get("attachments") or {}
+        data = attachments.get("data") if isinstance(attachments, dict) else None
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            return {}
+        return data[0]
+
+    @staticmethod
+    def _facebook_attachment_image_url(attachment: dict) -> str | None:
+        """Extract the image URL from a nested Page post attachment payload."""
+        media = attachment.get("media") or {}
+        image = media.get("image") if isinstance(media, dict) else None
+        if not isinstance(image, dict):
+            return None
+        image_url = str(image.get("src") or "").strip()
+        return image_url or None
+
+    @staticmethod
     def _instagram_media_product_type(media: dict) -> str:
         product_type = str(media.get("media_product_type") or "").strip().upper()
         media_type = str(media.get("media_type") or "").strip().upper()
@@ -882,6 +907,18 @@ class ExternalApiExtractor:
         while current_date <= end_date:
             yield current_date
             current_date += timedelta(days=1)
+
+    @staticmethod
+    def _instagram_day_timestamp(target_date: date) -> int:
+        """Return the Unix timestamp for midnight in the reporting timezone."""
+        reporting_timezone = ZoneInfo("Asia/Jakarta")
+        return int(
+            datetime.combine(
+                target_date,
+                datetime.min.time(),
+                tzinfo=reporting_timezone,
+            ).timestamp()
+        )
 
     async def _fetch_instagram_profile(
         self,
@@ -920,31 +957,35 @@ class ExternalApiExtractor:
             "saves": ("saves", "saved"),
         }
         metric_values: dict[str, dict[date, int]] = {}
-        since = start_date.isoformat()
-        until = (end_date + timedelta(days=1)).isoformat()
+        date_windows = list(self._iter_date_windows(start_date, end_date, max_days=30))
 
         for target_name, candidate_metrics in metric_aliases.items():
             for candidate_metric in candidate_metrics:
-                response = await client.get(
-                    f"{base_url}/{instagram_user_path}/insights",
-                    params={
-                        "metric": candidate_metric,
-                        "period": "day",
-                        "since": since,
-                        "until": until,
-                        "access_token": access_token,
-                    },
-                )
-                if response.status_code >= 400:
-                    continue
-                payload = response.json()
                 values_by_date: dict[date, int] = {}
-                for metric_payload in payload.get("data", []):
-                    for item in metric_payload.get("values", []):
-                        metric_date = self._instagram_metric_date(item.get("end_time"))
-                        if metric_date is None:
-                            continue
-                        values_by_date[metric_date] = int(float(item.get("value") or 0))
+                candidate_supported = True
+                for window_start, window_end in date_windows:
+                    response = await client.get(
+                        f"{base_url}/{instagram_user_path}/insights",
+                        params={
+                            "metric": candidate_metric,
+                            "period": "day",
+                            "since": self._instagram_day_timestamp(window_start),
+                            "until": self._instagram_day_timestamp(window_end + timedelta(days=1)),
+                            "access_token": access_token,
+                        },
+                    )
+                    if response.status_code >= 400:
+                        candidate_supported = False
+                        break
+                    payload = response.json()
+                    for metric_payload in payload.get("data", []):
+                        for item in metric_payload.get("values", []):
+                            metric_date = self._instagram_metric_date(item.get("end_time"))
+                            if metric_date is None:
+                                continue
+                            values_by_date[metric_date] = int(float(item.get("value") or 0))
+                if not candidate_supported:
+                    continue
                 if values_by_date:
                     metric_values[target_name] = values_by_date
                     break
@@ -962,45 +1003,102 @@ class ExternalApiExtractor:
         target_dates: list[date] | None = None,
     ) -> dict[date, dict[str, int]]:
         semaphore = asyncio.Semaphore(max(1, self.instagram_follow_activity_concurrency))
-
-        async def fetch_target_date(target_date: date) -> tuple[date, dict[str, int]]:
-            async with semaphore:
-                response = await client.get(
-                    f"{base_url}/{instagram_user_path}/insights",
-                    params={
-                        "metric": "follows_and_unfollows",
-                        "period": "day",
-                        "metric_type": "total_value",
-                        "breakdown": "follow_type",
-                        "since": target_date.isoformat(),
-                        "until": (target_date + timedelta(days=1)).isoformat(),
-                        "access_token": access_token,
-                    },
-                )
-            if response.status_code >= 400:
-                return target_date, {}
-            payload = response.json()
-            totals: dict[str, int] = {}
-            for metric_payload in payload.get("data", []):
-                total_value = metric_payload.get("total_value") or {}
-                for breakdown in total_value.get("breakdowns", []) or []:
-                    for result in breakdown.get("results", []) or []:
-                        dimension_values = result.get("dimension_values") or []
-                        follow_type = str(dimension_values[0] if dimension_values else "").upper()
-                        value = int(float(result.get("value") or 0))
-                        if follow_type == "FOLLOWER":
-                            totals["followers"] = value
-                        elif follow_type in {"NON_FOLLOWER", "UNFOLLOWER"}:
-                            totals["unfollowers"] = value
-            return target_date, totals
-
-        results = await asyncio.gather(
-            *(
-                fetch_target_date(target_date)
-                for target_date in (target_dates or list(self._iter_dates(start_date, end_date)))
-            )
+        requested_dates = sorted(
+            set(target_dates or list(self._iter_dates(start_date, end_date)))
         )
-        return {target_date: totals for target_date, totals in results if totals}
+        if not requested_dates:
+            return {}
+
+        results: dict[date, dict[str, int]] = {}
+        for date_chunk in self._chunk_instagram_follow_dates(requested_dates):
+            anchor_date = date_chunk[0] - timedelta(days=7)
+            boundaries = sorted(
+                {
+                    boundary
+                    for target_date in date_chunk
+                    for boundary in (target_date - timedelta(days=1), target_date)
+                }
+            )
+
+            async def fetch_cumulative(
+                boundary_date: date,
+                *,
+                chunk_anchor: date = anchor_date,
+            ) -> tuple[date, dict[str, int]]:
+                async with semaphore:
+                    response = await client.get(
+                        f"{base_url}/{instagram_user_path}/insights",
+                        params={
+                            "metric": "follows_and_unfollows",
+                            "period": "day",
+                            "metric_type": "total_value",
+                            "breakdown": "follow_type",
+                            "since": self._instagram_day_timestamp(chunk_anchor),
+                            "until": self._instagram_day_timestamp(boundary_date + timedelta(days=1)),
+                            "access_token": access_token,
+                        },
+                    )
+                if response.status_code >= 400:
+                    self._raise_instagram_api_error(
+                        response,
+                        f"follows_and_unfollows through {boundary_date.isoformat()}",
+                    )
+                totals = self._parse_instagram_follow_breakdown(response.json())
+                return boundary_date, {
+                    "followers": int(totals.get("followers") or 0),
+                    "unfollowers": int(totals.get("unfollowers") or 0),
+                }
+
+            cumulative = dict(
+                await asyncio.gather(*(fetch_cumulative(boundary) for boundary in boundaries))
+            )
+            for target_date in date_chunk:
+                previous = cumulative[target_date - timedelta(days=1)]
+                current = cumulative[target_date]
+                daily_totals = {
+                    metric: current[metric] - previous[metric]
+                    for metric in ("followers", "unfollowers")
+                }
+                if any(value < 0 for value in daily_totals.values()):
+                    raise ValueError(
+                        "Instagram follows_and_unfollows returned inconsistent cumulative totals "
+                        f"for {target_date.isoformat()}."
+                    )
+                results[target_date] = daily_totals
+
+        return results
+
+    @staticmethod
+    def _chunk_instagram_follow_dates(
+        requested_dates: list[date],
+        *,
+        max_span_days: int = 82,
+    ) -> list[list[date]]:
+        """Chunk dates so a seven-day baseline keeps each Meta window under 90 days."""
+        chunks: list[list[date]] = []
+        for target_date in sorted(set(requested_dates)):
+            if not chunks or (target_date - chunks[-1][0]).days > max_span_days:
+                chunks.append([target_date])
+            else:
+                chunks[-1].append(target_date)
+        return chunks
+
+    @staticmethod
+    def _parse_instagram_follow_breakdown(payload: dict) -> dict[str, int]:
+        """Parse follows/unfollows totals from a total_value breakdown response."""
+        totals: dict[str, int] = {}
+        for metric_payload in payload.get("data", []):
+            total_value = metric_payload.get("total_value") or {}
+            for breakdown in total_value.get("breakdowns", []) or []:
+                for result in breakdown.get("results", []) or []:
+                    dimension_values = result.get("dimension_values") or []
+                    follow_type = str(dimension_values[0] if dimension_values else "").upper()
+                    value = int(float(result.get("value") or 0))
+                    if follow_type == "FOLLOWER":
+                        totals["followers"] = value
+                    elif follow_type in {"NON_FOLLOWER", "UNFOLLOWER"}:
+                        totals["unfollowers"] = value
+        return totals
 
     @staticmethod
     def _parse_instagram_datetime(value: str | None) -> datetime | None:

@@ -68,9 +68,9 @@ def _meta_api_version() -> str:
     """Resolve the Graph API version used for outbound Meta token requests.
 
     Returns:
-        str: Configured API version, defaulting to ``v22.0`` when unset.
+        str: Configured API version, defaulting to ``v24.0`` when unset.
     """
-    return env("META_API_VERSION", default="v22.0", cast=str).strip() or "v22.0"
+    return env("META_API_VERSION", default="v24.0", cast=str).strip() or "v24.0"
 
 
 @router.get("/api/meta-ads/token/status", response_model=MetaAdsTokenStatusResponse)
