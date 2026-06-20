@@ -19,8 +19,6 @@ class UserAcquisitionCampaignMixin:
             raise ValueError("from_date cannot be after to_date.")
 
         details = await self._ads_performance_dataframe(data=data, from_date=start_date, to_date=end_date, dimension=dimension, ad_type="user_acquisition")
-        if details.empty:
-            details = await self._ads_performance_dataframe(data=data, from_date=start_date, to_date=end_date, dimension=dimension)
         source_label = data.strip().replace("_", " ").title()
         if details.empty:
             figure = go.Figure()
@@ -56,8 +54,6 @@ class UserAcquisitionCampaignMixin:
             raise ValueError("top_n must be greater than zero.")
 
         details = await self._ads_performance_dataframe(data=data, from_date=start_date, to_date=end_date, dimension=dimension, ad_type="user_acquisition")
-        if details.empty:
-            details = await self._ads_performance_dataframe(data=data, from_date=start_date, to_date=end_date, dimension=dimension)
         source_label = data.strip().replace("_", " ").title()
         if details.empty:
             figure = go.Figure()
@@ -216,7 +212,12 @@ class UserAcquisitionCampaignMixin:
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
 
-        daily = await self._ads_daily_dataframe(data=data, from_date=start_date, to_date=end_date)
+        daily = await self._ads_daily_dataframe(
+            data=data,
+            from_date=start_date,
+            to_date=end_date,
+            campaign_type="user_acquisition",
+        )
         source_label = data.strip().title()
         if daily.empty:
             figure = go.Figure()
@@ -239,7 +240,12 @@ class UserAcquisitionCampaignMixin:
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
-        daily = await self._ads_daily_dataframe(data=data, from_date=start_date, to_date=end_date)
+        daily = await self._ads_daily_dataframe(
+            data=data,
+            from_date=start_date,
+            to_date=end_date,
+            campaign_type="user_acquisition",
+        )
         source_label = data.strip().title()
         if daily.empty:
             figure = go.Figure()
@@ -258,7 +264,12 @@ class UserAcquisitionCampaignMixin:
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
-        daily = await self._ads_daily_dataframe(data=data, from_date=start_date, to_date=end_date)
+        daily = await self._ads_daily_dataframe(
+            data=data,
+            from_date=start_date,
+            to_date=end_date,
+            campaign_type="user_acquisition",
+        )
         source_label = data.strip().title()
         if daily.empty:
             figure = go.Figure()

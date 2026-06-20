@@ -245,7 +245,7 @@ class OverviewLeadsAcquisitionData:
         figure = go.Figure()
         figure.add_trace(go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["cost"], errors="coerce").fillna(0).tolist(), name="Cost", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Cost: Rp. %{y:,.0f}<extra></extra>"))
         figure.add_trace(go.Scatter(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["cost_leads"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="Cost/Register", yaxis="y2", line=dict(color="#ff6248", width=2), hovertemplate="<b>%{x}</b><br>Cost/Register: Rp. %{y:,.0f}<extra></extra>"))
-        figure.update_layout(title="Cost per Register (Cost & Cost/Register)", xaxis=dict(type="category"), yaxis=dict(title="Cost"), yaxis2=dict(title="Cost/Register", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
+        figure.update_layout(title="Overall Cost per Register - All Platforms", xaxis=dict(type="category"), yaxis=dict(title="Cost"), yaxis2=dict(title="Cost/Register", overlaying="y", side="right"), legend=dict(orientation="h", y=1.1, x=0))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"]), "leads": int(row["leads"]), "cost_leads": float(row["cost_leads"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}

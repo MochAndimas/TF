@@ -199,10 +199,21 @@ class CampaignDataBase:
     def _serialize_daily_rows(daily: pd.DataFrame) -> list[dict[str, object]]:
         return CampaignSerializer.serialize_daily_rows(daily)
 
-    async def _ads_daily_dataframe(self, data: str, from_date: date, to_date: date) -> pd.DataFrame:
+    async def _ads_daily_dataframe(
+        self,
+        data: str,
+        from_date: date,
+        to_date: date,
+        campaign_type: str | None = None,
+    ) -> pd.DataFrame:
         source = data.strip().lower()
         df = await self._load_ads_source_frame(source=source, from_date=from_date, to_date=to_date)
-        return self.frame_builder.ads_daily_frame(df=df, from_date=from_date, to_date=to_date)
+        return self.frame_builder.ads_daily_frame(
+            df=df,
+            from_date=from_date,
+            to_date=to_date,
+            campaign_type=campaign_type,
+        )
 
     async def _ads_daily_dimension_dataframe(
         self,
@@ -299,24 +310,41 @@ class CampaignDataBase:
             ad_type=ad_type,
         )
 
-    async def ads_metrics(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, float]:
+    async def ads_metrics(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        ad_type: str | None = None,
+    ) -> dict[str, float]:
         source = data.strip().lower()
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
 
-        return await self._ads_metrics_from_sql(model=self._resolve_source_model(source), from_date=start_date, to_date=end_date)
+        return await self._ads_metrics_from_sql(
+            model=self._resolve_source_model(source),
+            from_date=start_date,
+            to_date=end_date,
+            ad_type=ad_type,
+        )
 
-    async def ads_metrics_with_growth(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def ads_metrics_with_growth(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        ad_type: str | None = None,
+    ) -> dict[str, object]:
         current_from = from_date or self.from_date
         current_to = to_date or self.to_date
         if current_from > current_to:
             raise ValueError("from_date cannot be after to_date.")
 
         previous_from, previous_to = self._previous_period_range(current_from, current_to)
-        current_metrics = await self.ads_metrics(data=data, from_date=current_from, to_date=current_to)
-        previous_metrics = await self.ads_metrics(data=data, from_date=previous_from, to_date=previous_to)
+        current_metrics = await self.ads_metrics(data=data, from_date=current_from, to_date=current_to, ad_type=ad_type)
+        previous_metrics = await self.ads_metrics(data=data, from_date=previous_from, to_date=previous_to, ad_type=ad_type)
         growth = {
             metric: self._growth_percentage(float(current_metrics[metric]), float(previous_metrics[metric]))
             for metric in ("impressions", "clicks", "cost", "leads", "cost_leads")
@@ -327,12 +355,23 @@ class CampaignDataBase:
             "growth_percentage": growth,
         }
 
-    async def ads_campaign_details_table(self, data: str, from_date: date | None = None, to_date: date | None = None) -> dict[str, object]:
+    async def ads_campaign_details_table(
+        self,
+        data: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        ad_type: str | None = None,
+    ) -> dict[str, object]:
         start_date = from_date or self.from_date
         end_date = to_date or self.to_date
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
 
-        details_df = await self._ads_base_details_dataframe(data=data, from_date=start_date, to_date=end_date)
+        details_df = await self._ads_base_details_dataframe(
+            data=data,
+            from_date=start_date,
+            to_date=end_date,
+            ad_type=ad_type,
+        )
         rows = await asyncio.to_thread(lambda: details_df.to_dict(orient="records"))
         return {"source": data.strip().lower(), "from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "rows": rows}

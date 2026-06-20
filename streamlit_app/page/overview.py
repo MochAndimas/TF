@@ -282,8 +282,8 @@ async def show_overview_page(host: str) -> None:
     if performance_options[selected_performance_label] == "brand_awareness":
         render_brand_awareness_metric_cards(st, brand_data.get("metrics_with_growth", {}), "")
         _render_overall_source_breakdown(brand_data, title_prefix="Brand Awareness")
-        brand_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("spend_chart", {}).get("figure"), "Brand Awareness Spend"))
-        brand_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("performance_chart", {}).get("figure"), "Brand Awareness Performance"))
+        brand_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("spend_chart", {}).get("figure"), "Overall Brand Awareness Spend - All Platforms"))
+        brand_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("performance_chart", {}).get("figure"), "Overall Brand Awareness Performance - All Platforms"))
         brand_spend_figure.update_layout(height=430)
         brand_performance_figure.update_layout(height=430)
         for column, figure in zip(st.columns(2, gap="small"), [brand_spend_figure, brand_performance_figure]):
@@ -293,8 +293,8 @@ async def show_overview_page(host: str) -> None:
     elif performance_options[selected_performance_label] == "remarketing":
         render_brand_awareness_metric_cards(st, remarketing_data.get("metrics_with_growth", {}), "")
         _render_overall_source_breakdown(remarketing_data, title_prefix="Remarketing")
-        remarketing_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("spend_chart", {}).get("figure"), "Remarketing Spend"))
-        remarketing_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("performance_chart", {}).get("figure"), "Remarketing Performance"))
+        remarketing_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("spend_chart", {}).get("figure"), "Overall Remarketing Spend - All Platforms"))
+        remarketing_performance_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("performance_chart", {}).get("figure"), "Overall Remarketing Performance - All Platforms"))
         remarketing_spend_figure.update_layout(height=430)
         remarketing_performance_figure.update_layout(height=430)
         for column, figure in zip(st.columns(2, gap="small"), [remarketing_spend_figure, remarketing_performance_figure]):
@@ -329,7 +329,7 @@ async def show_overview_page(host: str) -> None:
             with st.container(border=True):
                 st.plotly_chart(leads_pie_figure, width="stretch")
 
-        cost_vs_leads_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("cost_vs_leads_chart", {}).get("figure"), "Cost per Register (Cost & Cost/Register)"))
+        cost_vs_leads_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("cost_vs_leads_chart", {}).get("figure"), "Overall Cost per Register - All Platforms"))
         cost_vs_leads_figure = apply_currency_to_ua_figure(cost_vs_leads_figure, chart_type="cost_vs_leads", currency_unit=leads_currency_unit)
         cost_vs_leads_figure.update_layout(height=430)
         leads_per_day_figure = set_transparent_chart_background(campaign_figure_from_payload(leads_data.get("leads_per_day_chart", {}).get("figure"), "Register per Day"))

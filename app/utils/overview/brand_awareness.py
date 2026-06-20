@@ -118,7 +118,7 @@ class OverviewBrandAwarenessData:
     async def spend_chart(self, from_date: date, to_date: date) -> dict[str, object]:
         daily = self._daily_totals_frame(await self._ads_for_range(from_date, to_date), from_date, to_date)
         figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["cost"], errors="coerce").fillna(0).tolist(), name="Spend", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Spend: Rp. %{y:,.0f}<extra></extra>")])
-        figure.update_layout(title="Brand Awareness Spend", xaxis=dict(type="category"), yaxis=dict(title="Spend"))
+        figure.update_layout(title="Overall Brand Awareness Spend - All Platforms", xaxis=dict(type="category"), yaxis=dict(title="Spend"))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}
@@ -135,7 +135,7 @@ class OverviewBrandAwarenessData:
         figure.add_trace(go.Scatter(x=date_labels, y=pd.to_numeric(daily["ctr"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="CTR", yaxis="y2", line=dict(color="#ff6248", width=2), hovertemplate="<b>%{x}</b><br>CTR: %{y:.2f}%<extra></extra>"))
         figure.add_trace(go.Scatter(x=date_labels, y=pd.to_numeric(daily["cpm"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="CPM", yaxis="y2", line=dict(color="#ffb547", width=2), hovertemplate="<b>%{x}</b><br>CPM: Rp. %{y:,.2f}<extra></extra>"))
         figure.add_trace(go.Scatter(x=date_labels, y=pd.to_numeric(daily["cpc"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="CPC", yaxis="y2", line=dict(color="#b379ff", width=2), hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.0f}<extra></extra>"))
-        figure.update_layout(title="Brand Awareness Performance", barmode="stack", xaxis=dict(type="category"), yaxis=dict(title="Impressions / Clicks"), yaxis2=dict(title="CTR / CPM / CPC", overlaying="y", side="right"), legend=dict(orientation="h", y=1.12, x=0))
+        figure.update_layout(title="Overall Brand Awareness Performance - All Platforms", barmode="stack", xaxis=dict(type="category"), yaxis=dict(title="Impressions / Clicks"), yaxis2=dict(title="CTR / CPM / CPC", overlaying="y", side="right"), legend=dict(orientation="h", y=1.12, x=0))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"]), "impressions": int(row["impressions"]), "clicks": int(row["clicks"]), "ctr": float(row["ctr"]), "cpm": float(row["cpm"]), "cpc": float(row["cpc"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}

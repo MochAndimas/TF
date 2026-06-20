@@ -12,7 +12,7 @@ import plotly.utils
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import Campaign, FacebookAds, GoogleAds, TikTokAds
+from app.db.models.external_api import Campaign, FacebookAds, GoogleAds
 
 
 class OverviewRemarketingPerformanceData:
@@ -58,7 +58,6 @@ class OverviewRemarketingPerformanceData:
         frames = [
             await self._read_one_source_ads_rm(GoogleAds, "google", from_date, to_date),
             await self._read_one_source_ads_rm(FacebookAds, "facebook", from_date, to_date),
-            await self._read_one_source_ads_rm(TikTokAds, "tiktok", from_date, to_date),
         ]
         non_empty_frames = [frame for frame in frames if not frame.empty]
         if not non_empty_frames:
@@ -152,7 +151,7 @@ class OverviewRemarketingPerformanceData:
                 )
             ]
         )
-        figure.update_layout(title="Remarketing Spend", xaxis=dict(type="category"), yaxis=dict(title="Spend"))
+        figure.update_layout(title="Overall Remarketing Spend - All Platforms", xaxis=dict(type="category"), yaxis=dict(title="Spend"))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}
@@ -170,7 +169,7 @@ class OverviewRemarketingPerformanceData:
         figure.add_trace(go.Scatter(x=date_labels, y=pd.to_numeric(daily["ctr"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="CTR", yaxis="y2", line=dict(color="#ff6248", width=2), hovertemplate="<b>%{x}</b><br>CTR: %{y:.2f}%<extra></extra>"))
         figure.add_trace(go.Scatter(x=date_labels, y=pd.to_numeric(daily["cpm"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="CPM", yaxis="y2", line=dict(color="#ffb547", width=2), hovertemplate="<b>%{x}</b><br>CPM: Rp. %{y:,.2f}<extra></extra>"))
         figure.add_trace(go.Scatter(x=date_labels, y=pd.to_numeric(daily["cpc"], errors="coerce").fillna(0).tolist(), mode="lines+markers", name="CPC", yaxis="y2", line=dict(color="#b379ff", width=2), hovertemplate="<b>%{x}</b><br>CPC: Rp. %{y:,.0f}<extra></extra>"))
-        figure.update_layout(title="Remarketing Performance", barmode="stack", xaxis=dict(type="category"), yaxis=dict(title="Impressions / Clicks"), yaxis2=dict(title="CTR / CPM / CPC", overlaying="y", side="right"), legend=dict(orientation="h", y=1.12, x=0))
+        figure.update_layout(title="Overall Remarketing Performance - All Platforms", barmode="stack", xaxis=dict(type="category"), yaxis=dict(title="Impressions / Clicks"), yaxis2=dict(title="CTR / CPM / CPC", overlaying="y", side="right"), legend=dict(orientation="h", y=1.12, x=0))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
         rows = [{"date": row["date"].isoformat(), "cost": float(row["cost"]), "impressions": int(row["impressions"]), "clicks": int(row["clicks"]), "ctr": float(row["ctr"]), "cpm": float(row["cpm"]), "cpc": float(row["cpc"])} for _, row in daily.iterrows()]
         return {"rows": rows, "figure": json.loads(chart_json)}

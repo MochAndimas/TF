@@ -26,6 +26,7 @@ class CampaignFrameBuilder:
         df: pd.DataFrame,
         from_date: date,
         to_date: date,
+        campaign_type: str | None = None,
     ) -> pd.DataFrame:
         """Aggregate one ads dataframe into daily cost/click/leads metrics."""
         if df.empty:
@@ -36,6 +37,8 @@ class CampaignFrameBuilder:
             return self._empty_daily_ads_frame()
 
         filtered = filtered.loc[filtered["campaign_id"] != "No data"]
+        if campaign_type is not None:
+            filtered = filtered.loc[filtered["campaign_type"] == campaign_type]
         if filtered.empty:
             return self._empty_daily_ads_frame()
 
@@ -102,9 +105,7 @@ class CampaignFrameBuilder:
         filtered = df.loc[(df["date"] >= from_date) & (df["date"] <= to_date)].copy()
         filtered = filtered.loc[filtered["campaign_id"] != "No data"]
         if campaign_type is not None:
-            typed_filtered = filtered.loc[filtered["campaign_type"] == campaign_type]
-            if not typed_filtered.empty:
-                filtered = typed_filtered
+            filtered = filtered.loc[filtered["campaign_type"] == campaign_type]
         if filtered.empty:
             return pd.DataFrame(columns=columns)
 

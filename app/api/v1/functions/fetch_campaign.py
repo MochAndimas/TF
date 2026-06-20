@@ -126,6 +126,7 @@ async def fetch_ads_metrics_with_growth_payload(
             data=source,
             from_date=start_date,
             to_date=end_date,
+            ad_type="user_acquisition",
         ),
     )
 
@@ -174,7 +175,12 @@ async def fetch_ads_campaign_details_tables_payload(
 ) -> dict[str, object]:
     return await _run_source_map(
         sources=ALL_SOURCES,
-        task_factory=lambda source: campaign_data.ads_campaign_details_table(source, start_date, end_date),
+        task_factory=lambda source: campaign_data.ads_campaign_details_table(
+            source,
+            start_date,
+            end_date,
+            ad_type="user_acquisition",
+        ),
     )
 
 
