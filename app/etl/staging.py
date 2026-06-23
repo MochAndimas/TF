@@ -142,6 +142,60 @@ async def stage_instagram_insights_raw(
     return len(rows)
 
 
+async def stage_youtube_daily_insight_raw(
+    session: AsyncSession,
+    raw_rows: list[dict],
+    *,
+    run_id: str | None,
+    source: str,
+) -> int:
+    """Persist raw YouTube daily insight rows into shared staging storage."""
+    if not raw_rows:
+        return 0
+
+    ingested_at = datetime.now()
+    rows = [
+        {
+            "run_id": run_id,
+            "source": source,
+            "range_name": "youtube_daily_insight_api",
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
+        for item in raw_rows
+    ]
+    await session.execute(insert(StgAdsRaw), rows)
+    return len(rows)
+
+
+async def stage_youtube_media_insight_raw(
+    session: AsyncSession,
+    raw_rows: list[dict],
+    *,
+    run_id: str | None,
+    source: str,
+) -> int:
+    """Persist raw YouTube media insight rows into shared staging storage."""
+    if not raw_rows:
+        return 0
+
+    ingested_at = datetime.now()
+    rows = [
+        {
+            "run_id": run_id,
+            "source": source,
+            "range_name": "youtube_media_insight_api",
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
+        for item in raw_rows
+    ]
+    await session.execute(insert(StgAdsRaw), rows)
+    return len(rows)
+
+
 async def stage_instagram_media_insights_raw(
     session: AsyncSession,
     raw_rows: list[dict],

@@ -44,6 +44,8 @@ class RequestLogService:
         "/api/token/refresh",
         "/api/google-ads/oauth/callback",
         "/api/google-ads/oauth/start",
+        "/api/youtube/oauth/callback",
+        "/api/youtube/oauth/start",
         "/api/instagram/token/exchange",
         "/api/instagram/token/refresh",
         "/api/instagram/token/save",

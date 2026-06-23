@@ -31,6 +31,8 @@ from app.api.v1.endpoint.google_ads_oauth import router as google_ads_oauth_rout
 from app.api.v1.endpoint.instagram_token import router as instagram_token_router
 from app.api.v1.endpoint.meta_ads_token import router as meta_ads_token_router
 from app.api.v1.endpoint.overview import router as overview_router
+from app.api.v1.endpoint.youtube import router as youtube_router
+from app.api.v1.endpoint.youtube_oauth import router as youtube_oauth_router
 from app.core.config import settings
 from app.db.bootstrap import initialize_database_schema, verify_database_ready
 from app.db.session import sqlite_async_session, sqlite_engine
@@ -213,6 +215,7 @@ class FastApiApp:
         """
         self.app.include_router(auth_router, tags=["Authentication"])
         self.app.include_router(google_ads_oauth_router, tags=["Google Ads OAuth"])
+        self.app.include_router(youtube_oauth_router, tags=["YouTube OAuth"])
         self.app.include_router(instagram_token_router, tags=["Instagram Token"])
         self.app.include_router(meta_ads_token_router, tags=["Meta Ads Token"])
         self.app.include_router(feature_router, tags=["Update Data"])
@@ -220,6 +223,7 @@ class FastApiApp:
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])
         self.app.include_router(deposit_router, tags=["Deposit Analytics"])
         self.app.include_router(facebook_router, tags=["Facebook Analytics"])
+        self.app.include_router(youtube_router, tags=["YouTube Analytics"])
 
     def run(self) -> None:
         """Start Uvicorn server with environment-aware runtime options.

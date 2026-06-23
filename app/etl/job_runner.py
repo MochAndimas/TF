@@ -33,6 +33,8 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "ga4_daily_metrics",
     "instagram_insights",
     "instagram_media_insights",
+    "youtube_daily_insight",
+    "youtube_media_insight",
     "facebook_page_insights",
     "facebook_page_media_insights",
     "daily_register",
@@ -179,6 +181,40 @@ async def _run_instagram_media_insights(
     )
 
 
+async def _run_youtube_daily_insight(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.youtube_daily_insight(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
+async def _run_youtube_media_insight(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.youtube_media_insight(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 async def _run_facebook_page_insights(
     gsheet: GoogleSheetApi,
     session,
@@ -255,6 +291,8 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "ga4_daily_metrics": _run_ga4_daily_metrics,
     "instagram_insights": _run_instagram_insights,
     "instagram_media_insights": _run_instagram_media_insights,
+    "youtube_daily_insight": _run_youtube_daily_insight,
+    "youtube_media_insight": _run_youtube_media_insight,
     "facebook_page_insights": _run_facebook_page_insights,
     "facebook_page_media_insights": _run_facebook_page_media_insights,
     "daily_register": _run_daily_register,
@@ -339,7 +377,21 @@ async def execute_update_job(
                 raise HTTPException(status_code=404, detail="Something is error, data update is failed!")
 
             await _mark_success(message=message)
-            if data in {"google_ads", "facebook_ads", "tiktok_ads", "daily_register", "first_deposit", "ms_deposit", "unique_campaign", "instagram_insights", "instagram_media_insights", "facebook_page_insights", "facebook_page_media_insights"}:
+            if data in {
+                "google_ads",
+                "facebook_ads",
+                "tiktok_ads",
+                "daily_register",
+                "first_deposit",
+                "ms_deposit",
+                "unique_campaign",
+                "instagram_insights",
+                "instagram_media_insights",
+                "youtube_daily_insight",
+                "youtube_media_insight",
+                "facebook_page_insights",
+                "facebook_page_media_insights",
+            }:
                 clear_campaign_analytics_cache()
             logger.info(
                 json.dumps(

@@ -16,6 +16,8 @@ from app.db.models.external_api import (
     Ga4DailyMetrics,
     InstagramInsights,
     InstagramMediaInsights,
+    YouTubeDailyInsight,
+    YouTubeMediaInsight,
 )
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
@@ -28,6 +30,8 @@ from app.etl.load import (
     build_ga4_rows,
     build_instagram_insights_rows,
     build_instagram_media_insights_rows,
+    build_youtube_daily_insight_rows,
+    build_youtube_media_insight_rows,
     delete_first_deposit_rows_in_window,
     delete_ms_deposit_rows_in_window,
     delete_rows_in_date_window,
@@ -40,6 +44,8 @@ from app.etl.load import (
     upsert_ga4_rows,
     upsert_instagram_insights_rows,
     upsert_instagram_media_insights_rows,
+    upsert_youtube_daily_insight_rows,
+    upsert_youtube_media_insight_rows,
 )
 from app.etl.quality import (
     validate_ads_dataframe,
@@ -51,6 +57,8 @@ from app.etl.quality import (
     validate_ga4_dataframe,
     validate_instagram_insights_dataframe,
     validate_instagram_media_insights_dataframe,
+    validate_youtube_daily_insight_dataframe,
+    validate_youtube_media_insight_dataframe,
 )
 from app.etl.pipeline_core import DateWindowPipelineRunner, DateWindowPipelineSpec
 from app.etl.staging import (
@@ -61,6 +69,8 @@ from app.etl.staging import (
     stage_ga4_raw,
     stage_instagram_insights_raw,
     stage_instagram_media_insights_raw,
+    stage_youtube_daily_insight_raw,
+    stage_youtube_media_insight_raw,
     stage_ms_deposit_raw,
 )
 from app.etl.transform import (
@@ -73,6 +83,8 @@ from app.etl.transform import (
     parse_ga4_dataframe,
     parse_instagram_insights_dataframe,
     parse_instagram_media_insights_dataframe,
+    parse_youtube_daily_insight_dataframe,
+    parse_youtube_media_insight_dataframe,
 )
 
 
@@ -143,6 +155,20 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     async def _fetch_instagram_media_insights(self, start_date, end_date) -> list[dict]:
         """Fetch raw Instagram post/reels media insight metrics for the requested ETL window."""
         return await self.extractor.fetch_instagram_media_insights(start_date=start_date, end_date=end_date)
+
+    async def _fetch_youtube_daily_insight(self, start_date, end_date) -> list[dict]:
+        """Fetch raw YouTube channel metrics for the requested ETL window."""
+        return await self.extractor.fetch_youtube_daily_insight(
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+    async def _fetch_youtube_media_insight(self, start_date, end_date) -> list[dict]:
+        """Fetch YouTube per-content snapshots for the requested publish window."""
+        return await self.extractor.fetch_youtube_media_insight(
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     async def _fetch_facebook_page_insights(self, start_date, end_date) -> list[dict]:
         """Fetch raw Facebook Page daily insight metrics for the requested ETL window."""
@@ -226,6 +252,16 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return parse_instagram_media_insights_dataframe(raw_rows)
 
     @staticmethod
+    def _parse_youtube_daily_insight_dataframe(raw_rows: list[dict]):
+        """Parse raw YouTube channel metrics into a normalized dataframe."""
+        return parse_youtube_daily_insight_dataframe(raw_rows)
+
+    @staticmethod
+    def _parse_youtube_media_insight_dataframe(raw_rows: list[dict]):
+        """Parse raw YouTube media snapshots into a normalized dataframe."""
+        return parse_youtube_media_insight_dataframe(raw_rows)
+
+    @staticmethod
     def _parse_facebook_page_insights_dataframe(raw_rows: list[dict]):
         """Parse raw Facebook Page insights into a normalized dataframe."""
         return parse_facebook_page_insights_dataframe(raw_rows)
@@ -296,6 +332,16 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _build_instagram_media_insights_models(df, pull_date):
         """Convert validated Instagram media insights dataframe into load payload rows."""
         return build_instagram_media_insights_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_youtube_daily_insight_models(df, pull_date):
+        """Convert validated YouTube daily metrics into load payload rows."""
+        return build_youtube_daily_insight_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_youtube_media_insight_models(df, pull_date):
+        """Convert validated YouTube media snapshots into load payload rows."""
+        return build_youtube_media_insight_rows(df=df, pull_date=pull_date)
 
     @staticmethod
     def _build_facebook_page_insights_models(df, pull_date):
@@ -673,6 +719,116 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_instagram_media_insights_models,
             delete_window=delete_window,
             load_rows=upsert_instagram_media_insights_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def youtube_daily_insight(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run YouTube Analytics ETL flow into ``youtube_daily_insight``."""
+
+        async def extract(target_start, target_end):
+            return await self._fetch_youtube_daily_insight(
+                start_date=target_start,
+                end_date=target_end,
+            )
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_youtube_daily_insight_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="youtube_daily_insight",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
+                model_cls=YouTubeDailyInsight,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="youtube_daily_insight",
+            source="youtube_daily_insight",
+            empty_metric_name="YouTube daily insight",
+            date_column="date",
+            auto_skip_model=YouTubeDailyInsight,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_youtube_daily_insight_dataframe,
+            validate=validate_youtube_daily_insight_dataframe,
+            build_rows=self._build_youtube_daily_insight_models,
+            delete_window=delete_window,
+            load_rows=upsert_youtube_daily_insight_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def youtube_media_insight(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run YouTube per-content snapshot ETL into ``youtube_media_insight``."""
+
+        async def extract(target_start, target_end):
+            return await self._fetch_youtube_media_insight(
+                start_date=target_start,
+                end_date=target_end,
+            )
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_youtube_media_insight_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="youtube_media_insight",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_,
+                model_cls=YouTubeMediaInsight,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="youtube_media_insight",
+            source="youtube_media_insight",
+            empty_metric_name="YouTube media insight",
+            date_column="date",
+            auto_skip_model=YouTubeMediaInsight,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_youtube_media_insight_dataframe,
+            validate=validate_youtube_media_insight_dataframe,
+            build_rows=self._build_youtube_media_insight_models,
+            delete_window=delete_window,
+            load_rows=upsert_youtube_media_insight_rows,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

@@ -22,6 +22,8 @@ from app.db.models.external_api import (
     InstagramInsights,
     InstagramMediaInsights,
     TikTokAds,
+    YouTubeDailyInsight,
+    YouTubeMediaInsight,
 )
 
 
@@ -208,6 +210,59 @@ def build_instagram_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dic
                 "comments": int(row["comments"]),
                 "shares": int(row["shares"]),
                 "saves": int(row["saves"]),
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
+def build_youtube_daily_insight_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized YouTube daily metrics into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "date": row["date"],
+                "views": int(row["views"]),
+                "watch_hours": float(row["watch_hours"]),
+                "subscribers_gained": int(row["subscribers_gained"]),
+                "subscribers_lost": int(row["subscribers_lost"]),
+                "net_subscribers": int(row["net_subscribers"]),
+                "likes": int(row["likes"]),
+                "comments": int(row["comments"]),
+                "shares": int(row["shares"]),
+                "average_view_duration": float(row["average_view_duration"]),
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
+def build_youtube_media_insight_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized YouTube media snapshots into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        published_at = row["published_at"]
+        if hasattr(published_at, "to_pydatetime"):
+            published_at = published_at.to_pydatetime()
+        if published_at.tzinfo is not None:
+            published_at = published_at.replace(tzinfo=None)
+        rows.append(
+            {
+                "date": row["date"],
+                "video_id": row["video_id"],
+                "title": row["title"],
+                "published_at": published_at,
+                "content_type": row["content_type"],
+                "thumbnail_url": None if pd.isna(row["thumbnail_url"]) else row["thumbnail_url"],
+                "permalink": row["permalink"],
+                "views": int(row["views"]),
+                "watch_hours": float(row["watch_hours"]),
+                "average_view_percentage": float(row["average_view_percentage"]),
+                "likes": int(row["likes"]),
+                "comments": int(row["comments"]),
+                "shares": int(row["shares"]),
+                "subscribers_gained": int(row["subscribers_gained"]),
                 "pull_date": pull_date,
             }
         )
@@ -483,6 +538,62 @@ async def upsert_instagram_insights_rows(session: AsyncSession, rows: list[dict]
                 "comments": insert_stmt.excluded.comments,
                 "shares": insert_stmt.excluded.shares,
                 "saves": insert_stmt.excluded.saves,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_youtube_daily_insight_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``youtube_daily_insight`` using date as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(YouTubeDailyInsight).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date"],
+            set_={
+                "views": insert_stmt.excluded.views,
+                "watch_hours": insert_stmt.excluded.watch_hours,
+                "subscribers_gained": insert_stmt.excluded.subscribers_gained,
+                "subscribers_lost": insert_stmt.excluded.subscribers_lost,
+                "net_subscribers": insert_stmt.excluded.net_subscribers,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "average_view_duration": insert_stmt.excluded.average_view_duration,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_youtube_media_insight_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``youtube_media_insight`` using video ID as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(YouTubeMediaInsight).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["video_id"],
+            set_={
+                "date": insert_stmt.excluded.date,
+                "title": insert_stmt.excluded.title,
+                "published_at": insert_stmt.excluded.published_at,
+                "content_type": insert_stmt.excluded.content_type,
+                "thumbnail_url": insert_stmt.excluded.thumbnail_url,
+                "permalink": insert_stmt.excluded.permalink,
+                "views": insert_stmt.excluded.views,
+                "watch_hours": insert_stmt.excluded.watch_hours,
+                "average_view_percentage": insert_stmt.excluded.average_view_percentage,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "subscribers_gained": insert_stmt.excluded.subscribers_gained,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

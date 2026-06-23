@@ -404,6 +404,75 @@ class InstagramInsights(SqliteBase):
     pull_date = Column("pull_date", Date, nullable=False)
 
 
+class YouTubeDailyInsight(SqliteBase):
+    """Store daily YouTube channel analytics metrics."""
+
+    __tablename__ = "youtube_daily_insight"
+    __table_args__ = (
+        UniqueConstraint(
+            "date",
+            name="uq_youtube_daily_insight_date",
+        ),
+        Index("ix_youtube_daily_insight_date", "date"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    views = Column("views", Integer, nullable=False, default=0)
+    watch_hours = Column("watch_hours", Float, nullable=False, default=0.0)
+    subscribers_gained = Column("subscribers_gained", Integer, nullable=False, default=0)
+    subscribers_lost = Column("subscribers_lost", Integer, nullable=False, default=0)
+    net_subscribers = Column("net_subscribers", Integer, nullable=False, default=0)
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    average_view_duration = Column(
+        "average_view_duration",
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
+class YouTubeMediaInsight(SqliteBase):
+    """Store YouTube video, Shorts, and live performance snapshots."""
+
+    __tablename__ = "youtube_media_insight"
+    __table_args__ = (
+        UniqueConstraint(
+            "video_id",
+            name="uq_youtube_media_insight_video_id",
+        ),
+        Index("ix_youtube_media_insight_date", "date"),
+        Index("ix_youtube_media_insight_content_type", "content_type"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    video_id = Column("video_id", String, nullable=False)
+    title = Column("title", String, nullable=False)
+    published_at = Column("published_at", DateTime, nullable=False)
+    content_type = Column("content_type", String, nullable=False, default="UNKNOWN")
+    thumbnail_url = Column("thumbnail_url", String, nullable=True)
+    permalink = Column("permalink", String, nullable=False)
+    views = Column("views", Integer, nullable=False, default=0)
+    watch_hours = Column("watch_hours", Float, nullable=False, default=0.0)
+    average_view_percentage = Column(
+        "average_view_percentage",
+        Float,
+        nullable=False,
+        default=0.0,
+    )
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    subscribers_gained = Column("subscribers_gained", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class InstagramMediaInsights(SqliteBase):
     """Store Instagram post and reels lifetime media insight snapshots."""
 

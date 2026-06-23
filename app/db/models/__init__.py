@@ -17,6 +17,8 @@ from app.db.models.external_api import (  # noqa: F401
     InstagramMediaInsights,
     StgAdsRaw,
     TikTokAds,
+    YouTubeDailyInsight,
+    YouTubeMediaInsight,
 )
 from app.db.models.user import (  # noqa: F401
     AuthAuditEvent,

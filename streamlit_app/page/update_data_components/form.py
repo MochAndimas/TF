@@ -16,6 +16,8 @@ DATA_SOURCE_OPTIONS = {
     "GA4 Daily Users (App/Web)": "ga4_daily_metrics",
     "Instagram Insights (API)": "instagram_insights",
     "Instagram Media Insights (Post/Reels)": "instagram_media_insights",
+    "YouTube Daily Insight (API)": "youtube_daily_insight",
+    "YouTube Media Insight (Video/Short/Live)": "youtube_media_insight",
     "Facebook Page Insights (API)": "facebook_page_insights",
     "Facebook Page Media Insights (API)": "facebook_page_media_insights",
     "Daily Register (GSheet)": "daily_register",

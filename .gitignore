@@ -183,6 +183,7 @@ cython_debug/
 *.code-workspace
 googleads.yaml
 client_secret.json
+client_secret_*.json
 generate_refresh_token.py
 
 # PyCharm

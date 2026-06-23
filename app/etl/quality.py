@@ -168,6 +168,104 @@ def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: Instagram insights duplicate key ratio {dup_ratio:.2%}.")
 
 
+def validate_youtube_daily_insight_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed YouTube channel metrics before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: YouTube daily insight data has {int(missing_key)} rows with missing date."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: YouTube daily insight data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    nonnegative_columns = [
+        "views",
+        "watch_hours",
+        "subscribers_gained",
+        "subscribers_lost",
+        "likes",
+        "comments",
+        "shares",
+        "average_view_duration",
+    ]
+    negative_metric = (
+        df[nonnegative_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: YouTube daily insight data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    invalid_net = (
+        df["net_subscribers"]
+        != (df["subscribers_gained"] - df["subscribers_lost"])
+    ).sum()
+    if invalid_net:
+        raise ValueError(
+            f"DQ failed: YouTube daily insight data has {int(invalid_net)} inconsistent net subscriber rows."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["date"])
+    if dup_ratio > 0:
+        raise ValueError(
+            f"DQ failed: YouTube daily insight duplicate key ratio {dup_ratio:.2%}."
+        )
+
+
+def validate_youtube_media_insight_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed YouTube per-content snapshots before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date", "video_id", "published_at"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: YouTube media insight has {int(missing_key)} rows with missing keys."
+        )
+
+    invalid_dates = (df["date"] < pd.Timestamp("2005-01-01").date()).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: YouTube media insight has {int(invalid_dates)} invalid dates."
+        )
+
+    metric_columns = [
+        "views",
+        "watch_hours",
+        "average_view_percentage",
+        "likes",
+        "comments",
+        "shares",
+        "subscribers_gained",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce") < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: YouTube media insight has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["video_id"])
+    if dup_ratio > 0:
+        raise ValueError(
+            f"DQ failed: YouTube media insight duplicate key ratio {dup_ratio:.2%}."
+        )
+
+
 def validate_instagram_media_insights_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed Instagram post/reels media insights before load."""
     if df.empty:

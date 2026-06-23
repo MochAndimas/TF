@@ -72,6 +72,7 @@ Public page yang bisa diakses tanpa dashboard login penuh:
 
 - `google_ads_token`
 - `meta_ads_token`
+- `youtube_token`
 
 ### 3. ETL dan Scheduler
 
@@ -92,6 +93,8 @@ Source ETL terjadwal default:
 - `tiktok_ads`
 - `unique_campaign`
 - `ga4_daily_metrics`
+- `youtube_daily_insight`
+- `youtube_media_insight`
 - `first_deposit`
 
 Scheduler harian:
@@ -258,6 +261,11 @@ Contoh:
 - `META_APP_ID`
 - `META_APP_SECRET`
 - `META_API_VERSION`
+- `YOUTUBE_CLIENT_ID`
+- `YOUTUBE_CLIENT_SECRET`
+- `YOUTUBE_REDIRECT_URI`
+- `YOUTUBE_CHANNEL_ID`
+- `YOUTUBE_MEDIA_INSIGHT_CONCURRENCY`
 
 ### Variabel Tambahan untuk Streamlit dan Docker
 

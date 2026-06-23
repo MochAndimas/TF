@@ -23,7 +23,6 @@ from app.etl.extract_helpers import (
     normalize_meta_ad_account_id,
 )
 
-
 class ExternalApiExtractor:
     """Extract raw payloads from active ETL sources.
 
@@ -96,6 +95,7 @@ class ExternalApiExtractor:
         self.meta_ad_id = config("META_AD_ID", default="", cast=str).strip() or None
         self.facebook_page_id = config("FB_PAGE_ID", default="", cast=str).strip() or None
         self.instagram_user_id = config("INSTAGRAM_USER_ID", default="", cast=str).strip() or None
+        self.youtube_channel_id = config("YOUTUBE_CHANNEL_ID", default="", cast=str).strip() or None
         self.instagram_media_insight_concurrency = config(
             "INSTAGRAM_MEDIA_INSIGHT_CONCURRENCY",
             default=5,
@@ -104,6 +104,11 @@ class ExternalApiExtractor:
         self.instagram_follow_activity_concurrency = config(
             "INSTAGRAM_FOLLOW_ACTIVITY_CONCURRENCY",
             default=10,
+            cast=int,
+        )
+        self.youtube_media_insight_concurrency = config(
+            "YOUTUBE_MEDIA_INSIGHT_CONCURRENCY",
+            default=5,
             cast=int,
         )
         self.google_ads_client = None
@@ -520,6 +525,305 @@ class ExternalApiExtractor:
                 )
 
         return [rows_by_date[target_date] for target_date in sorted(rows_by_date)]
+
+    async def fetch_youtube_daily_insight(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Fetch daily channel metrics from the YouTube Analytics API."""
+        async with httpx.AsyncClient(timeout=120) as client:
+            access_token = await self._refresh_youtube_access_token(client)
+
+            response = await client.get(
+                "https://youtubeanalytics.googleapis.com/v2/reports",
+                params={
+                    "ids": "channel==MINE",
+                    "startDate": start_date.isoformat(),
+                    "endDate": end_date.isoformat(),
+                    "dimensions": "day",
+                    "sort": "day",
+                    "metrics": (
+                        "views,estimatedMinutesWatched,subscribersGained,"
+                        "subscribersLost,likes,comments,shares,averageViewDuration"
+                    ),
+                },
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code >= 400:
+                payload = response.json()
+                error_payload = payload.get("error") or {}
+                detail = error_payload.get("message") or "unknown error"
+                raise ValueError(f"YouTube Analytics request failed: {detail}")
+
+        payload = response.json()
+        headers = [item.get("name") for item in payload.get("columnHeaders", [])]
+        rows = []
+        for values in payload.get("rows") or []:
+            item = dict(zip(headers, values))
+            subscribers_gained = int(float(item.get("subscribersGained") or 0))
+            subscribers_lost = int(float(item.get("subscribersLost") or 0))
+            estimated_minutes_watched = float(item.get("estimatedMinutesWatched") or 0)
+            rows.append(
+                {
+                    "date": item.get("day"),
+                    "views": int(float(item.get("views") or 0)),
+                    "watch_hours": estimated_minutes_watched / 60,
+                    "subscribers_gained": subscribers_gained,
+                    "subscribers_lost": subscribers_lost,
+                    "net_subscribers": subscribers_gained - subscribers_lost,
+                    "likes": int(float(item.get("likes") or 0)),
+                    "comments": int(float(item.get("comments") or 0)),
+                    "shares": int(float(item.get("shares") or 0)),
+                    "average_view_duration": float(item.get("averageViewDuration") or 0),
+                }
+            )
+        return rows
+
+    async def _refresh_youtube_access_token(self, client: httpx.AsyncClient) -> str:
+        """Exchange the stored YouTube refresh token for a short-lived access token."""
+        refresh_token = await self._load_managed_secret("youtube_refresh_token")
+        client_id = config("YOUTUBE_CLIENT_ID", default="", cast=str).strip()
+        client_secret = config("YOUTUBE_CLIENT_SECRET", default="", cast=str).strip()
+        if not refresh_token or not client_id or not client_secret:
+            raise ValueError(
+                "YouTube credentials are not fully configured. Connect the channel "
+                "from the YouTube Token page and configure the OAuth client."
+            )
+
+        token_response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+        )
+        if token_response.status_code >= 400:
+            payload = token_response.json()
+            detail = payload.get("error_description") or payload.get("error") or "unknown error"
+            raise ValueError(f"YouTube OAuth token refresh failed: {detail}")
+
+        access_token = token_response.json().get("access_token")
+        if not access_token:
+            raise ValueError("YouTube OAuth token refresh did not return an access token.")
+        return access_token
+
+    async def fetch_youtube_media_insight(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Fetch lifetime YouTube content snapshots for videos published in a window."""
+        if not self.youtube_channel_id:
+            raise ValueError("YouTube channel ID is missing. Configure YOUTUBE_CHANNEL_ID.")
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            access_token = await self._refresh_youtube_access_token(client)
+            uploads_playlist_id = await self._youtube_uploads_playlist_id(
+                client=client,
+                access_token=access_token,
+            )
+            media_rows = await self._youtube_upload_rows(
+                client=client,
+                access_token=access_token,
+                uploads_playlist_id=uploads_playlist_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+            semaphore = asyncio.Semaphore(max(1, self.youtube_media_insight_concurrency))
+
+            async def enrich_media(row: dict) -> dict:
+                async with semaphore:
+                    metrics = await self._youtube_video_analytics(
+                        client=client,
+                        access_token=access_token,
+                        video_id=row["video_id"],
+                        published_date=date.fromisoformat(row["date"]),
+                    )
+                enriched = dict(row)
+                enriched.update(metrics)
+                return enriched
+
+            if media_rows:
+                media_rows = list(await asyncio.gather(*(enrich_media(row) for row in media_rows)))
+
+        return sorted(media_rows, key=lambda row: (row["date"], row["video_id"]))
+
+    async def _youtube_uploads_playlist_id(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        access_token: str,
+    ) -> str:
+        """Resolve the uploads playlist for the configured YouTube channel."""
+        response = await client.get(
+            "https://www.googleapis.com/youtube/v3/channels",
+            params={
+                "part": "contentDetails",
+                "id": self.youtube_channel_id,
+            },
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code >= 400:
+            payload = response.json()
+            detail = (payload.get("error") or {}).get("message") or "unknown error"
+            raise ValueError(f"YouTube channel lookup failed: {detail}")
+        items = response.json().get("items") or []
+        if not items:
+            raise ValueError("Configured YouTube channel was not accessible to the OAuth account.")
+        playlist_id = (
+            items[0].get("contentDetails", {})
+            .get("relatedPlaylists", {})
+            .get("uploads")
+        )
+        if not playlist_id:
+            raise ValueError("YouTube uploads playlist was not returned for the configured channel.")
+        return playlist_id
+
+    async def _youtube_upload_rows(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        access_token: str,
+        uploads_playlist_id: str,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """List channel uploads published inside the requested ETL window."""
+        rows: list[dict] = []
+        page_token: str | None = None
+        reached_older_video = False
+        while not reached_older_video:
+            params = {
+                "part": "snippet,contentDetails",
+                "playlistId": uploads_playlist_id,
+                "maxResults": 50,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            response = await client.get(
+                "https://www.googleapis.com/youtube/v3/playlistItems",
+                params=params,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code >= 400:
+                payload = response.json()
+                detail = (payload.get("error") or {}).get("message") or "unknown error"
+                raise ValueError(f"YouTube uploads request failed: {detail}")
+
+            payload = response.json()
+            for item in payload.get("items") or []:
+                snippet = item.get("snippet") or {}
+                content_details = item.get("contentDetails") or {}
+                published_at = self._parse_youtube_datetime(
+                    content_details.get("videoPublishedAt") or snippet.get("publishedAt")
+                )
+                if published_at is None:
+                    continue
+                published_date = published_at.date()
+                if published_date < start_date:
+                    reached_older_video = True
+                    continue
+                if published_date > end_date:
+                    continue
+
+                video_id = str(
+                    content_details.get("videoId")
+                    or (snippet.get("resourceId") or {}).get("videoId")
+                    or ""
+                ).strip()
+                if not video_id:
+                    continue
+                rows.append(
+                    {
+                        "date": published_date.isoformat(),
+                        "video_id": video_id,
+                        "title": str(snippet.get("title") or "Untitled").strip(),
+                        "published_at": published_at.isoformat(),
+                        "content_type": "UNKNOWN",
+                        "thumbnail_url": self._youtube_thumbnail_url(snippet.get("thumbnails")),
+                        "permalink": f"https://www.youtube.com/watch?v={video_id}",
+                        "views": 0,
+                        "watch_hours": 0.0,
+                        "average_view_percentage": 0.0,
+                        "likes": 0,
+                        "comments": 0,
+                        "shares": 0,
+                        "subscribers_gained": 0,
+                    }
+                )
+
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
+        return rows
+
+    async def _youtube_video_analytics(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        access_token: str,
+        video_id: str,
+        published_date: date,
+    ) -> dict:
+        """Fetch a lifetime metric snapshot and content type for one video."""
+        response = await client.get(
+            "https://youtubeanalytics.googleapis.com/v2/reports",
+            params={
+                "ids": "channel==MINE",
+                "startDate": published_date.isoformat(),
+                "endDate": datetime.now().date().isoformat(),
+                "dimensions": "creatorContentType",
+                "filters": f"video=={video_id}",
+                "metrics": (
+                    "views,estimatedMinutesWatched,averageViewPercentage,"
+                    "likes,comments,shares,subscribersGained"
+                ),
+            },
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code >= 400:
+            payload = response.json()
+            detail = (payload.get("error") or {}).get("message") or "unknown error"
+            raise ValueError(f"YouTube video analytics failed for {video_id}: {detail}")
+
+        payload = response.json()
+        headers = [item.get("name") for item in payload.get("columnHeaders", [])]
+        values = (payload.get("rows") or [])[0] if payload.get("rows") else []
+        item = dict(zip(headers, values))
+        return {
+            "content_type": str(item.get("creatorContentType") or "UNKNOWN").upper(),
+            "views": int(float(item.get("views") or 0)),
+            "watch_hours": float(item.get("estimatedMinutesWatched") or 0) / 60,
+            "average_view_percentage": float(item.get("averageViewPercentage") or 0),
+            "likes": int(float(item.get("likes") or 0)),
+            "comments": int(float(item.get("comments") or 0)),
+            "shares": int(float(item.get("shares") or 0)),
+            "subscribers_gained": int(float(item.get("subscribersGained") or 0)),
+        }
+
+    @staticmethod
+    def _parse_youtube_datetime(value: str | None) -> datetime | None:
+        """Parse one RFC3339 timestamp returned by YouTube."""
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _youtube_thumbnail_url(thumbnails: dict | None) -> str | None:
+        """Pick the highest-quality available thumbnail URL."""
+        values = thumbnails or {}
+        for key in ("maxres", "standard", "high", "medium", "default"):
+            url = (values.get(key) or {}).get("url")
+            if url:
+                return str(url)
+        return None
 
     async def fetch_facebook_page_insights(self, start_date: date, end_date: date) -> list[dict]:
         """Fetch Facebook Page daily insight metrics for the requested date range."""

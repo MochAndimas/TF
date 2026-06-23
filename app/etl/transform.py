@@ -275,6 +275,86 @@ def parse_instagram_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     return df.sort_values("date")
 
 
+def parse_youtube_daily_insight_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse YouTube Analytics rows into normalized daily metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "views",
+        "watch_hours",
+        "subscribers_gained",
+        "subscribers_lost",
+        "net_subscribers",
+        "likes",
+        "comments",
+        "shares",
+        "average_view_duration",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in YouTube daily insight payload: {missing_columns}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    integer_columns = [
+        "views",
+        "subscribers_gained",
+        "subscribers_lost",
+        "net_subscribers",
+        "likes",
+        "comments",
+        "shares",
+    ]
+    for column in integer_columns:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    for column in ("watch_hours", "average_view_duration"):
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
+    df = df[df["date"].notna()]
+    return df.sort_values("date")
+
+
+def parse_youtube_media_insight_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse YouTube per-content snapshot rows into a normalized dataframe."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "video_id",
+        "title",
+        "published_at",
+        "content_type",
+        "thumbnail_url",
+        "permalink",
+        "views",
+        "watch_hours",
+        "average_view_percentage",
+        "likes",
+        "comments",
+        "shares",
+        "subscribers_gained",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in YouTube media insight payload: {missing_columns}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df["published_at"] = pd.to_datetime(df["published_at"], errors="coerce", utc=True)
+    for column in ("video_id", "title", "content_type", "permalink"):
+        df[column] = df[column].fillna("").astype(str).str.strip()
+    df["content_type"] = df["content_type"].str.upper().replace("", "UNKNOWN")
+
+    for column in ("views", "likes", "comments", "shares", "subscribers_gained"):
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    for column in ("watch_hours", "average_view_percentage"):
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
+    df = df[df["date"].notna() & df["published_at"].notna() & df["video_id"].ne("")]
+    return df.sort_values(["date", "video_id"])
+
+
 def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse Instagram media insight rows into normalized media-grain metrics."""
     if not raw_rows:

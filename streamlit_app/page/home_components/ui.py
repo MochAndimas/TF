@@ -107,6 +107,9 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
     "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, register efficiency, source mix, and daily performance charts."},
     "brand_awareness": {"kicker": "Campaign", "title": "Brand Awareness", "description": "Track reach, impressions, CTR, CPM, CPC, and spend performance by source platform."},
     "remarketing": {"kicker": "Campaign", "title": "Remarketing", "description": "Review remarketing campaign performance using login volume from MS deposit activity data."},
+    "instagram": {"kicker": "Socmed", "title": "Instagram", "description": "Monitor Instagram followers, engagement, and post or Reels performance from synced insights data."},
+    "facebook": {"kicker": "Socmed", "title": "Facebook", "description": "Track Facebook Page followers, reactions, video views, and media performance trends."},
+    "youtube": {"kicker": "Socmed", "title": "YouTube", "description": "Review YouTube views, watch hours, subscriber movement, and content performance by video type."},
     "internal_register": {"kicker": "Activity", "title": "Register", "description": "Analyze daily register trends, campaign contribution, pacing, and source mix from internal register data."},
     "login_activity": {"kicker": "Activity", "title": "Login", "description": "Track daily login users from MS deposit last activity with source and campaign breakdown."},
     "deposit_report": {"kicker": "Revenue", "title": "First Deposit", "description": "View daily first deposit reports, new vs existing user volume, and average order value."},
@@ -143,7 +146,25 @@ def render_hero(fullname: str) -> None:
 def render_quick_access() -> None:
     """Render quick access cards for allowed pages."""
     st.markdown('<div class="tf-home-section-title">Quick Access</div>', unsafe_allow_html=True)
-    available_pages = [page_key for page_key in ("overview", "user_acquisition", "brand_awareness", "remarketing", "internal_register", "login_activity", "deposit_report", "remarketing_deposit", "update_data", "register") if page_key in st.session_state.get("allowed_pages", [])]
+    available_pages = [
+        page_key
+        for page_key in (
+            "overview",
+            "user_acquisition",
+            "brand_awareness",
+            "remarketing",
+            "instagram",
+            "facebook",
+            "youtube",
+            "internal_register",
+            "login_activity",
+            "deposit_report",
+            "remarketing_deposit",
+            "update_data",
+            "register",
+        )
+        if page_key in st.session_state.get("allowed_pages", [])
+    ]
     if not available_pages:
         return
     shortcut_columns = st.columns(min(len(available_pages), 3), gap="small")

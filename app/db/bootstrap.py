@@ -99,6 +99,18 @@ async def apply_schema_maintenance(connection) -> None:
                 text(f"ALTER TABLE facebook_page_media_insights DROP COLUMN {column_name}")
             )
 
+    youtube_media_columns = {
+        row[1]
+        for row in (
+            await connection.execute(text("PRAGMA table_info('youtube_media_insight')"))
+        ).fetchall()
+    }
+    for column_name in ("thumbnail_impressions", "thumbnail_ctr"):
+        if column_name in youtube_media_columns:
+            await connection.execute(
+                text(f"ALTER TABLE youtube_media_insight DROP COLUMN {column_name}")
+            )
+
 
 async def verify_database_ready(
     *,
