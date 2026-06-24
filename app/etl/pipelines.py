@@ -570,7 +570,7 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         snapshot_date = None
 
         async def extract(target_start, target_end):
-            refresh_from = max(target_start, target_end - timedelta(days=2))
+            refresh_from = max(target_start, target_end - timedelta(days=30))
             existing_rows = await session.execute(
                 select(
                     InstagramInsights.date,

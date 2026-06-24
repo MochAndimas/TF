@@ -8,7 +8,10 @@ import streamlit as st
 
 from streamlit_app.functions.dates import get_date_range
 
+ALL_DATA_SOURCES_LABEL = "All Data Sources"
+
 DATA_SOURCE_OPTIONS = {
+    ALL_DATA_SOURCES_LABEL: "__all__",
     "Unique Campaign": "unique_campaign",
     "Google Ads (API)": "google_ads",
     "Facebook Ads (API)": "facebook_ads",
@@ -24,6 +27,23 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit (GSheet)": "first_deposit",
     "MS Deposit (GSheet)": "ms_deposit",
 }
+
+ALL_DATA_SOURCE_VALUES = [
+    "google_ads",
+    "facebook_ads",
+    "tiktok_ads",
+    "unique_campaign",
+    "ga4_daily_metrics",
+    "instagram_insights",
+    "instagram_media_insights",
+    "youtube_daily_insight",
+    "youtube_media_insight",
+    "facebook_page_insights",
+    "facebook_page_media_insights",
+    "daily_register",
+    "first_deposit",
+    "ms_deposit",
+]
 
 
 def date_presets(today: dt.date) -> dict[str, tuple[dt.date, dt.date]]:
