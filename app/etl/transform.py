@@ -352,6 +352,10 @@ def parse_youtube_media_insight_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     for column in ("watch_hours", "average_view_percentage"):
         df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
     df = df[df["date"].notna() & df["published_at"].notna() & df["video_id"].ne("")]
+    df = df.sort_values(["date", "published_at", "video_id"]).drop_duplicates(
+        subset=["video_id"],
+        keep="last",
+    )
     return df.sort_values(["date", "video_id"])
 
 

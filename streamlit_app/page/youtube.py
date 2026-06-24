@@ -51,6 +51,10 @@ def _fmt_float(value) -> str:
     return f"{float(value or 0):,.2f}"
 
 
+def _fmt_hours(value) -> str:
+    return f"{float(value or 0):,.2f} h"
+
+
 def _fmt_duration(seconds) -> str:
     total_seconds = int(float(seconds or 0))
     minutes, remaining_seconds = divmod(total_seconds, 60)
@@ -125,7 +129,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
     growth = metrics.get("growth_percentage", {})
     specs = [
         ("Views", "views", _fmt_int(current.get("views"))),
-        ("Watch Hours", "watch_hours", _fmt_float(current.get("watch_hours"))),
+        ("Watch Hours", "watch_hours", _fmt_hours(current.get("watch_hours"))),
         ("Subscribers Gained", "subscribers_gained", _fmt_int(current.get("subscribers_gained"))),
         ("Subscribers Lost", "subscribers_lost", _fmt_int(current.get("subscribers_lost"))),
         ("Net Subscribers", "net_subscribers", _fmt_int(current.get("net_subscribers"))),
@@ -170,7 +174,7 @@ def _build_views_figure(df: pd.DataFrame) -> go.Figure:
             name="Watch Hours",
             mode="lines+markers",
             yaxis="y2",
-            hovertemplate="<b>%{x}</b><br>Watch Hours: %{y:,.2f}<extra></extra>",
+            hovertemplate="<b>%{x}</b><br>Watch Hours: %{y:,.2f} h<extra></extra>",
         )
     )
     figure.update_layout(
@@ -295,7 +299,7 @@ def _render_daily_table(df: pd.DataFrame) -> None:
         hide_index=True,
         column_config={
             "Date": st.column_config.DateColumn("Date"),
-            "Watch Hours": st.column_config.NumberColumn("Watch Hours", format="%.2f"),
+            "Watch Hours": st.column_config.NumberColumn("Watch Hours", format="%.2f h"),
             "Avg View Duration (sec)": st.column_config.NumberColumn("Avg View Duration (sec)", format="%.0f"),
         },
     )
@@ -306,7 +310,7 @@ def _render_media_metrics(summary: dict[str, object]) -> None:
     specs = [
         ("Content", _fmt_int(totals.get("video_count"))),
         ("Views", _fmt_int(totals.get("views"))),
-        ("Watch Hours", _fmt_float(totals.get("watch_hours"))),
+        ("Watch Hours", _fmt_hours(totals.get("watch_hours"))),
         ("Avg % Viewed", f"{_fmt_float(totals.get('average_view_percentage'))}%"),
         ("Media Engagement", _fmt_int(totals.get("total_engagement"))),
         ("Subscribers Gained", _fmt_int(totals.get("subscribers_gained"))),
@@ -372,7 +376,7 @@ def _build_top_media_figure(df: pd.DataFrame) -> go.Figure:
             hovertemplate=(
                 "<b>%{y}</b><br>"
                 "Views: %{x:,}<br>"
-                "Watch Hours: %{customdata[0]:,.2f}<br>"
+                "Watch Hours: %{customdata[0]:,.2f} h<br>"
                 "Engagement: %{customdata[1]:,}<br>"
                 "Avg % Viewed: %{customdata[2]:,.2f}%<extra></extra>"
             ),
@@ -407,7 +411,7 @@ def _build_media_activity_figure(df: pd.DataFrame) -> go.Figure:
                     "<b>%{x}</b><br>"
                     f"{str(content_type).title()} Views: %{{y:,}}<br>"
                     "Content: %{customdata[0]:,}<br>"
-                    "Watch Hours: %{customdata[1]:,.2f}<br>"
+                    "Watch Hours: %{customdata[1]:,.2f} h<br>"
                     "Engagement: %{customdata[2]:,}<extra></extra>"
                 ),
             )
@@ -470,7 +474,7 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "Published Date": st.column_config.DateColumn("Published Date"),
             "Title": st.column_config.TextColumn("Title", width="large"),
             "Permalink": st.column_config.LinkColumn("Permalink"),
-            "Watch Hours": st.column_config.NumberColumn("Watch Hours", format="%.2f"),
+            "Watch Hours": st.column_config.NumberColumn("Watch Hours", format="%.2f h"),
             "Avg % Viewed": st.column_config.NumberColumn("Avg % Viewed", format="%.2f%%"),
         },
     )
