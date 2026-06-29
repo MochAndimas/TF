@@ -3,7 +3,7 @@
 This module stores execution metadata for ETL trigger requests.
 """
 
-from sqlalchemy import Column, Date, DateTime, Index, Integer, String
+from sqlalchemy import Column, Date, DateTime, Index, Integer, JSON, String
 
 from app.db.base import SqliteBase
 
@@ -33,6 +33,10 @@ class EtlRun(SqliteBase):
     status = Column("status", String, nullable=False)
     message = Column("message", String, nullable=True)
     error_detail = Column("error_detail", String, nullable=True)
+    rows_extracted = Column("rows_extracted", Integer, nullable=True)
+    rows_loaded = Column("rows_loaded", Integer, nullable=True)
+    duration_ms = Column("duration_ms", Integer, nullable=True)
+    quality_report = Column("quality_report", JSON, nullable=True)
     started_at = Column("started_at", DateTime, nullable=False)
     ended_at = Column("ended_at", DateTime, nullable=True)
     triggered_by = Column("triggered_by", String, nullable=True)

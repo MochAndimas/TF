@@ -5,20 +5,39 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import Any
 
 from fastapi import HTTPException
 
-from app.db.models.external_api import FacebookAds, GoogleAds, TikTokAds
+from sqlalchemy import func, select
+
+from app.db.models.external_api import (
+    Campaign,
+    DailyRegister,
+    DataDepo,
+    DataMsDeposit,
+    FacebookAds,
+    FacebookPageInsights,
+    FacebookPageMediaInsights,
+    Ga4DailyMetrics,
+    GoogleAds,
+    InstagramInsights,
+    InstagramMediaInsights,
+    TikTokAds,
+    YouTubeDailyInsight,
+    YouTubeMediaInsight,
+)
 from app.db.session import sqlite_async_session
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
+from app.etl.run_report import build_quality_report
 from app.etl.transform import resolve_date_window
 from app.utils.analytics_cache import clear_campaign_analytics_cache
 from app.utils.etl_run_utils import (
     cleanup_stale_runs,
+    complete_run,
     fail_run,
-    finish_run,
     mark_run_running,
     start_run,
 )
@@ -300,6 +319,23 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "ms_deposit": _run_ms_deposit,
 }
 
+SOURCE_MODELS = {
+    "unique_campaign": Campaign,
+    "google_ads": GoogleAds,
+    "facebook_ads": FacebookAds,
+    "tiktok_ads": TikTokAds,
+    "ga4_daily_metrics": Ga4DailyMetrics,
+    "instagram_insights": InstagramInsights,
+    "instagram_media_insights": InstagramMediaInsights,
+    "youtube_daily_insight": YouTubeDailyInsight,
+    "youtube_media_insight": YouTubeMediaInsight,
+    "facebook_page_insights": FacebookPageInsights,
+    "facebook_page_media_insights": FacebookPageMediaInsights,
+    "daily_register": DailyRegister,
+    "first_deposit": DataDepo,
+    "ms_deposit": DataMsDeposit,
+}
+
 
 def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any, Any]:
     """Resolve the effective ETL date window for one requested source update.
@@ -317,6 +353,15 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
     if data == "unique_campaign":
         return None, None
     return resolve_date_window(types, start_date, end_date)
+
+
+async def count_source_rows(session, source: str) -> int | None:
+    """Count current rows in the target table for one ETL source."""
+    model = SOURCE_MODELS.get(source)
+    if model is None:
+        return None
+    result = await session.execute(select(func.count()).select_from(model))
+    return int(result.scalar_one())
 
 
 async def execute_update_job(
@@ -352,13 +397,49 @@ async def execute_update_job(
         )
     )
 
-    async def _mark_success(message: str) -> None:
-        async with sqlite_async_session() as status_session:
-            await finish_run(session=status_session, run_id=run_id, message=message)
+    started_perf = perf_counter()
 
-    async def _mark_failed(error_detail: str) -> None:
+    def _duration_ms() -> int:
+        return int((perf_counter() - started_perf) * 1000)
+
+    async def _mark_success(
+        message: str,
+        *,
+        duration_ms: int,
+        rows_loaded: int | None,
+    ) -> None:
+        quality_report = build_quality_report(
+            source=data,
+            status="success",
+            message=message,
+            rows_loaded=rows_loaded,
+            duration_ms=duration_ms,
+        )
         async with sqlite_async_session() as status_session:
-            await fail_run(session=status_session, run_id=run_id, error_detail=error_detail)
+            await complete_run(
+                session=status_session,
+                run_id=run_id,
+                message=message,
+                rows_loaded=rows_loaded,
+                duration_ms=duration_ms,
+                quality_report=quality_report,
+            )
+
+    async def _mark_failed(error_detail: str, *, duration_ms: int) -> None:
+        quality_report = build_quality_report(
+            source=data,
+            status="failed",
+            error_detail=error_detail,
+            duration_ms=duration_ms,
+        )
+        async with sqlite_async_session() as status_session:
+            await fail_run(
+                session=status_session,
+                run_id=run_id,
+                error_detail=error_detail,
+                duration_ms=duration_ms,
+                quality_report=quality_report,
+            )
 
     async def _mark_running() -> None:
         async with sqlite_async_session() as status_session:
@@ -376,7 +457,13 @@ async def execute_update_job(
             if not message:
                 raise HTTPException(status_code=404, detail="Something is error, data update is failed!")
 
-            await _mark_success(message=message)
+            duration_ms = _duration_ms()
+            rows_loaded = await count_source_rows(session=session, source=data)
+            await _mark_success(
+                message=message,
+                duration_ms=duration_ms,
+                rows_loaded=rows_loaded,
+            )
             if data in {
                 "google_ads",
                 "facebook_ads",
@@ -401,14 +488,24 @@ async def execute_update_job(
                         "source": data,
                         "status": "success",
                         "message": message,
+                        "rows_loaded": rows_loaded,
+                        "duration_ms": duration_ms,
                     },
                     default=str,
                 )
             )
-            return {"success": True, "run_id": run_id, "source": data, "message": message}
+            return {
+                "success": True,
+                "run_id": run_id,
+                "source": data,
+                "message": message,
+                "rows_loaded": rows_loaded,
+                "duration_ms": duration_ms,
+            }
         except HTTPException as error:
             error_detail = str(error.detail)
-            await _mark_failed(error_detail=error_detail)
+            duration_ms = _duration_ms()
+            await _mark_failed(error_detail=error_detail, duration_ms=duration_ms)
             logger.error(
                 json.dumps(
                     {
@@ -417,14 +514,22 @@ async def execute_update_job(
                         "source": data,
                         "status": "failed",
                         "error": error_detail,
+                        "duration_ms": duration_ms,
                     },
                     default=str,
                 )
             )
-            return {"success": False, "run_id": run_id, "source": data, "error": error_detail}
+            return {
+                "success": False,
+                "run_id": run_id,
+                "source": data,
+                "error": error_detail,
+                "duration_ms": duration_ms,
+            }
         except Exception as error:
             error_detail = str(error)
-            await _mark_failed(error_detail=error_detail)
+            duration_ms = _duration_ms()
+            await _mark_failed(error_detail=error_detail, duration_ms=duration_ms)
             logger.error(
                 json.dumps(
                     {
@@ -433,11 +538,18 @@ async def execute_update_job(
                         "source": data,
                         "status": "failed",
                         "error": error_detail,
+                        "duration_ms": duration_ms,
                     },
                     default=str,
                 )
             )
-            return {"success": False, "run_id": run_id, "source": data, "error": error_detail}
+            return {
+                "success": False,
+                "run_id": run_id,
+                "source": data,
+                "error": error_detail,
+                "duration_ms": duration_ms,
+            }
 
 
 async def trigger_and_wait_update_job(

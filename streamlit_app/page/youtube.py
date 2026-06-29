@@ -8,10 +8,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from streamlit_app.functions.api import fetch_data
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
+from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
 
 
 def _render_filters() -> tuple[dt.date | None, dt.date | None]:
@@ -20,15 +20,17 @@ def _render_filters() -> tuple[dt.date | None, dt.date | None]:
 
     presets = campaign_preset_ranges(dt.date.today())
     date_range_key = "youtube_analytics_date_range"
+    period_key = "youtube_analytics_period"
     if date_range_key not in st.session_state:
-        st.session_state[date_range_key] = presets["Last 7 Day"]
+        st.session_state[date_range_key] = presets["This Month"]
+    if period_key not in st.session_state:
+        st.session_state[period_key] = "This Month"
 
     with st.container(border=True):
         selected_period = st.selectbox(
             "Periods",
             options=list(presets.keys()),
-            index=0,
-            key="youtube_analytics_period",
+            key=period_key,
         )
         if selected_period == "Custom Range":
             selected = st.date_input("Select Date Range", key=date_range_key)
@@ -498,15 +500,14 @@ async def show_youtube_page(host: str) -> None:
             st.error("Session invalid. Please log in again.")
             return
         with st.spinner("Fetching YouTube analytics..."):
-            response = await fetch_data(
-                st=st,
+            response = await fetch_legacy_socmed_payload(
                 host=host,
                 uri="youtube/analytics",
-                method="GET",
-                params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+                start_date=start_date,
+                end_date=end_date,
+                fallback_message="Failed to fetch YouTube analytics.",
             )
-        if not isinstance(response, dict) or not response.get("success", False):
-            st.error((response or {}).get("detail") or (response or {}).get("message") or "Failed to fetch YouTube analytics.")
+        if response is None:
             return
         st.session_state["youtube_analytics_payload"] = response
         st.session_state["youtube_analytics_range"] = selected_range

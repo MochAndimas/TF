@@ -6,6 +6,7 @@ Traders Family application.
 
 from pydantic import BaseModel
 from datetime import date, datetime
+from typing import Any
 from typing import Literal
 
 from app.schemas.responses import API_RESPONSE_VERSION, ApiResponseV1
@@ -71,3 +72,36 @@ class UpdateDataStatusResponse(BaseModel):
     window_end: date | None
     started_at: datetime
     ended_at: datetime | None
+    triggered_by: str | None = None
+    rows_extracted: int | None = None
+    rows_loaded: int | None = None
+    duration_ms: int | None = None
+    quality_report: dict[str, Any] | None = None
+
+
+class EtlRunSummary(BaseModel):
+    """Compact ETL run item returned by summary endpoints."""
+
+    run_id: str
+    pipeline: str
+    source: str
+    mode: str
+    status: str
+    message: str | None = None
+    error_detail: str | None = None
+    window_start: date | None = None
+    window_end: date | None = None
+    started_at: datetime
+    ended_at: datetime | None = None
+    triggered_by: str | None = None
+    rows_extracted: int | None = None
+    rows_loaded: int | None = None
+    duration_ms: int | None = None
+    quality_report: dict[str, Any] | None = None
+
+
+class UpdateDataSummaryResponse(ApiResponseV1):
+    """ETL summary payload for operational status views."""
+
+    counts: dict[str, int]
+    latest_runs: list[EtlRunSummary]

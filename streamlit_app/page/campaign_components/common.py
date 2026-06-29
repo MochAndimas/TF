@@ -6,6 +6,7 @@ import datetime as dt
 
 import streamlit as st
 
+from streamlit_app.functions.api import fetch_api_result
 from streamlit_app.functions.dates import campaign_preset_ranges
 
 PAGE_STYLE = """
@@ -34,6 +35,31 @@ def set_transparent_chart_background(figure):
         return figure
     figure.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return figure
+
+
+async def fetch_legacy_campaign_payload(
+    *,
+    host: str,
+    uri: str,
+    start_date: dt.date,
+    end_date: dt.date,
+    fallback_message: str,
+) -> dict[str, object] | None:
+    """Fetch campaign payload using the standard API client and return raw shape."""
+    result = await fetch_api_result(
+        st=st,
+        host=host,
+        uri=uri,
+        method="GET",
+        params={
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+        },
+    )
+    if result.ok and isinstance(result.raw, dict):
+        return result.raw
+    st.error(result.message or fallback_message)
+    return None
 
 
 def render_campaign_page_filters(

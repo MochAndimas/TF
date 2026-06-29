@@ -7,10 +7,10 @@ import datetime as dt
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.functions.api import fetch_data
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.page.activity_components.api import fetch_legacy_activity_payload
 from streamlit_app.page.campaign_components.common import PAGE_STYLE, set_transparent_chart_background
 
 SOURCE_OPTIONS = {
@@ -119,15 +119,15 @@ async def show_login_activity_page(host: str) -> None:
             st.error("Session invalid. Please log in again.")
             return
         with st.spinner("Fetching data..."):
-            response = await fetch_data(
-                st=st,
+            response = await fetch_legacy_activity_payload(
                 host=host,
                 uri="campaign/login-activity",
-                method="GET",
-                params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": source_key},
+                start_date=start_date,
+                end_date=end_date,
+                source=source_key,
+                fallback_message="Failed to fetch login activity.",
             )
-        if not isinstance(response, dict) or not response.get("success", False):
-            st.error((response or {}).get("detail") or (response or {}).get("message") or "Failed to fetch login activity.")
+        if response is None:
             return
         st.session_state["login_activity_payload"] = response
         st.session_state["login_activity_range"] = selected_range

@@ -2,10 +2,10 @@
 
 import streamlit as st
 
-from streamlit_app.functions.api import fetch_data
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.metrics import render_remarketing_metric_cards
 from streamlit_app.page.campaign_components.common import (
+    fetch_legacy_campaign_payload,
     render_campaign_page_filters,
     set_transparent_chart_background,
 )
@@ -43,9 +43,14 @@ async def show_remarketing_page(host: str) -> None:
             st.error("Session invalid. Please log in again.")
             return
         with st.spinner("Fetching data..."):
-            response = await fetch_data(st=st, host=host, uri="campaign/remarketing", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
-        if not isinstance(response, dict) or not response.get("success", False):
-            st.error((response or {}).get("detail") or (response or {}).get("message") or "Failed to fetch campaign overview.")
+            response = await fetch_legacy_campaign_payload(
+                host=host,
+                uri="campaign/remarketing",
+                start_date=start_date,
+                end_date=end_date,
+                fallback_message="Failed to fetch campaign overview.",
+            )
+        if response is None:
             return
         st.session_state["remarketing_campaign_payload"] = response
         st.session_state["remarketing_campaign_range"] = selected_range

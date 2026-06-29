@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from collections.abc import Sequence
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
+from app.core.clock import now
 from app.db.base import SqliteBase
 import app.db.models  # noqa: F401
 from app.db.session import sqlite_engine
@@ -18,19 +20,32 @@ REQUIRED_TABLES: tuple[str, ...] = (
     "tf_user",
     "user_token",
     "etl_run",
+    "schema_migration",
 )
 
-
-async def initialize_database_schema() -> None:
-    """Create core tables and apply lightweight SQLite schema maintenance."""
-    logger.info("Initializing database schema")
-    async with sqlite_engine.begin() as connection:
-        await connection.run_sync(SqliteBase.metadata.create_all)
-        await apply_schema_maintenance(connection)
+MigrationHandler = Callable[[object], object]
 
 
-async def apply_schema_maintenance(connection) -> None:
-    """Apply small additive schema changes for legacy SQLite databases."""
+async def _migration_20260624_001_auth_indexes(connection) -> None:
+    """Create auth/request-log indexes required by current runtime flows."""
+    auth_indexes = (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tf_user_email ON tf_user(email)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_session_id ON user_token(session_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_access_token ON user_token(access_token)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_refresh_token ON user_token(refresh_token)",
+        "CREATE INDEX IF NOT EXISTS ix_user_token_user_id ON user_token(user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_log_data_created_at ON log_data(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_created_at ON auth_audit_event(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_event_type ON auth_audit_event(event_type)",
+        "CREATE INDEX IF NOT EXISTS ix_auth_rate_limit_event_bucket_key ON auth_rate_limit_event(bucket_key)",
+        "CREATE INDEX IF NOT EXISTS ix_auth_rate_limit_event_request_at ON auth_rate_limit_event(request_at)",
+    )
+    for ddl in auth_indexes:
+        await connection.execute(text(ddl))
+
+
+async def _migration_20260624_002_user_token_metadata(connection) -> None:
+    """Add persisted session metadata columns for legacy SQLite databases."""
     user_token_columns = {
         row[1]
         for row in (await connection.execute(text("PRAGMA table_info('user_token')"))).fetchall()
@@ -47,21 +62,9 @@ async def apply_schema_maintenance(connection) -> None:
                 text(f"ALTER TABLE user_token ADD COLUMN {column_name} {column_type}")
             )
 
-    auth_indexes = (
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tf_user_email ON tf_user(email)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_session_id ON user_token(session_id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_access_token ON user_token(access_token)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_token_refresh_token ON user_token(refresh_token)",
-        "CREATE INDEX IF NOT EXISTS ix_user_token_user_id ON user_token(user_id)",
-        "CREATE INDEX IF NOT EXISTS ix_log_data_created_at ON log_data(created_at)",
-        "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_created_at ON auth_audit_event(created_at)",
-        "CREATE INDEX IF NOT EXISTS ix_auth_audit_event_event_type ON auth_audit_event(event_type)",
-        "CREATE INDEX IF NOT EXISTS ix_auth_rate_limit_event_bucket_key ON auth_rate_limit_event(bucket_key)",
-        "CREATE INDEX IF NOT EXISTS ix_auth_rate_limit_event_request_at ON auth_rate_limit_event(request_at)",
-    )
-    for ddl in auth_indexes:
-        await connection.execute(text(ddl))
 
+async def _migration_20260624_003_external_metric_columns(connection) -> None:
+    """Apply additive external-metric schema changes for legacy databases."""
     instagram_insights_columns = {
         row[1]
         for row in (await connection.execute(text("PRAGMA table_info('instagram_insights')"))).fetchall()
@@ -84,8 +87,16 @@ async def apply_schema_maintenance(connection) -> None:
                 "ADD COLUMN post_media_view INTEGER NOT NULL DEFAULT 0"
             )
         )
-        facebook_media_columns.add("post_media_view")
 
+
+async def _migration_20260624_004_drop_deprecated_metric_columns(connection) -> None:
+    """Drop deprecated metric columns that current transforms no longer write."""
+    facebook_media_columns = {
+        row[1]
+        for row in (
+            await connection.execute(text("PRAGMA table_info('facebook_page_media_insights')"))
+        ).fetchall()
+    }
     deprecated_facebook_media_columns = (
         "post_impressions",
         "post_impressions_unique",
@@ -110,6 +121,92 @@ async def apply_schema_maintenance(connection) -> None:
             await connection.execute(
                 text(f"ALTER TABLE youtube_media_insight DROP COLUMN {column_name}")
             )
+
+
+async def _migration_20260624_005_etl_run_observability(connection) -> None:
+    """Add ETL run observability metadata columns."""
+    etl_run_columns = {
+        row[1]
+        for row in (await connection.execute(text("PRAGMA table_info('etl_run')"))).fetchall()
+    }
+    desired_columns = {
+        "rows_extracted": "INTEGER",
+        "rows_loaded": "INTEGER",
+        "duration_ms": "INTEGER",
+        "quality_report": "JSON",
+    }
+    for column_name, column_type in desired_columns.items():
+        if column_name not in etl_run_columns:
+            await connection.execute(
+                text(f"ALTER TABLE etl_run ADD COLUMN {column_name} {column_type}")
+            )
+
+
+SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
+    (
+        "20260624_001_auth_indexes",
+        "Create auth, token, audit, rate-limit, and request-log indexes.",
+        _migration_20260624_001_auth_indexes,
+    ),
+    (
+        "20260624_002_user_token_metadata",
+        "Add persisted session metadata columns to user_token.",
+        _migration_20260624_002_user_token_metadata,
+    ),
+    (
+        "20260624_003_external_metric_columns",
+        "Add current external metric columns for Instagram and Facebook insights.",
+        _migration_20260624_003_external_metric_columns,
+    ),
+    (
+        "20260624_004_drop_deprecated_metric_columns",
+        "Drop deprecated Facebook and YouTube metric columns when present.",
+        _migration_20260624_004_drop_deprecated_metric_columns,
+    ),
+    (
+        "20260624_005_etl_run_observability",
+        "Add ETL run row-count, duration, and quality-report metadata.",
+        _migration_20260624_005_etl_run_observability,
+    ),
+)
+
+
+async def initialize_database_schema() -> None:
+    """Create core tables and apply lightweight SQLite schema maintenance."""
+    logger.info("Initializing database schema")
+    async with sqlite_engine.begin() as connection:
+        await connection.run_sync(SqliteBase.metadata.create_all)
+        await apply_schema_migrations(connection)
+
+
+async def apply_schema_migrations(connection) -> list[str]:
+    """Apply unapplied lightweight SQLite schema migrations in order."""
+    await connection.run_sync(SqliteBase.metadata.create_all)
+    applied_rows = (
+        await connection.execute(text("SELECT migration_id FROM schema_migration"))
+    ).fetchall()
+    applied_ids = {row[0] for row in applied_rows}
+    newly_applied: list[str] = []
+
+    for migration_id, description, handler in SCHEMA_MIGRATIONS:
+        if migration_id in applied_ids:
+            continue
+        logger.info("Applying schema migration %s", migration_id)
+        await handler(connection)
+        await connection.execute(
+            text(
+                "INSERT INTO schema_migration "
+                "(migration_id, description, applied_at) "
+                "VALUES (:migration_id, :description, :applied_at)"
+            ),
+            {
+                "migration_id": migration_id,
+                "description": description,
+                "applied_at": now(),
+            },
+        )
+        newly_applied.append(migration_id)
+    return newly_applied
 
 
 async def verify_database_ready(

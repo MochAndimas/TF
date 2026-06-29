@@ -4,8 +4,8 @@ import datetime as dt
 
 import streamlit as st
 
-from streamlit_app.functions.api import fetch_data
 from streamlit_app.functions.dates import campaign_preset_ranges
+from streamlit_app.page.deposit_components.api import fetch_legacy_deposit_payload
 from streamlit_app.page.deposit_components.charts import (
     build_campaign_deposit_amount_heatmap_figure,
     build_daily_deposit_amount_figure,
@@ -106,9 +106,15 @@ async def show_deposit_page(host: str) -> None:
             st.error("Session invalid. Please log in again.")
             return
         with st.spinner("Fetching first deposit report..."):
-            response = await fetch_data(st=st, host=host, uri="deposit/daily-report", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "campaign_type": selected_type})
-        if not isinstance(response, dict) or not response.get("success", False):
-            st.error((response or {}).get("detail") or (response or {}).get("message") or "Failed to fetch first deposit report.")
+            response = await fetch_legacy_deposit_payload(
+                host=host,
+                uri="deposit/daily-report",
+                start_date=start_date,
+                end_date=end_date,
+                campaign_type=selected_type,
+                fallback_message="Failed to fetch first deposit report.",
+            )
+        if response is None:
             return
         st.session_state["deposit_daily_payload"] = response
         st.session_state["deposit_daily_range"] = selected_range

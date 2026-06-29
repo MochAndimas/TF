@@ -6,7 +6,7 @@ import datetime as dt
 import pandas as pd
 import streamlit as st
 
-from streamlit_app.functions.api import fetch_data
+from streamlit_app.functions.api import ApiClientResult, fetch_api_result
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import (
@@ -109,6 +109,17 @@ def _has_metric(payload: dict, *path: str) -> bool:
     return bool(current)
 
 
+def _raw_payload_or_error(result: ApiClientResult | None, fallback_message: str) -> dict[str, object] | None:
+    """Return legacy-shaped raw payload when an API result succeeds."""
+    if result is None:
+        st.error(fallback_message)
+        return None
+    if result.ok and isinstance(result.raw, dict):
+        return result.raw
+    st.error(result.message or fallback_message)
+    return None
+
+
 async def _ensure_overview_payloads(host: str, start_date, end_date, selected_range) -> bool:
     cached_cost_payload = st.session_state.get("overview_campaign_cost_payload", {})
     cached_active_payload_map = st.session_state.get("overview_active_users_payload_by_source", {})
@@ -152,52 +163,53 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         st.error("Session invalid. Please log in again.")
         return False
 
-    response_cost = response_leads = response_brand = response_remarketing = None
-    response_app = response_web = response_combined = None
+    result_cost = result_leads = result_brand = result_remarketing = None
+    result_app = result_web = result_combined = None
     with st.spinner("Fetching data..."):
         if should_fetch_cost:
-            response_cost = await fetch_data(st=st, host=host, uri="overview/campaign-cost", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
+            result_cost = await fetch_api_result(st=st, host=host, uri="overview/campaign-cost", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
         if should_fetch_active:
-            response_app, response_web, response_combined = await asyncio.gather(
-                fetch_data(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "app"}),
-                fetch_data(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "web"}),
-                fetch_data(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "app_web"}),
+            result_app, result_web, result_combined = await asyncio.gather(
+                fetch_api_result(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "app"}),
+                fetch_api_result(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "web"}),
+                fetch_api_result(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "app_web"}),
             )
         if should_fetch_leads:
-            response_leads = await fetch_data(st=st, host=host, uri="overview/leads-acquisition", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
+            result_leads = await fetch_api_result(st=st, host=host, uri="overview/leads-acquisition", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
         if should_fetch_brand:
-            response_brand = await fetch_data(st=st, host=host, uri="overview/brand-awareness", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
+            result_brand = await fetch_api_result(st=st, host=host, uri="overview/brand-awareness", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
         if should_fetch_remarketing:
-            response_remarketing = await fetch_data(st=st, host=host, uri="overview/remarketing", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
+            result_remarketing = await fetch_api_result(st=st, host=host, uri="overview/remarketing", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
 
     if should_fetch_cost:
-        if not isinstance(response_cost, dict) or not response_cost.get("success", False):
-            st.error((response_cost or {}).get("detail") or (response_cost or {}).get("message") or "Failed to fetch overview campaign cost.")
+        response_cost = _raw_payload_or_error(result_cost, "Failed to fetch overview campaign cost.")
+        if response_cost is None:
             return False
         st.session_state["overview_campaign_cost_payload"] = response_cost
         st.session_state["overview_cost_range"] = selected_range
     if should_fetch_leads:
-        if not isinstance(response_leads, dict) or not response_leads.get("success", False):
-            st.error((response_leads or {}).get("detail") or (response_leads or {}).get("message") or "Failed to fetch overview register acquisition.")
+        response_leads = _raw_payload_or_error(result_leads, "Failed to fetch overview register acquisition.")
+        if response_leads is None:
             return False
         st.session_state["overview_leads_payload"] = response_leads
         st.session_state["overview_leads_range"] = selected_range
     if should_fetch_brand:
-        if not isinstance(response_brand, dict) or not response_brand.get("success", False):
-            st.error((response_brand or {}).get("detail") or (response_brand or {}).get("message") or "Failed to fetch overview brand awareness.")
+        response_brand = _raw_payload_or_error(result_brand, "Failed to fetch overview brand awareness.")
+        if response_brand is None:
             return False
         st.session_state["overview_brand_payload"] = response_brand
         st.session_state["overview_brand_range"] = selected_range
     if should_fetch_remarketing:
-        if not isinstance(response_remarketing, dict) or not response_remarketing.get("success", False):
-            st.error((response_remarketing or {}).get("detail") or (response_remarketing or {}).get("message") or "Failed to fetch overview remarketing.")
+        response_remarketing = _raw_payload_or_error(result_remarketing, "Failed to fetch overview remarketing.")
+        if response_remarketing is None:
             return False
         st.session_state["overview_remarketing_payload"] = response_remarketing
         st.session_state["overview_remarketing_range"] = selected_range
     if should_fetch_active:
-        responses = [response_app, response_web, response_combined]
-        if any(not isinstance(response, dict) or not response.get("success", False) for response in responses):
-            st.error("Failed to fetch overview active users.")
+        response_app = _raw_payload_or_error(result_app, "Failed to fetch overview active users.")
+        response_web = _raw_payload_or_error(result_web, "Failed to fetch overview active users.")
+        response_combined = _raw_payload_or_error(result_combined, "Failed to fetch overview active users.")
+        if not response_app or not response_web or not response_combined:
             return False
         st.session_state["overview_active_users_payload_by_source"] = {"app": response_app, "web": response_web, "app_web": response_combined}
         st.session_state["overview_active_range"] = selected_range

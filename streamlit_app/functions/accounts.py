@@ -6,7 +6,7 @@ import re
 
 import pandas as pd
 
-from streamlit_app.functions.api import fetch_data
+from streamlit_app.functions.api import fetch_api_result
 
 ROLE_LABELS: dict[str, str] = {
     "superadmin": "Super Admin",
@@ -32,11 +32,11 @@ ROLE_OPTIONS: dict[str, str] = {
 
 async def get_accounts(host: str) -> pd.DataFrame:
     """Retrieve account records from the backend API for admin pages."""
-    response = await fetch_data(st=None, host=host, uri="accounts", method="GET")
-    if not response or not response.get("success"):
+    result = await fetch_api_result(st=None, host=host, uri="accounts", method="GET")
+    if not result.ok:
         return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at"])
 
-    rows = response.get("data", [])
+    rows = result.data if isinstance(result.data, list) else []
     if not rows:
         return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at"])
 

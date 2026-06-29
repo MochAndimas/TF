@@ -63,11 +63,21 @@ async def _run_update_for_source(
     final_status = poll_result["final_status"]
     final_message = poll_result["final_message"]
     final_error = poll_result["final_error"]
+    final_rows_loaded = poll_result.get("final_rows_loaded")
+    final_duration_ms = poll_result.get("final_duration_ms")
 
     if final_status == "success":
         status_placeholder.empty()
         progress_placeholder.empty()
         st.success(final_message or "Update completed successfully.")
+        if final_rows_loaded is not None or final_duration_ms is not None:
+            duration_label = (
+                f"{final_duration_ms / 1000:.2f}s"
+                if isinstance(final_duration_ms, int)
+                else "unknown"
+            )
+            rows_label = final_rows_loaded if final_rows_loaded is not None else "unknown"
+            st.caption(f"Rows loaded: `{rows_label}` | Duration: `{duration_label}`")
         return True
 
     if final_status == "failed":
@@ -98,7 +108,6 @@ async def show_update_page(host):
     submitted = form_state["submitted"]
     source_label = form_state["source_label"]
     mode = form_state["mode"]
-    preset_key = form_state["preset_key"]
     presets = form_state["presets"]
     from_date = form_state["from_date"]
     to_date = form_state["to_date"]

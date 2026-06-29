@@ -29,6 +29,7 @@ async def poll_update_job(host: str, access_token: str, run_id: str) -> dict[str
     poll_interval_seconds = 5
     elapsed = 0
     final_status = final_message = final_error = None
+    final_rows_loaded = final_duration_ms = None
 
     async with httpx.AsyncClient(timeout=600) as client:
         while elapsed < max_wait_seconds:
@@ -41,6 +42,8 @@ async def poll_update_job(host: str, access_token: str, run_id: str) -> dict[str
             final_status = status_data.get("status")
             final_message = status_data.get("message")
             final_error = status_data.get("error_detail")
+            final_rows_loaded = status_data.get("rows_loaded")
+            final_duration_ms = status_data.get("duration_ms")
             status_placeholder.info(f"Current status: `{final_status}` | Elapsed: {elapsed}s / {max_wait_seconds}s")
             progress_placeholder.progress(min(elapsed / max_wait_seconds, 1.0))
 
@@ -55,5 +58,7 @@ async def poll_update_job(host: str, access_token: str, run_id: str) -> dict[str
         "final_status": final_status,
         "final_message": final_message,
         "final_error": final_error,
+        "final_rows_loaded": final_rows_loaded,
+        "final_duration_ms": final_duration_ms,
         "run_id": run_id,
     }

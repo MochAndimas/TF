@@ -48,7 +48,7 @@ services:
       WORKERS: 1
       AUTO_INIT_DB_ON_STARTUP: "false"
       ALLOW_CONCURRENT_ETL_RUNS: "false"
-    command: python main.py
+    command: ["/bin/bash", "-lc", "python migrate_db.py && python main.py"]
     ports:
       - "${PORT}:${PORT}"
     depends_on:

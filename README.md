@@ -17,6 +17,7 @@ Karena database utama masih SQLite, ada constraint operasional yang memang disen
 - Backend harus dijalankan dengan `WORKERS=1`.
 - ETL write tidak boleh overlap liar.
 - Inisialisasi schema dibuat explicit lewat `python init_db.py` atau service `db-init`.
+- Backend Docker menjalankan `python migrate_db.py` sebelum start agar schema existing ikut ter-update saat container backend restart/recreate.
 - Deployment diasumsikan single host, bukan multi-node shared database.
 
 ## Komponen Utama
@@ -31,6 +32,7 @@ Tanggung jawab utamanya:
 - account CRUD untuk `superadmin`
 - endpoint analytics untuk `overview`, `campaign`, dan `deposit`
 - trigger manual ETL dan polling status ETL
+- summary ETL untuk status operasional, termasuk durasi, row count, dan quality report
 - Google Ads OAuth callback
 - Meta Ads token exchange dan status
 - request logging dan healthcheck
@@ -48,6 +50,7 @@ Endpoint penting:
 - `GET /api/campaign/brand-awareness`
 - `GET /api/deposit/daily-report`
 - `POST /api/feature-data/update-external-api`
+- `GET /api/feature-data/update-external-api/summary`
 - `GET /api/feature-data/update-external-api/{run_id}`
 - `GET /api/google-ads/oauth/start`
 - `GET /api/google-ads/oauth/callback`
@@ -105,6 +108,19 @@ Scheduler harian:
 - container entrypoint: `docker/scheduler-entrypoint.sh`
 
 Secara default cron dijalankan setiap hari pukul `08:00 Asia/Jakarta`.
+
+Setiap ETL run dicatat di tabel `etl_run` dengan metadata operasional:
+
+- `status`
+- `window_start` dan `window_end`
+- `rows_loaded`
+- `duration_ms`
+- `quality_report`
+- `error_detail` bila gagal
+
+Manual ETL dari dashboard hanya menerima satu source per run. Untuk menjalankan
+beberapa source, jalankan source tersebut satu per satu agar status, locking, dan
+error handling tetap jelas di SQLite single-node deployment.
 
 ## Fitur yang Sudah Ada
 
@@ -350,6 +366,12 @@ python init_db.py
 
 Langkah ini wajib jika `AUTO_INIT_DB_ON_STARTUP=false`.
 
+Untuk database existing, jalankan migration-lite yang idempotent:
+
+```bash
+python migrate_db.py
+```
+
 ### 4. Jalankan backend
 
 ```bash
@@ -386,6 +408,17 @@ python run_scheduled_etl.py --sources google_ads ga4_daily_metrics --triggered-b
 python scripts/backup_sqlite.py
 ```
 
+### 8. Maintenance SQLite
+
+```bash
+python scripts/sqlite_maintenance.py
+python scripts/sqlite_maintenance.py --backup
+python scripts/sqlite_maintenance.py --vacuum
+```
+
+Maintenance helper menjalankan `PRAGMA integrity_check`, menampilkan ukuran DB,
+row count per table, dan dapat membuat backup yang diverifikasi.
+
 ## Menjalankan via Docker Compose
 
 Repo ini sudah punya `docker-compose.yml` dengan empat service:
@@ -398,7 +431,7 @@ Repo ini sudah punya `docker-compose.yml` dengan empat service:
 Flow utamanya:
 
 1. `db-init` menjalankan `python init_db.py`
-2. `backend` menunggu `db-init` selesai lalu start FastAPI
+2. `backend` menunggu `db-init` selesai, menjalankan `python migrate_db.py`, lalu start FastAPI
 3. `frontend` menunggu backend healthy lalu start Streamlit
 4. `scheduler` menunggu DB dan backend siap lalu menjalankan cron daemon
 
@@ -426,10 +459,12 @@ Local command yang relevan:
 
 ```bash
 python3 init_db.py
+python3 migrate_db.py
 python3 main.py
 streamlit run streamlit_run.py --server.port 5504
 python3 -m pytest -q
 python3 scripts/backup_sqlite.py
+python3 scripts/sqlite_maintenance.py --backup
 ```
 
 Docker command yang umum dipakai:
@@ -441,6 +476,10 @@ docker logs tf-backend --tail 100
 docker logs tf-frontend --tail 100
 docker compose down
 ```
+
+Untuk Docker flow, migration sudah dijalankan otomatis oleh backend container
+sebelum `main.py`. Manual `python migrate_db.py` tetap tersedia untuk local run
+atau operasi database di luar Docker.
 
 ## Catatan Operasional Penting
 

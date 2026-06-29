@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -182,7 +183,47 @@ async def finish_run(session: AsyncSession, run_id: str, message: str | None = N
     await session.commit()
 
 
-async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> None:
+async def complete_run(
+    session: AsyncSession,
+    run_id: str,
+    *,
+    message: str | None = None,
+    rows_extracted: int | None = None,
+    rows_loaded: int | None = None,
+    duration_ms: int | None = None,
+    quality_report: dict[str, Any] | None = None,
+) -> None:
+    """Mark an ETL run successful and persist execution metadata."""
+    result = await session.execute(
+        update(EtlRun)
+        .where(EtlRun.run_id == run_id)
+        .values(
+            status=STATUS_SUCCESS,
+            message=message,
+            ended_at=datetime.now(),
+            error_detail=None,
+            rows_extracted=rows_extracted,
+            rows_loaded=rows_loaded,
+            duration_ms=duration_ms,
+            quality_report=quality_report,
+        )
+    )
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"ETL run not found while finishing run_id: {run_id}",
+        )
+    await session.commit()
+
+
+async def fail_run(
+    session: AsyncSession,
+    run_id: str,
+    error_detail: str,
+    *,
+    duration_ms: int | None = None,
+    quality_report: dict[str, Any] | None = None,
+) -> None:
     """Mark an ETL run as ``failed`` and store truncated error detail.
 
     Args:
@@ -201,6 +242,8 @@ async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> Non
             status=STATUS_FAILED,
             error_detail=error_detail[:1000],
             ended_at=datetime.now(),
+            duration_ms=duration_ms,
+            quality_report=quality_report,
         )
     )
     if result.rowcount == 0:
@@ -209,6 +252,46 @@ async def fail_run(session: AsyncSession, run_id: str, error_detail: str) -> Non
             detail=f"ETL run not found while failing run_id: {run_id}",
         )
     await session.commit()
+
+
+async def get_run(session: AsyncSession, run_id: str) -> EtlRun | None:
+    """Fetch one ETL run by public run identifier."""
+    result = await session.execute(select(EtlRun).where(EtlRun.run_id == run_id))
+    return result.scalar_one_or_none()
+
+
+async def latest_runs(
+    session: AsyncSession,
+    *,
+    limit: int = 10,
+    source: str | None = None,
+    status_filter: str | None = None,
+) -> list[EtlRun]:
+    """Return latest ETL runs for status dashboards."""
+    query = select(EtlRun)
+    if source:
+        query = query.where(EtlRun.source == source)
+    if status_filter:
+        query = query.where(EtlRun.status == status_filter)
+    result = await session.execute(
+        query.order_by(desc(EtlRun.started_at)).limit(max(1, min(limit, 100)))
+    )
+    return list(result.scalars().all())
+
+
+async def summarize_runs(session: AsyncSession) -> dict[str, int]:
+    """Return high-level ETL run status counts."""
+    result = await session.execute(
+        select(EtlRun.status, func.count(EtlRun.id)).group_by(EtlRun.status)
+    )
+    counts = {str(status_name): int(count) for status_name, count in result.all()}
+    return {
+        "queued": counts.get(STATUS_QUEUED, 0),
+        "running": counts.get(STATUS_RUNNING, 0),
+        "success": counts.get(STATUS_SUCCESS, 0),
+        "failed": counts.get(STATUS_FAILED, 0),
+        "total": sum(counts.values()),
+    }
 
 
 async def cleanup_stale_runs(
