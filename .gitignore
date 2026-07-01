@@ -181,6 +181,8 @@ cython_debug/
 
 # VScode Workspace
 *.code-workspace
+PRD.md
+PRD.me
 googleads.yaml
 client_secret.json
 client_secret_*.json
