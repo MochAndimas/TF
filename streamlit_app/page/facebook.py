@@ -51,6 +51,10 @@ def _fmt_float(value) -> str:
     return f"{float(value or 0):,.2f}"
 
 
+def _fmt_pct(value) -> str:
+    return f"{float(value or 0):,.2f}%"
+
+
 def _date_labels(series: pd.Series) -> list[str]:
     return pd.to_datetime(series).dt.strftime("%b %d\n%Y").tolist()
 
@@ -60,6 +64,8 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    if "engagement_rate" not in df.columns:
+        df["engagement_rate"] = 0.0
     for column in [
         "page_fans",
         "page_fan_adds",
@@ -67,6 +73,7 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "net_followers",
         "organic_impressions",
         "post_engagements",
+        "engagement_rate",
         "reaction_like",
         "reaction_love",
         "reaction_wow",
@@ -77,7 +84,10 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "video_views",
         "page_views",
     ]:
-        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+        if column == "engagement_rate":
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
+        else:
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
     return df.sort_values("date")
 
 
@@ -86,6 +96,8 @@ def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    if "engagement_rate" not in df.columns:
+        df["engagement_rate"] = 0.0
     for column in [
         "post_count",
         "total_engagement",
@@ -95,8 +107,12 @@ def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "post_clicks",
         "post_media_view",
         "post_video_views",
+        "engagement_rate",
     ]:
-        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+        if column == "engagement_rate":
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
+        else:
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
     return df.sort_values("date")
 
 
@@ -105,6 +121,8 @@ def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    if "engagement_rate" not in df.columns:
+        df["engagement_rate"] = 0.0
     for column in [
         "total_engagement",
         "total_reactions",
@@ -113,8 +131,12 @@ def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "post_clicks",
         "post_media_view",
         "post_video_views",
+        "engagement_rate",
     ]:
-        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+        if column == "engagement_rate":
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
+        else:
+            df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
     for column in ["post_id", "message", "permalink_url"]:
         df[column] = df[column].fillna("").astype(str)
     return df.sort_values(["total_engagement", "post_media_view", "date"], ascending=[False, False, False])
@@ -130,6 +152,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
         ("Net Followers", "net_followers"),
         ("Organic Impressions", "organic_impressions"),
         ("Post Engagements", "post_engagements"),
+        ("Engagement Rate", "engagement_rate"),
         ("Reactions", "total_reactions"),
         ("Video Views", "video_views"),
         ("Page Views", "page_views"),
@@ -140,9 +163,10 @@ def _render_metrics(metrics: dict[str, object]) -> None:
             with column:
                 with st.container(border=True):
                     growth_value = growth.get(key, 0.0)
+                    value = _fmt_pct(current.get(key)) if key == "engagement_rate" else _fmt_int(current.get(key))
                     st.metric(
                         label,
-                        _fmt_int(current.get(key)),
+                        value,
                         delta=_campaign_format_growth(growth_value),
                         delta_color="off" if growth_value == 0 else ("inverse" if key == "page_fan_removes" else "normal"),
                     )
@@ -234,25 +258,45 @@ def _render_daily_table(df: pd.DataFrame) -> None:
         "net_followers": "Net Followers",
         "organic_impressions": "Organic Impressions",
         "post_engagements": "Post Engagements",
+        "engagement_rate": "Engagement Rate",
         "total_reactions": "Reactions",
         "video_views": "Video Views",
         "page_views": "Page Views",
     }
-    st.dataframe(df[list(columns)].rename(columns=columns), width="stretch", hide_index=True)
+    st.dataframe(
+        df[list(columns)].rename(columns=columns),
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Date": st.column_config.DateColumn("Date"),
+            "Total Fans": st.column_config.NumberColumn("Total Fans", format="%d"),
+            "New Followers": st.column_config.NumberColumn("New Followers", format="%d"),
+            "Unfollowers": st.column_config.NumberColumn("Unfollowers", format="%d"),
+            "Net Followers": st.column_config.NumberColumn("Net Followers", format="%d"),
+            "Organic Impressions": st.column_config.NumberColumn("Organic Impressions", format="%d"),
+            "Post Engagements": st.column_config.NumberColumn("Post Engagements", format="%d"),
+            "Engagement Rate": st.column_config.NumberColumn("Engagement Rate", format="%.2f%%"),
+            "Reactions": st.column_config.NumberColumn("Reactions", format="%d"),
+            "Video Views": st.column_config.NumberColumn("Video Views", format="%d"),
+            "Page Views": st.column_config.NumberColumn("Page Views", format="%d"),
+        },
+    )
 
 
 def _render_media_metrics(summary: dict[str, object]) -> None:
     specs = [
         ("Posts", _fmt_int(summary.get("post_count"))),
         ("Media Engagement", _fmt_int(summary.get("total_engagement"))),
+        ("Engagement Rate", _fmt_pct(summary.get("engagement_rate"))),
         ("Reactions", _fmt_int(summary.get("total_reactions"))),
         ("Post Clicks", _fmt_int(summary.get("post_clicks"))),
         ("Media Views", _fmt_int(summary.get("post_media_view"))),
         ("Video Views", _fmt_int(summary.get("post_video_views"))),
         ("Avg Engagement", _fmt_float(summary.get("avg_engagement_per_post"))),
     ]
-    for row_specs, count in [(specs[:4], 4), (specs[4:], 3)]:
-        for column, (label, value) in zip(st.columns(count, gap="small"), row_specs):
+    for row_start in range(0, len(specs), 4):
+        row_specs = specs[row_start : row_start + 4]
+        for column, (label, value) in zip(st.columns(len(row_specs), gap="small"), row_specs):
             with column:
                 with st.container(border=True):
                     st.metric(label, value)
@@ -315,6 +359,7 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "date",
             "message",
             "total_engagement",
+            "engagement_rate",
             "total_reactions",
             "comments",
             "shares",
@@ -330,6 +375,7 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "date": "Date",
             "message": "Post",
             "total_engagement": "Engagement",
+            "engagement_rate": "Engagement Rate",
             "total_reactions": "Reactions",
             "comments": "Comments",
             "shares": "Shares",
@@ -347,6 +393,14 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "Date": st.column_config.DateColumn("Date"),
             "Post": st.column_config.TextColumn("Post", width="large"),
             "Permalink": st.column_config.LinkColumn("Permalink"),
+            "Engagement": st.column_config.NumberColumn("Engagement", format="%d"),
+            "Engagement Rate": st.column_config.NumberColumn("Engagement Rate", format="%.2f%%"),
+            "Reactions": st.column_config.NumberColumn("Reactions", format="%d"),
+            "Comments": st.column_config.NumberColumn("Comments", format="%d"),
+            "Shares": st.column_config.NumberColumn("Shares", format="%d"),
+            "Clicks": st.column_config.NumberColumn("Clicks", format="%d"),
+            "Media Views": st.column_config.NumberColumn("Media Views", format="%d"),
+            "Video Views": st.column_config.NumberColumn("Video Views", format="%d"),
         },
     )
 

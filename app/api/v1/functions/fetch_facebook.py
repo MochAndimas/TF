@@ -27,6 +27,10 @@ def _growth_percentage(current_value: float, previous_value: float) -> float:
     return round(((current_value - previous_value) / previous_value) * 100, 2)
 
 
+def _safe_percentage(numerator: float, denominator: float) -> float:
+    return round((numerator / denominator) * 100, 2) if denominator else 0.0
+
+
 async def _read_daily_rows(
     session: AsyncSession,
     *,
@@ -72,6 +76,10 @@ async def _read_daily_rows(
         df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
     df["net_followers"] = df["page_fan_adds"] - df["page_fan_removes"]
     df["total_reactions"] = df[DAILY_REACTION_COLUMNS].sum(axis=1)
+    df["engagement_rate"] = df.apply(
+        lambda row: _safe_percentage(float(row["post_engagements"]), float(row["page_fans"])),
+        axis=1,
+    )
     return df
 
 
@@ -124,6 +132,10 @@ async def _read_media_rows(
     for column in ["post_id", "message", "permalink_url"]:
         df[column] = df[column].fillna("").astype(str)
     df["total_reactions"] = df[DAILY_REACTION_COLUMNS].sum(axis=1)
+    df["engagement_rate"] = df.apply(
+        lambda row: _safe_percentage(float(row["total_engagement"]), float(row["post_media_view"])),
+        axis=1,
+    )
     return df
 
 
@@ -136,6 +148,7 @@ def _daily_summary(df: pd.DataFrame) -> dict[str, object]:
         "organic_impressions",
         "post_engagements",
         "total_reactions",
+        "engagement_rate",
         "video_views",
         "page_views",
     ]
@@ -154,15 +167,33 @@ def _daily_summary(df: pd.DataFrame) -> dict[str, object]:
         "video_views": int(df["video_views"].sum()),
         "page_views": int(df["page_views"].sum()),
     }
+    current["engagement_rate"] = _safe_percentage(
+        float(current["post_engagements"]),
+        float(current["page_fans"]),
+    )
     midpoint = len(df) // 2
     previous = df.iloc[:midpoint]
     recent = df.iloc[midpoint:]
     growth = {"page_fans": 0.0}
-    for metric in metric_keys[1:]:
+    for metric in [key for key in metric_keys[1:] if key != "engagement_rate"]:
         growth[metric] = _growth_percentage(
             float(recent[metric].sum()) if not recent.empty else 0.0,
             float(previous[metric].sum()) if not previous.empty else 0.0,
         )
+    growth["engagement_rate"] = _growth_percentage(
+        _safe_percentage(
+            float(recent["post_engagements"].sum()) if not recent.empty else 0.0,
+            float(recent.loc[recent["page_fans"] > 0, "page_fans"].iloc[-1])
+            if not recent.empty and (recent["page_fans"] > 0).any()
+            else 0.0,
+        ),
+        _safe_percentage(
+            float(previous["post_engagements"].sum()) if not previous.empty else 0.0,
+            float(previous.loc[previous["page_fans"] > 0, "page_fans"].iloc[-1])
+            if not previous.empty and (previous["page_fans"] > 0).any()
+            else 0.0,
+        ),
+    )
     return {"current_period": {"metrics": current}, "growth_percentage": growth}
 
 
@@ -175,6 +206,7 @@ def _media_summary(df: pd.DataFrame) -> dict[str, object]:
             "post_clicks": 0,
             "post_media_view": 0,
             "post_video_views": 0,
+            "engagement_rate": 0.0,
             "avg_engagement_per_post": 0.0,
         }
     post_count = int(df["post_id"].nunique())
@@ -186,6 +218,7 @@ def _media_summary(df: pd.DataFrame) -> dict[str, object]:
         "post_clicks": int(df["post_clicks"].sum()),
         "post_media_view": int(df["post_media_view"].sum()),
         "post_video_views": int(df["post_video_views"].sum()),
+        "engagement_rate": _safe_percentage(float(total_engagement), float(df["post_media_view"].sum())),
         "avg_engagement_per_post": round(total_engagement / post_count, 2) if post_count else 0.0,
     }
 
@@ -215,6 +248,10 @@ def _media_daily_payload(df: pd.DataFrame) -> list[dict[str, object]]:
         )
         .sort_values("date")
     )
+    grouped["engagement_rate"] = grouped.apply(
+        lambda row: _safe_percentage(float(row["total_engagement"]), float(row["post_media_view"])),
+        axis=1,
+    )
     grouped["date"] = grouped["date"].astype(str)
     return grouped.to_dict(orient="records")
 
@@ -223,6 +260,10 @@ def _media_rows_payload(df: pd.DataFrame) -> list[dict[str, object]]:
     if df.empty:
         return []
     rows = df.sort_values(["total_engagement", "post_media_view", "date"], ascending=[False, False, False]).copy()
+    rows["engagement_rate"] = rows.apply(
+        lambda row: _safe_percentage(float(row["total_engagement"]), float(row["post_media_view"])),
+        axis=1,
+    )
     rows["date"] = rows["date"].astype(str)
     rows["created_time"] = rows["created_time"].dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
     return rows.to_dict(orient="records")
