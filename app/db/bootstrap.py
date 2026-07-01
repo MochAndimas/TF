@@ -142,6 +142,92 @@ async def _migration_20260624_005_etl_run_observability(connection) -> None:
             )
 
 
+async def _migration_20260701_001_instagram_media_views(connection) -> None:
+    """Rename Instagram media impressions to views and drop deprecated plays."""
+    columns = {
+        row[1]
+        for row in (
+            await connection.execute(text("PRAGMA table_info('instagram_media_insights')"))
+        ).fetchall()
+    }
+    if not columns or ("impressions" not in columns and "plays" not in columns):
+        return
+
+    await connection.execute(text("DROP TABLE IF EXISTS instagram_media_insights_new"))
+    await connection.execute(
+        text(
+            """
+            CREATE TABLE instagram_media_insights_new (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                date DATE NOT NULL,
+                media_id VARCHAR NOT NULL,
+                media_type VARCHAR NOT NULL,
+                media_product_type VARCHAR NOT NULL,
+                timestamp DATETIME,
+                caption VARCHAR,
+                permalink VARCHAR,
+                media_url VARCHAR,
+                thumbnail_url VARCHAR,
+                likes INTEGER NOT NULL DEFAULT 0,
+                comments INTEGER NOT NULL DEFAULT 0,
+                shares INTEGER NOT NULL DEFAULT 0,
+                saves INTEGER NOT NULL DEFAULT 0,
+                reach INTEGER NOT NULL DEFAULT 0,
+                views INTEGER NOT NULL DEFAULT 0,
+                profile_visits INTEGER NOT NULL DEFAULT 0,
+                follows INTEGER NOT NULL DEFAULT 0,
+                total_engagement INTEGER NOT NULL DEFAULT 0,
+                pull_date DATE NOT NULL,
+                CONSTRAINT uq_instagram_media_insights_media_id UNIQUE (media_id)
+            )
+            """
+        )
+    )
+
+    views_expression = "views" if "views" in columns else "impressions"
+    await connection.execute(
+        text(
+            f"""
+            INSERT INTO instagram_media_insights_new (
+                id, date, media_id, media_type, media_product_type, timestamp, caption,
+                permalink, media_url, thumbnail_url, likes, comments, shares, saves,
+                reach, views, profile_visits, follows, total_engagement, pull_date
+            )
+            SELECT
+                id, date, media_id, media_type, media_product_type, timestamp, caption,
+                permalink, media_url, thumbnail_url, likes, comments, shares, saves,
+                reach, COALESCE({views_expression}, 0), 0, 0, total_engagement, pull_date
+            FROM instagram_media_insights
+            """
+        )
+    )
+    await connection.execute(text("DROP TABLE instagram_media_insights"))
+    await connection.execute(text("ALTER TABLE instagram_media_insights_new RENAME TO instagram_media_insights"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_instagram_media_insights_date ON instagram_media_insights(date)"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_instagram_media_insights_media_type ON instagram_media_insights(media_type)"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_instagram_media_insights_media_product_type ON instagram_media_insights(media_product_type)"))
+
+
+async def _migration_20260701_002_instagram_media_profile_actions(connection) -> None:
+    """Add Feed-level profile action metrics to Instagram media insights."""
+    columns = {
+        row[1]
+        for row in (
+            await connection.execute(text("PRAGMA table_info('instagram_media_insights')"))
+        ).fetchall()
+    }
+    if not columns:
+        return
+    for column_name in ("profile_visits", "follows"):
+        if column_name not in columns:
+            await connection.execute(
+                text(
+                    f"ALTER TABLE instagram_media_insights "
+                    f"ADD COLUMN {column_name} INTEGER NOT NULL DEFAULT 0"
+                )
+            )
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -167,6 +253,16 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260624_005_etl_run_observability",
         "Add ETL run row-count, duration, and quality-report metadata.",
         _migration_20260624_005_etl_run_observability,
+    ),
+    (
+        "20260701_001_instagram_media_views",
+        "Rename Instagram media impressions to views and drop plays.",
+        _migration_20260701_001_instagram_media_views,
+    ),
+    (
+        "20260701_002_instagram_media_profile_actions",
+        "Add Instagram media profile visits and follows metrics.",
+        _migration_20260701_002_instagram_media_profile_actions,
     ),
 )
 

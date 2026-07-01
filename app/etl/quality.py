@@ -295,8 +295,9 @@ def validate_instagram_media_insights_dataframe(df: pd.DataFrame) -> None:
         "shares",
         "saves",
         "reach",
-        "impressions",
-        "plays",
+        "views",
+        "profile_visits",
+        "follows",
         "total_engagement",
     ]
     negative_metric = (

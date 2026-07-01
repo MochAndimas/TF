@@ -992,8 +992,9 @@ class ExternalApiExtractor:
                             "shares": 0,
                             "saves": 0,
                             "reach": 0,
-                            "impressions": 0,
-                            "plays": 0,
+                            "views": 0,
+                            "profile_visits": 0,
+                            "follows": 0,
                             "total_engagement": 0,
                         }
                     )
@@ -1014,8 +1015,11 @@ class ExternalApiExtractor:
                         access_token=access_token,
                     )
                     enriched = dict(row)
-                    for metric in ("shares", "saves", "reach", "impressions", "plays"):
+                    for metric in ("shares", "saves", "reach", "views", "profile_visits", "follows"):
                         enriched[metric] = int(insights.get(metric) or 0)
+                    if enriched["media_product_type"] != "FEED":
+                        enriched["profile_visits"] = 0
+                        enriched["follows"] = 0
                     enriched["total_engagement"] = (
                         int(enriched["likes"])
                         + int(enriched["comments"])
@@ -1663,8 +1667,9 @@ class ExternalApiExtractor:
             "shares": ("shares",),
             "saves": ("saves", "saved"),
             "reach": ("reach",),
-            "impressions": ("impressions",),
-            "plays": ("plays",),
+            "views": ("views",),
+            "profile_visits": ("profile_visits",),
+            "follows": ("follows",),
         }
         totals: dict[str, int] = {}
         for target_name, candidates in metric_aliases.items():

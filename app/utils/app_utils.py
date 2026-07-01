@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.requests import Request
 from sqlalchemy import text
@@ -41,6 +41,148 @@ from app.utils.request_logging import RequestLogService
 from app.utils.superadmin_bootstrap import SuperadminBootstrapService
 
 NextHandler = Callable[[Request], Awaitable[Response]]
+
+
+_LEGAL_STYLE = """
+body {
+    margin: 0;
+    background: #f6f7fb;
+    color: #1f2937;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", sans-serif;
+    line-height: 1.6;
+}
+main {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 56px 24px 72px;
+}
+section {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 32px;
+}
+h1 {
+    margin: 0 0 8px;
+    color: #111827;
+    font-size: 32px;
+    line-height: 1.2;
+}
+h2 {
+    margin: 28px 0 8px;
+    color: #111827;
+    font-size: 20px;
+}
+p, li {
+    font-size: 16px;
+}
+.updated {
+    margin: 0 0 24px;
+    color: #6b7280;
+}
+"""
+
+_TERMS_BODY = """
+<p class="updated">Last updated: June 30, 2026</p>
+<p>
+    Traders Family Dashboard is an internal reporting and analytics tool for
+    authorized staff. By using this application, you agree to access it only
+    for legitimate business reporting and operational purposes.
+</p>
+<h2>Authorized Use</h2>
+<p>
+    Access is limited to approved users. You must keep your login credentials
+    secure and may not share access with unauthorized parties.
+</p>
+<h2>Connected Accounts</h2>
+<p>
+    The application may connect to third-party platforms, including TikTok, only
+    after an authorized user grants the required permissions. Data is used to
+    display account profile information and performance metrics inside the
+    internal dashboard.
+</p>
+<h2>Acceptable Use</h2>
+<p>
+    Users may not misuse platform data, attempt to bypass platform permissions,
+    scrape unauthorized data, or use the dashboard in a way that violates
+    applicable platform terms or laws.
+</p>
+<h2>Availability</h2>
+<p>
+    The service is provided for internal reporting needs. Features may change as
+    platform APIs, permissions, or business requirements change.
+</p>
+<h2>Contact</h2>
+<p>
+    For questions about these terms, contact the Traders Family dashboard
+    administrator.
+</p>
+"""
+
+_PRIVACY_BODY = """
+<p class="updated">Last updated: June 30, 2026</p>
+<p>
+    Traders Family Dashboard is an internal analytics application. This policy
+    explains how the dashboard handles data connected by authorized users.
+</p>
+<h2>Data We Collect</h2>
+<p>
+    When an authorized user connects an account or data source, the dashboard may
+    collect account profile information, campaign performance data, content
+    performance metrics, audience statistics, transaction or conversion records,
+    and other reporting fields allowed by the granted permissions or provided by
+    the connected source.
+</p>
+<h2>How We Use Data</h2>
+<p>
+    Data is used to provide internal reporting, performance monitoring, and
+    analytics for authorized staff. The dashboard does not sell connected
+    account data.
+</p>
+<h2>Tokens And Access</h2>
+<p>
+    Access tokens or refresh tokens may be stored securely so the dashboard can
+    refresh authorized data. Access is limited to approved internal users and
+    backend services.
+</p>
+<h2>Data Sharing</h2>
+<p>
+    Data is not shared publicly. It may be processed by infrastructure providers
+    used to host or operate the dashboard, subject to internal access controls.
+</p>
+<h2>Data Retention</h2>
+<p>
+    Analytics data and connection records are retained for internal reporting
+    needs unless removal is requested or no longer required.
+</p>
+<h2>Contact</h2>
+<p>
+    For privacy questions or data removal requests, contact the Traders Family
+    dashboard administrator.
+</p>
+"""
+
+
+def _render_legal_page(*, title: str, body: str) -> str:
+    """Render a small standalone legal document page."""
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} - Traders Family Dashboard</title>
+    <style>{_LEGAL_STYLE}</style>
+</head>
+<body>
+    <main>
+        <section>
+            <h1>{title}</h1>
+            {body}
+        </section>
+    </main>
+</body>
+</html>"""
 
 
 class FastApiApp:
@@ -145,6 +287,18 @@ class FastApiApp:
                     "db_backend": settings.db_backend_name,
                     "worker_mode": "single-worker" if settings.WORKERS == 1 else "multi-worker",
                 }
+            )
+
+        @self.app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+        async def terms_of_service() -> HTMLResponse:
+            return HTMLResponse(
+                _render_legal_page(title="Terms of Service", body=_TERMS_BODY)
+            )
+
+        @self.app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+        async def privacy_policy() -> HTMLResponse:
+            return HTMLResponse(
+                _render_legal_page(title="Privacy Policy", body=_PRIVACY_BODY)
             )
 
     def _add_middlewares(self) -> None:

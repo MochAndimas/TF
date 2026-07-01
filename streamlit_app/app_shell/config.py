@@ -13,6 +13,7 @@ from streamlit_app.page import (
     internal_register,
     instagram,
     instagram_token,
+    legal,
     login_activity,
     login,
     meta_ads_token,
@@ -133,6 +134,15 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "instagram_token": instagram_token.show_instagram_token_page,
     "meta_ads_token": meta_ads_token.show_meta_ads_token_page,
     "youtube_token": youtube_token.show_youtube_token_page,
+    "terms": legal.show_terms_page,
+    "privacy": legal.show_privacy_page,
 }
 
-PUBLIC_PAGE_KEYS = {"google_ads_token", "meta_ads_token", "instagram_token", "youtube_token"}
+PUBLIC_PAGE_KEYS = {
+    "google_ads_token",
+    "meta_ads_token",
+    "instagram_token",
+    "youtube_token",
+    "terms",
+    "privacy",
+}

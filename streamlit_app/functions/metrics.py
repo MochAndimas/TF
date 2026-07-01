@@ -338,7 +338,7 @@ def render_overview_cost_to_revenue_metric_cards(
 ) -> None:
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
-    cards = [(cost_label, "cost_to_revenue_cost"), (revenue_label, "revenue"), (f"Cost to {revenue_label}", "cost_to_revenue_pct")]
+    cards = [(cost_label, "cost_to_revenue_cost"), (revenue_label, "revenue"), (f"{revenue_label} / Cost", "cost_to_revenue_pct")]
 
     for column, (label, key) in zip(st_module.columns(3, gap="small"), cards):
         with column:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import streamlit as st
 
 from streamlit_app.app_shell.config import PAGE_KEYS_BY_SLUG
@@ -52,6 +54,17 @@ def resolve_page_from_query_params() -> str | None:
 
 def resolve_public_page_from_query_params() -> str | None:
     """Detect public pages that must stay reachable before login completes."""
+    current_url = getattr(st.context, "url", "")
+    path = urlparse(current_url).path.rstrip("/")
+    if path == "/terms":
+        return "terms"
+    if path == "/privacy":
+        return "privacy"
+
+    page_slug = (query_param("page") or "").strip().lower()
+    if page_slug in {"terms", "privacy"}:
+        return page_slug
+
     oauth_callback_params = ("code", "error", "state", "scope", "authuser", "prompt")
     if query_param("google_ads_oauth") == "1":
         return "google_ads_token"

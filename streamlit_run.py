@@ -80,10 +80,12 @@ def main() -> None:
     inject_navigation_style()
     initialize_session_state()
     host = resolve_host()
-    restore_login_state_from_cookie(host)
     footer(st)
 
     public_page = resolve_public_page_from_query_params()
+    if public_page is None:
+        restore_login_state_from_cookie(host)
+
     requested_page = resolve_page_from_query_params()
     page_override_once = st.session_state.pop("page_override_once", None)
     if page_override_once is not None:

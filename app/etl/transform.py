@@ -380,8 +380,9 @@ def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFra
         "shares",
         "saves",
         "reach",
-        "impressions",
-        "plays",
+        "views",
+        "profile_visits",
+        "follows",
         "total_engagement",
     ]
     missing_columns = [column for column in required_columns if column not in df.columns]
@@ -411,8 +412,9 @@ def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFra
         "shares",
         "saves",
         "reach",
-        "impressions",
-        "plays",
+        "views",
+        "profile_visits",
+        "follows",
         "total_engagement",
     ]
     for column in metric_columns:

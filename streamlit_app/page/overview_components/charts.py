@@ -8,16 +8,37 @@ import plotly.graph_objects as go
 from streamlit_app.page.overview_components.formatting import convert_idr_to_usd
 
 
-def build_cost_vs_deposit_figure(rows: list[dict], currency_unit: str, revenue_label: str = "Revenue") -> go.Figure:
+def _normalize_cost_revenue_rows(rows: list[dict]) -> pd.DataFrame:
     daily_df = pd.DataFrame(rows or [])
+    if daily_df.empty:
+        return daily_df
+
+    daily_df["date"] = pd.to_datetime(daily_df["date"], errors="coerce")
+    daily_df = daily_df.dropna(subset=["date"])
+    daily_df["cost"] = pd.to_numeric(daily_df.get("cost", 0), errors="coerce").fillna(0.0)
+    revenue_column = "revenue_idr" if "revenue_idr" in daily_df.columns else "first_deposit_idr"
+    daily_df[revenue_column] = pd.to_numeric(daily_df.get(revenue_column, 0), errors="coerce").fillna(0.0)
+    daily_df = (
+        daily_df.groupby("date", as_index=False)
+        .agg({"cost": "max", revenue_column: "sum"})
+        .sort_values("date")
+    )
+    daily_df["cost_to_revenue_pct"] = daily_df.apply(
+        lambda row: round((float(row[revenue_column]) / float(row["cost"])) * 100, 2)
+        if float(row["cost"])
+        else 0.0,
+        axis=1,
+    )
+    return daily_df
+
+
+def build_cost_vs_deposit_figure(rows: list[dict], currency_unit: str, revenue_label: str = "Revenue") -> go.Figure:
+    daily_df = _normalize_cost_revenue_rows(rows)
     if daily_df.empty:
         figure = go.Figure()
         figure.update_layout(title=f"Cost vs {revenue_label} Per Hari", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         return figure
-    daily_df["date"] = pd.to_datetime(daily_df["date"], errors="coerce")
-    daily_df["cost"] = pd.to_numeric(daily_df.get("cost", 0), errors="coerce").fillna(0.0)
     revenue_column = "revenue_idr" if "revenue_idr" in daily_df.columns else "first_deposit_idr"
-    daily_df[revenue_column] = pd.to_numeric(daily_df.get(revenue_column, 0), errors="coerce").fillna(0.0)
     cost_values = daily_df["cost"].tolist()
     deposit_values = daily_df[revenue_column].tolist()
     if currency_unit == "USD":
@@ -41,14 +62,12 @@ def build_cost_vs_deposit_figure(rows: list[dict], currency_unit: str, revenue_l
 
 
 def build_cost_to_deposit_ratio_figure(rows: list[dict], revenue_label: str = "Revenue") -> go.Figure:
-    daily_df = pd.DataFrame(rows or [])
+    daily_df = _normalize_cost_revenue_rows(rows)
     if daily_df.empty:
         figure = go.Figure()
-        figure.update_layout(title=f"Cost To {revenue_label} (%) Per Hari", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
+        figure.update_layout(title=f"{revenue_label} / Cost (%) Per Hari", annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
         return figure
-    daily_df["date"] = pd.to_datetime(daily_df["date"], errors="coerce")
-    daily_df["cost_to_revenue_pct"] = pd.to_numeric(daily_df.get("cost_to_revenue_pct", 0), errors="coerce").fillna(0.0)
     figure = go.Figure()
-    figure.add_trace(go.Scatter(x=daily_df["date"].dt.strftime("%b %d\n%Y").tolist(), y=daily_df["cost_to_revenue_pct"].tolist(), mode="lines+markers", name=f"Cost To {revenue_label}", line=dict(color="#ff6248", width=2), hovertemplate=f"<b>%{{x}}</b><br>Cost To {revenue_label}: %{{y:.2f}}%<extra></extra>"))
-    figure.update_layout(title=f"Cost To {revenue_label} (%) Per Hari", xaxis=dict(type="category"), yaxis=dict(title="Percent", ticksuffix="%"), legend=dict(orientation="h", y=1.1, x=0))
+    figure.add_trace(go.Scatter(x=daily_df["date"].dt.strftime("%b %d\n%Y").tolist(), y=daily_df["cost_to_revenue_pct"].tolist(), mode="lines+markers", name=f"{revenue_label} / Cost", line=dict(color="#ff6248", width=2), hovertemplate=f"<b>%{{x}}</b><br>{revenue_label} / Cost: %{{y:.2f}}%<extra></extra>"))
+    figure.update_layout(title=f"{revenue_label} / Cost (%) Per Hari", xaxis=dict(type="category"), yaxis=dict(title="Percent", ticksuffix="%"), legend=dict(orientation="h", y=1.1, x=0))
     return figure

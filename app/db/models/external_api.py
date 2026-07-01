@@ -503,8 +503,9 @@ class InstagramMediaInsights(SqliteBase):
     shares = Column("shares", Integer, nullable=False, default=0)
     saves = Column("saves", Integer, nullable=False, default=0)
     reach = Column("reach", Integer, nullable=False, default=0)
-    impressions = Column("impressions", Integer, nullable=False, default=0)
-    plays = Column("plays", Integer, nullable=False, default=0)
+    views = Column("views", Integer, nullable=False, default=0)
+    profile_visits = Column("profile_visits", Integer, nullable=False, default=0)
+    follows = Column("follows", Integer, nullable=False, default=0)
     total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
     pull_date = Column("pull_date", Date, nullable=False)
 

@@ -19,9 +19,21 @@ def footer(st_module):
             font-size: 14px;
             color: #666;
         }}
+        .footer a {{
+            color: inherit;
+            margin-left: 10px;
+            text-decoration: none;
+        }}
+        .footer a:hover {{
+            text-decoration: underline;
+        }}
     </style>
     <div class="footer">
-        <p>© {datetime.now().year}, made with 💰</p>
+        <p>
+            &copy; {datetime.now().year}, made with &#128176;
+            <a href="/terms" target="_self">Terms</a>
+            <a href="/privacy" target="_self">Privacy</a>
+        </p>
     </div>
     """
     st_module.markdown(footer_html, unsafe_allow_html=True)

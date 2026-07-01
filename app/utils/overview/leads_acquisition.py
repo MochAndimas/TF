@@ -322,7 +322,13 @@ class OverviewLeadsAcquisitionData:
         ads_df, revenue_df = await self._cost_to_revenue_frames(mode, from_date, to_date)
         daily_cost = self._daily_totals_frame(ads_df, from_date, to_date)[["date", "cost"]].copy()
         timeline = pd.DataFrame({"date": pd.date_range(start=from_date, end=to_date, freq="D").date})
-        daily_revenue = timeline.merge(revenue_df, on="date", how="left")
+        revenue_by_date = revenue_df.copy()
+        if revenue_by_date.empty:
+            revenue_by_date = pd.DataFrame(columns=["date", "revenue"])
+        revenue_by_date["date"] = pd.to_datetime(revenue_by_date.get("date"), errors="coerce").dt.date
+        revenue_by_date["revenue"] = pd.to_numeric(revenue_by_date.get("revenue", 0), errors="coerce").fillna(0.0)
+        revenue_by_date = revenue_by_date.groupby("date", as_index=False)["revenue"].sum()
+        daily_revenue = timeline.merge(revenue_by_date, on="date", how="left")
         daily_revenue["revenue"] = pd.to_numeric(daily_revenue.get("revenue", 0), errors="coerce").fillna(0.0)
         daily = daily_cost.merge(daily_revenue[["date", "revenue"]], on="date", how="left")
         daily["cost"] = pd.to_numeric(daily.get("cost", 0), errors="coerce").fillna(0.0)
