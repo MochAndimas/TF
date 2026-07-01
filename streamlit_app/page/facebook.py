@@ -157,9 +157,10 @@ def _render_metrics(metrics: dict[str, object]) -> None:
         ("Video Views", "video_views"),
         ("Page Views", "page_views"),
     ]
-    for row_start in range(0, len(specs), 3):
-        columns = st.columns(3, gap="small")
-        for column, (label, key) in zip(columns, specs[row_start : row_start + 3]):
+    for row_start in range(0, len(specs), 5):
+        row_specs = specs[row_start : row_start + 5]
+        columns = st.columns(len(row_specs), gap="small")
+        for column, (label, key) in zip(columns, row_specs):
             with column:
                 with st.container(border=True):
                     growth_value = growth.get(key, 0.0)
