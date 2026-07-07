@@ -25,6 +25,8 @@ from app.db.models.external_api import (
     InstagramInsights,
     InstagramMediaInsights,
     TikTokAds,
+    TikTokInsights,
+    TikTokMediaInsights,
     YouTubeDailyInsight,
     YouTubeMediaInsight,
 )
@@ -52,6 +54,8 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "ga4_daily_metrics",
     "instagram_insights",
     "instagram_media_insights",
+    "tiktok_insights",
+    "tiktok_media_insights",
     "youtube_daily_insight",
     "youtube_media_insight",
     "facebook_page_insights",
@@ -200,6 +204,40 @@ async def _run_instagram_media_insights(
     )
 
 
+async def _run_tiktok_insights(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.tiktok_insights(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
+async def _run_tiktok_media_insights(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.tiktok_media_insights(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 async def _run_youtube_daily_insight(
     gsheet: GoogleSheetApi,
     session,
@@ -310,6 +348,8 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "ga4_daily_metrics": _run_ga4_daily_metrics,
     "instagram_insights": _run_instagram_insights,
     "instagram_media_insights": _run_instagram_media_insights,
+    "tiktok_insights": _run_tiktok_insights,
+    "tiktok_media_insights": _run_tiktok_media_insights,
     "youtube_daily_insight": _run_youtube_daily_insight,
     "youtube_media_insight": _run_youtube_media_insight,
     "facebook_page_insights": _run_facebook_page_insights,
@@ -327,6 +367,8 @@ SOURCE_MODELS = {
     "ga4_daily_metrics": Ga4DailyMetrics,
     "instagram_insights": InstagramInsights,
     "instagram_media_insights": InstagramMediaInsights,
+    "tiktok_insights": TikTokInsights,
+    "tiktok_media_insights": TikTokMediaInsights,
     "youtube_daily_insight": YouTubeDailyInsight,
     "youtube_media_insight": YouTubeMediaInsight,
     "facebook_page_insights": FacebookPageInsights,
@@ -474,6 +516,8 @@ async def execute_update_job(
                 "unique_campaign",
                 "instagram_insights",
                 "instagram_media_insights",
+                "tiktok_insights",
+                "tiktok_media_insights",
                 "youtube_daily_insight",
                 "youtube_media_insight",
                 "facebook_page_insights",

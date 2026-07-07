@@ -22,6 +22,8 @@ from app.db.models.external_api import (
     InstagramInsights,
     InstagramMediaInsights,
     TikTokAds,
+    TikTokInsights,
+    TikTokMediaInsights,
     YouTubeDailyInsight,
     YouTubeMediaInsight,
 )
@@ -213,6 +215,57 @@ def build_instagram_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dic
                 "pull_date": pull_date,
             }
         )
+    return rows
+
+
+def build_tiktok_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized TikTok insight rows into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "date": row["date"],
+                "followers_snapshot": int(row["followers_snapshot"]),
+                "total_likes": int(row["total_likes"]),
+                "video_count": int(row["video_count"]),
+                "views": int(row["views"]),
+                "likes": int(row["likes"]),
+                "comments": int(row["comments"]),
+                "shares": int(row["shares"]),
+                "engagement": int(row["engagement"]),
+                "engagement_rate": float(row["engagement_rate"]),
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
+def build_tiktok_media_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized TikTok media insight rows into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        created_at = row["created_at"]
+        if hasattr(created_at, "to_pydatetime"):
+            created_at = created_at.to_pydatetime()
+        if created_at.tzinfo is not None:
+            created_at = created_at.replace(tzinfo=None)
+        payload = {
+            "date": row["date"],
+            "video_id": row["video_id"],
+            "created_at": created_at,
+            "description": row.get("description") or None,
+            "permalink": row.get("permalink") or None,
+            "cover_image_url": row.get("cover_image_url") or None,
+            "duration": int(row["duration"]),
+            "views": int(row["views"]),
+            "likes": int(row["likes"]),
+            "comments": int(row["comments"]),
+            "shares": int(row["shares"]),
+            "engagement": int(row["engagement"]),
+            "engagement_rate": float(row["engagement_rate"]),
+            "pull_date": pull_date,
+        }
+        rows.append({key: _normalize_sql_value(value) for key, value in payload.items()})
     return rows
 
 
@@ -539,6 +592,61 @@ async def upsert_instagram_insights_rows(session: AsyncSession, rows: list[dict]
                 "comments": insert_stmt.excluded.comments,
                 "shares": insert_stmt.excluded.shares,
                 "saves": insert_stmt.excluded.saves,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_tiktok_insights_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``tiktok_insights`` using date as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(TikTokInsights).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date"],
+            set_={
+                "followers_snapshot": insert_stmt.excluded.followers_snapshot,
+                "total_likes": insert_stmt.excluded.total_likes,
+                "video_count": insert_stmt.excluded.video_count,
+                "views": insert_stmt.excluded.views,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "engagement": insert_stmt.excluded.engagement,
+                "engagement_rate": insert_stmt.excluded.engagement_rate,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_tiktok_media_insights_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert rows into ``tiktok_media_insights`` using video_id as business key."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(TikTokMediaInsights).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["video_id"],
+            set_={
+                "date": insert_stmt.excluded.date,
+                "created_at": insert_stmt.excluded.created_at,
+                "description": insert_stmt.excluded.description,
+                "permalink": insert_stmt.excluded.permalink,
+                "cover_image_url": insert_stmt.excluded.cover_image_url,
+                "duration": insert_stmt.excluded.duration,
+                "views": insert_stmt.excluded.views,
+                "likes": insert_stmt.excluded.likes,
+                "comments": insert_stmt.excluded.comments,
+                "shares": insert_stmt.excluded.shares,
+                "engagement": insert_stmt.excluded.engagement,
+                "engagement_rate": insert_stmt.excluded.engagement_rate,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

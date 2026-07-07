@@ -275,6 +275,86 @@ def parse_instagram_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     return df.sort_values("date")
 
 
+def parse_tiktok_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse TikTok account snapshot rows into normalized daily metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "followers_snapshot",
+        "total_likes",
+        "video_count",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "engagement",
+        "engagement_rate",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in TikTok insights payload: {missing_columns}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    integer_columns = [
+        "followers_snapshot",
+        "total_likes",
+        "video_count",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "engagement",
+    ]
+    for column in integer_columns:
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df["engagement_rate"] = pd.to_numeric(df["engagement_rate"], errors="coerce").fillna(0).astype(float)
+    df = df[df["date"].notna()]
+    return df.sort_values("date")
+
+
+def parse_tiktok_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse TikTok video rows into normalized media-grain metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    required_columns = [
+        "date",
+        "video_id",
+        "created_at",
+        "description",
+        "permalink",
+        "cover_image_url",
+        "duration",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "engagement",
+        "engagement_rate",
+    ]
+    missing_columns = [column for column in required_columns if column not in df.columns]
+    if missing_columns:
+        raise ValueError(f"Missing columns in TikTok media insights payload: {missing_columns}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce", utc=True)
+    for column in ("video_id", "description", "permalink", "cover_image_url"):
+        df[column] = df[column].fillna("").astype(str).str.strip()
+    for column in ("duration", "views", "likes", "comments", "shares", "engagement"):
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df["engagement_rate"] = pd.to_numeric(df["engagement_rate"], errors="coerce").fillna(0.0).astype(float)
+    df = df[df["date"].notna() & df["created_at"].notna() & df["video_id"].ne("")]
+    df = df.sort_values(["date", "created_at", "video_id"]).drop_duplicates(
+        subset=["video_id"],
+        keep="last",
+    )
+    return df.sort_values(["date", "video_id"])
+
+
 def parse_youtube_daily_insight_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse YouTube Analytics rows into normalized daily metrics."""
     if not raw_rows:

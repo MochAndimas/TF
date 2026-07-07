@@ -18,6 +18,8 @@ from app.db.models.external_api import (  # noqa: F401
     InstagramMediaInsights,
     StgAdsRaw,
     TikTokAds,
+    TikTokInsights,
+    TikTokMediaInsights,
     YouTubeDailyInsight,
     YouTubeMediaInsight,
 )

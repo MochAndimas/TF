@@ -320,6 +320,63 @@ class TikTokAds(SqliteBase):
     )
 
 
+class TikTokInsights(SqliteBase):
+    """Store daily TikTok account-level organic snapshot metrics."""
+
+    __tablename__ = "tiktok_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "date",
+            name="uq_tiktok_insights_date",
+        ),
+        Index("ix_tiktok_insights_date", "date"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    followers_snapshot = Column("followers_snapshot", Integer, nullable=False, default=0)
+    total_likes = Column("total_likes", Integer, nullable=False, default=0)
+    video_count = Column("video_count", Integer, nullable=False, default=0)
+    views = Column("views", Integer, nullable=False, default=0)
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    engagement = Column("engagement", Integer, nullable=False, default=0)
+    engagement_rate = Column("engagement_rate", Float, nullable=False, default=0.0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
+class TikTokMediaInsights(SqliteBase):
+    """Store TikTok video lifetime media insight snapshots."""
+
+    __tablename__ = "tiktok_media_insights"
+    __table_args__ = (
+        UniqueConstraint(
+            "video_id",
+            name="uq_tiktok_media_insights_video_id",
+        ),
+        Index("ix_tiktok_media_insights_date", "date"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    video_id = Column("video_id", String, nullable=False)
+    created_at = Column("created_at", DateTime, nullable=True)
+    description = Column("description", String, nullable=True)
+    permalink = Column("permalink", String, nullable=True)
+    cover_image_url = Column("cover_image_url", String, nullable=True)
+    duration = Column("duration", Integer, nullable=False, default=0)
+    views = Column("views", Integer, nullable=False, default=0)
+    likes = Column("likes", Integer, nullable=False, default=0)
+    comments = Column("comments", Integer, nullable=False, default=0)
+    shares = Column("shares", Integer, nullable=False, default=0)
+    engagement = Column("engagement", Integer, nullable=False, default=0)
+    engagement_rate = Column("engagement_rate", Float, nullable=False, default=0.0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class Ga4DailyMetrics(SqliteBase):
     """Store GA4 daily user metrics split by logical source (`app`/`web`).
 

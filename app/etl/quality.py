@@ -168,6 +168,98 @@ def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: Instagram insights duplicate key ratio {dup_ratio:.2%}.")
 
 
+def validate_tiktok_insights_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed TikTok account snapshot data before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: TikTok insights data has {int(missing_key)} rows with missing date."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: TikTok insights data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    metric_columns = [
+        "followers_snapshot",
+        "total_likes",
+        "video_count",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "engagement",
+        "engagement_rate",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: TikTok insights data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["date"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: TikTok insights duplicate key ratio {dup_ratio:.2%}.")
+
+
+def validate_tiktok_media_insights_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed TikTok media insight data before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date", "video_id", "created_at"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: TikTok media insights data has {int(missing_key)} rows with missing keys."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: TikTok media insights data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    metric_columns = [
+        "duration",
+        "views",
+        "likes",
+        "comments",
+        "shares",
+        "engagement",
+        "engagement_rate",
+    ]
+    negative_metric = (
+        df[metric_columns]
+        .apply(lambda column: pd.to_numeric(column, errors="coerce").fillna(0) < 0)
+        .any(axis=1)
+        .sum()
+    )
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: TikTok media insights data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    invalid_engagement = (df["engagement"] != (df["likes"] + df["comments"] + df["shares"])).sum()
+    if invalid_engagement:
+        raise ValueError(
+            f"DQ failed: TikTok media insights data has {int(invalid_engagement)} inconsistent engagement rows."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["video_id"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: TikTok media insights duplicate video_id ratio {dup_ratio:.2%}.")
+
+
 def validate_youtube_daily_insight_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed YouTube channel metrics before load."""
     if df.empty:

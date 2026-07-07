@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from decouple import config
@@ -13,7 +13,7 @@ from google.oauth2.service_account import Credentials as ServiceAccountCredentia
 from googleapiclient.discovery import build
 import httpx
 
-from app.core.security import decrypt_secret
+from app.core.security import decrypt_secret, encrypt_secret
 from app.db.models.external_api import ManagedSecret
 from app.db.session import sqlite_async_session
 from app.etl.extract_helpers import (
@@ -111,6 +111,11 @@ class ExternalApiExtractor:
             default=5,
             cast=int,
         )
+        self.tiktok_video_list_max_pages = config(
+            "TIKTOK_VIDEO_LIST_MAX_PAGES",
+            default=100,
+            cast=int,
+        )
         self.google_ads_client = None
 
     async def _load_managed_secret(self, secret_key: str) -> str:
@@ -120,6 +125,28 @@ class ExternalApiExtractor:
             if stored_secret is None:
                 return ""
             return decrypt_secret(stored_secret.secret_value).strip()
+
+    async def _store_managed_secret(self, secret_key: str, secret_value: str, description: str) -> None:
+        """Encrypt and persist a managed secret from an ETL helper."""
+        async with sqlite_async_session() as session:
+            stored_secret = await session.get(ManagedSecret, secret_key)
+            timestamp = datetime.now()
+            encrypted_value = encrypt_secret(secret_value)
+            if stored_secret is None:
+                session.add(
+                    ManagedSecret(
+                        secret_key=secret_key,
+                        secret_value=encrypted_value,
+                        description=description,
+                        created_at=timestamp,
+                        updated_at=timestamp,
+                    )
+                )
+            else:
+                stored_secret.secret_value = encrypted_value
+                stored_secret.description = description
+                stored_secret.updated_at = timestamp
+            await session.commit()
 
     async def _build_google_ads_client(self) -> GoogleAdsClient | None:
         """Create Google Ads API client from environment variables when configured."""
@@ -1772,6 +1799,306 @@ class ExternalApiExtractor:
             payload = response.json()
             totals[target_name] = self._facebook_summary_count(payload)
         return totals
+
+    async def _refresh_tiktok_access_token(self, client: httpx.AsyncClient) -> str:
+        """Exchange the stored TikTok refresh token for a new access token."""
+        refresh_token = await self._load_managed_secret("tiktok_refresh_token")
+        client_key = config("TIKTOK_CLIENT_KEY", default="", cast=str).strip()
+        client_secret = config("TIKTOK_CLIENT_SECRET", default="", cast=str).strip()
+        if not refresh_token or not client_key or not client_secret:
+            raise ValueError(
+                "TikTok credentials are not fully configured. Connect the account "
+                "from the TikTok Token page and configure the TikTok client key/secret."
+            )
+
+        response = await client.post(
+            "https://open.tiktokapis.com/v2/oauth/token/",
+            data={
+                "client_key": client_key,
+                "client_secret": client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        payload = response.json()
+        if response.status_code >= 400 or "access_token" not in payload:
+            detail = payload.get("error_description") or payload.get("message") or payload.get("error") or payload
+            raise ValueError(f"TikTok OAuth token refresh failed: {detail}")
+
+        access_token = str(payload.get("access_token") or "").strip()
+        new_refresh_token = str(payload.get("refresh_token") or refresh_token).strip()
+        if not access_token:
+            raise ValueError("TikTok OAuth token refresh did not return an access token.")
+        await self._store_managed_secret(
+            "tiktok_access_token",
+            access_token,
+            "TikTok access token refreshed by ETL",
+        )
+        if new_refresh_token and new_refresh_token != refresh_token:
+            await self._store_managed_secret(
+                "tiktok_refresh_token",
+                new_refresh_token,
+                "TikTok refresh token refreshed by ETL",
+            )
+        return access_token
+
+    async def _tiktok_request(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        *,
+        access_token: str,
+        **kwargs,
+    ) -> tuple[dict, str]:
+        """Send one TikTok request and refresh the access token once if needed."""
+        headers = kwargs.pop("headers", {})
+        headers["Authorization"] = f"Bearer {access_token}"
+        response = await client.request(method, url, headers=headers, **kwargs)
+        if response.status_code in {401, 403}:
+            access_token = await self._refresh_tiktok_access_token(client)
+            headers["Authorization"] = f"Bearer {access_token}"
+            response = await client.request(method, url, headers=headers, **kwargs)
+
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise ValueError(f"TikTok request failed ({response.status_code}): invalid JSON response") from error
+
+        error_payload = payload.get("error") if isinstance(payload, dict) else None
+        error_code = error_payload.get("code") if isinstance(error_payload, dict) else None
+        if response.status_code >= 400 or error_code not in {None, "ok"}:
+            message = error_payload.get("message") if isinstance(error_payload, dict) else None
+            raise ValueError(f"TikTok request failed ({response.status_code}): {message or payload}")
+        return payload, access_token
+
+    async def _fetch_tiktok_user_info(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        access_token: str,
+    ) -> tuple[dict, str]:
+        fields = ",".join(
+            [
+                "open_id",
+                "union_id",
+                "display_name",
+                "username",
+                "avatar_url",
+                "follower_count",
+                "following_count",
+                "likes_count",
+                "video_count",
+            ]
+        )
+        payload, access_token = await self._tiktok_request(
+            client,
+            "GET",
+            "https://open.tiktokapis.com/v2/user/info/",
+            access_token=access_token,
+            params={"fields": fields},
+        )
+        return (payload.get("data") or {}).get("user") or {}, access_token
+
+    async def _fetch_tiktok_video_totals(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        access_token: str,
+    ) -> tuple[dict[str, int], str]:
+        fields = "id,create_time,view_count,like_count,comment_count,share_count"
+        totals = {"views": 0, "likes": 0, "comments": 0, "shares": 0}
+        cursor = None
+        has_more = True
+        page_count = 0
+
+        while has_more and page_count < max(1, self.tiktok_video_list_max_pages):
+            body: dict[str, int] = {"max_count": 20}
+            if cursor is not None:
+                body["cursor"] = int(cursor)
+            payload, access_token = await self._tiktok_request(
+                client,
+                "POST",
+                "https://open.tiktokapis.com/v2/video/list/",
+                access_token=access_token,
+                params={"fields": fields},
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            data = payload.get("data") or {}
+            for video in data.get("videos") or []:
+                totals["views"] += int(float(video.get("view_count") or 0))
+                totals["likes"] += int(float(video.get("like_count") or 0))
+                totals["comments"] += int(float(video.get("comment_count") or 0))
+                totals["shares"] += int(float(video.get("share_count") or 0))
+            has_more = bool(data.get("has_more"))
+            cursor = data.get("cursor")
+            page_count += 1
+            if has_more and cursor is None:
+                break
+        return totals, access_token
+
+    async def _fetch_tiktok_video_rows(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        access_token: str,
+        start_date: date,
+        end_date: date,
+    ) -> tuple[list[dict], str]:
+        fields = ",".join(
+            [
+                "id",
+                "create_time",
+                "cover_image_url",
+                "share_url",
+                "video_description",
+                "duration",
+                "view_count",
+                "like_count",
+                "comment_count",
+                "share_count",
+            ]
+        )
+        rows: list[dict] = []
+        cursor = None
+        has_more = True
+        page_count = 0
+        reached_older_video = False
+
+        while has_more and page_count < max(1, self.tiktok_video_list_max_pages):
+            body: dict[str, int] = {"max_count": 20}
+            if cursor is not None:
+                body["cursor"] = int(cursor)
+            payload, access_token = await self._tiktok_request(
+                client,
+                "POST",
+                "https://open.tiktokapis.com/v2/video/list/",
+                access_token=access_token,
+                params={"fields": fields},
+                json=body,
+                headers={"Content-Type": "application/json"},
+            )
+            data = payload.get("data") or {}
+            for video in data.get("videos") or []:
+                created_at = self._parse_tiktok_create_time(video.get("create_time"))
+                if created_at is None:
+                    continue
+                video_date = created_at.date()
+                if video_date < start_date:
+                    reached_older_video = True
+                    continue
+                if video_date > end_date:
+                    continue
+                likes = int(float(video.get("like_count") or 0))
+                comments = int(float(video.get("comment_count") or 0))
+                shares = int(float(video.get("share_count") or 0))
+                views = int(float(video.get("view_count") or 0))
+                engagement = likes + comments + shares
+                rows.append(
+                    {
+                        "date": video_date.isoformat(),
+                        "video_id": str(video.get("id") or "").strip(),
+                        "created_at": created_at.isoformat(),
+                        "description": str(video.get("video_description") or ""),
+                        "permalink": str(video.get("share_url") or ""),
+                        "cover_image_url": str(video.get("cover_image_url") or ""),
+                        "duration": int(float(video.get("duration") or 0)),
+                        "views": views,
+                        "likes": likes,
+                        "comments": comments,
+                        "shares": shares,
+                        "engagement": engagement,
+                        "engagement_rate": (engagement / views * 100) if views else 0.0,
+                    }
+                )
+
+            has_more = bool(data.get("has_more"))
+            cursor = data.get("cursor")
+            page_count += 1
+            if reached_older_video or (has_more and cursor is None):
+                break
+        return rows, access_token
+
+    async def fetch_tiktok_insights(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch TikTok account-level snapshot metrics for the reporting window end date."""
+        del start_date
+        access_token = await self._load_managed_secret("tiktok_access_token")
+        if not access_token:
+            access_token = config("TIKTOK_ACCESS_TOKEN", default="", cast=str).strip()
+        if not access_token:
+            raise ValueError(
+                "TikTok credentials are not fully configured. "
+                "Connect the account from the TikTok Token page or set fallback TIKTOK_ACCESS_TOKEN."
+            )
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            user, access_token = await self._fetch_tiktok_user_info(
+                client=client,
+                access_token=access_token,
+            )
+            video_totals, access_token = await self._fetch_tiktok_video_totals(
+                client=client,
+                access_token=access_token,
+            )
+
+        engagement = video_totals["likes"] + video_totals["comments"] + video_totals["shares"]
+        views = video_totals["views"]
+        return [
+            {
+                "date": end_date.isoformat(),
+                "followers_snapshot": int(float(user.get("follower_count") or 0)),
+                "total_likes": int(float(user.get("likes_count") or 0)),
+                "video_count": int(float(user.get("video_count") or 0)),
+                "views": views,
+                "likes": video_totals["likes"],
+                "comments": video_totals["comments"],
+                "shares": video_totals["shares"],
+                "engagement": engagement,
+                "engagement_rate": (engagement / views * 100) if views else 0.0,
+            }
+        ]
+
+    async def fetch_tiktok_media_insights(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch TikTok video lifetime metrics for videos published in a window."""
+        access_token = await self._load_managed_secret("tiktok_access_token")
+        if not access_token:
+            access_token = config("TIKTOK_ACCESS_TOKEN", default="", cast=str).strip()
+        if not access_token:
+            raise ValueError(
+                "TikTok credentials are not fully configured. "
+                "Connect the account from the TikTok Token page or set fallback TIKTOK_ACCESS_TOKEN."
+            )
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            rows, _access_token = await self._fetch_tiktok_video_rows(
+                client=client,
+                access_token=access_token,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        return rows
+
+    @staticmethod
+    def _parse_tiktok_create_time(value) -> datetime | None:
+        """Parse TikTok create_time values that may arrive as epoch seconds or ISO strings."""
+        if value in {None, ""}:
+            return None
+        try:
+            numeric_value = float(value)
+            if numeric_value > 0:
+                return datetime.fromtimestamp(numeric_value, tz=timezone.utc)
+        except (TypeError, ValueError):
+            pass
+        normalized = str(value).replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
 
     async def fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured Google Sheet."""
