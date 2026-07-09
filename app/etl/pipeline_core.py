@@ -37,6 +37,7 @@ class DateWindowPipelineSpec:
     user_window_empty_message: str = "No data found for selected date range."
     user_success_message: str = "Data is being updated!"
     user_already_updated_message: str = "Data is already updated!"
+    resolve_window: Callable[[str, Any, Any], tuple[Any, Any]] | None = None
 
 
 class DateWindowPipelineRunner:
@@ -66,7 +67,10 @@ class DateWindowPipelineRunner:
     ) -> str:
         """Execute the shared date-window ETL orchestration."""
         started_at = perf_counter()
-        target_start, target_end = self._resolve_date_window(types, start_date, end_date)
+        if spec.resolve_window is not None:
+            target_start, target_end = spec.resolve_window(types, start_date, end_date)
+        else:
+            target_start, target_end = self._resolve_date_window(types, start_date, end_date)
         self._log_event(
             f"etl_{spec.label}_started",
             run_id=run_id,

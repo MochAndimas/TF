@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -778,6 +778,13 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         run_id: str | None = None,
     ) -> str:
         """Run TikTok account-level Insights ETL into ``tiktok_insights``."""
+        def resolve_snapshot_window(update_type, requested_start, requested_end):
+            # Validate the public update mode (and manual payload shape), but
+            # always date this point-in-time metric when it was actually read.
+            self._resolve_date_window(update_type, requested_start, requested_end)
+            snapshot_date = datetime.now().date()
+            return snapshot_date, snapshot_date
+
         async def extract(target_start, target_end):
             return await self._fetch_tiktok_insights(start_date=target_start, end_date=target_end)
 
@@ -790,10 +797,14 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             )
 
         async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            # TikTok exposes account totals as a point-in-time snapshot, so the
+            # extractor emits only one row dated at the actual snapshot date.
+            # Replacing the full manual window would erase historical snapshots
+            # that TikTok cannot return again.
             return await delete_rows_in_date_window(
                 session=session_,
                 model_cls=TikTokInsights,
-                window_start=target_start,
+                window_start=target_end,
                 window_end=target_end,
             )
 
@@ -810,6 +821,7 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_tiktok_insights_models,
             delete_window=delete_window,
             load_rows=upsert_tiktok_insights_rows,
+            resolve_window=resolve_snapshot_window,
         )
         return await self._run_date_window_pipeline(
             spec=spec,
