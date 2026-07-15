@@ -30,6 +30,7 @@ def _empty_register_frame() -> pd.DataFrame:
             "campaign_name",
             "ad_source",
             "ad_type",
+            "tag_name",
             "total_regis",
         ]
     )
@@ -54,6 +55,7 @@ async def _read_internal_register_rows(
             Campaign.campaign_name.label("campaign_name"),
             Campaign.ad_source.label("ad_source"),
             Campaign.ad_type.label("ad_type"),
+            DailyRegister.tag_name.label("tag_name"),
             func.sum(DailyRegister.total_regis).label("total_regis"),
         )
         .join(DailyRegister.campaign)
@@ -61,6 +63,7 @@ async def _read_internal_register_rows(
         .group_by(
             DailyRegister.date,
             DailyRegister.campaign_id,
+            DailyRegister.tag_name,
             Campaign.campaign_name,
             Campaign.ad_source,
             Campaign.ad_type,
@@ -81,6 +84,7 @@ async def _read_internal_register_rows(
     df["campaign_name"] = df["campaign_name"].fillna("Unknown Campaign")
     df["ad_source"] = df["ad_source"].fillna("unknown")
     df["ad_type"] = df["ad_type"].fillna("unknown")
+    df["tag_name"] = df["tag_name"].fillna("Unknown").replace("", "Unknown")
     df["total_regis"] = pd.to_numeric(df["total_regis"], errors="coerce").fillna(0).astype(int)
     return df
 
@@ -286,6 +290,29 @@ async def _type_mix_chart(df: pd.DataFrame) -> dict[str, object]:
     return await _figure_payload(figure, type_df)
 
 
+async def _tag_mix_chart(df: pd.DataFrame) -> dict[str, object]:
+    if df.empty:
+        return await _figure_payload(_empty_figure("Register by Tag"), pd.DataFrame())
+
+    tag_df = df.groupby("tag_name", as_index=False)["total_regis"].sum().sort_values("total_regis", ascending=False)
+    total = float(tag_df["total_regis"].sum()) or 1.0
+    tag_df["share_pct"] = tag_df["total_regis"].apply(lambda value: round((float(value) / total) * 100, 2))
+    figure = go.Figure(
+        data=[
+            go.Pie(
+                labels=tag_df["tag_name"],
+                values=tag_df["total_regis"],
+                hole=0.46,
+                textinfo="label+percent",
+                insidetextorientation="radial",
+                hovertemplate="<b>%{label}</b><br>Register: %{value:,}<br>Share: %{percent}<extra></extra>",
+            )
+        ]
+    )
+    figure.update_layout(title="Register by Tag", legend=dict(orientation="h", y=1.08, x=0))
+    return await _figure_payload(figure, tag_df)
+
+
 async def _top_campaign_chart(df: pd.DataFrame, top_n: int = 15) -> dict[str, object]:
     if df.empty:
         return await _figure_payload(_empty_figure(f"Top {top_n} Campaigns by Register"), pd.DataFrame())
@@ -422,11 +449,12 @@ async def fetch_internal_register_payload(
         end_date=previous_end,
         source=source,
     )
-    daily_chart, cumulative_chart, source_chart, type_chart, top_campaign_chart, heatmap_chart, details = await asyncio.gather(
+    daily_chart, cumulative_chart, source_chart, type_chart, tag_chart, top_campaign_chart, heatmap_chart, details = await asyncio.gather(
         _daily_trend_chart(df),
         _cumulative_trend_chart(df),
         _source_mix_chart(df),
         _type_mix_chart(df),
+        _tag_mix_chart(df),
         _top_campaign_chart(df),
         _campaign_heatmap_chart(df),
         _details_table(df),
@@ -448,6 +476,7 @@ async def fetch_internal_register_payload(
             "cumulative_trend": cumulative_chart,
             "source_mix": source_chart,
             "type_mix": type_chart,
+            "tag_mix": tag_chart,
             "top_campaigns": top_campaign_chart,
             "campaign_heatmap": heatmap_chart,
         },

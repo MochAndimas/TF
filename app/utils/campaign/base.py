@@ -271,19 +271,29 @@ class CampaignDataBase:
             .group_by(model.date, model.campaign_id)
             .subquery()
         )
+        daily_register = (
+            select(
+                DailyRegister.date.label("date"),
+                DailyRegister.campaign_id.label("campaign_id"),
+                func.sum(DailyRegister.total_regis).label("total_regis"),
+            )
+            .where(DailyRegister.date.between(from_date, to_date))
+            .group_by(DailyRegister.date, DailyRegister.campaign_id)
+            .subquery()
+        )
         query = (
             select(
                 func.coalesce(func.sum(ads_by_campaign.c.impressions), 0).label("impressions"),
                 func.coalesce(func.sum(ads_by_campaign.c.clicks), 0).label("clicks"),
                 func.coalesce(func.sum(ads_by_campaign.c.cost), 0.0).label("cost"),
-                func.coalesce(func.sum(DailyRegister.total_regis), 0).label("leads"),
+                func.coalesce(func.sum(daily_register.c.total_regis), 0).label("leads"),
             )
             .select_from(ads_by_campaign)
             .outerjoin(
-                DailyRegister,
+                daily_register,
                 and_(
-                    DailyRegister.date == ads_by_campaign.c.date,
-                    DailyRegister.campaign_id == ads_by_campaign.c.campaign_id,
+                    daily_register.c.date == ads_by_campaign.c.date,
+                    daily_register.c.campaign_id == ads_by_campaign.c.campaign_id,
                 ),
             )
         )

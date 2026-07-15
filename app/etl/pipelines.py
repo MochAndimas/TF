@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.external_api import (
     DailyRegister,
     DataDepo,
+    DataDepoBa,
     DataMsDeposit,
     FacebookPageInsights,
     FacebookPageMediaInsights,
@@ -36,6 +37,7 @@ from app.etl.load import (
     build_tiktok_media_insights_rows,
     build_youtube_daily_insight_rows,
     build_youtube_media_insight_rows,
+    delete_first_deposit_ba_rows_in_window,
     delete_first_deposit_rows_in_window,
     delete_ms_deposit_rows_in_window,
     delete_rows_in_date_window,
@@ -43,6 +45,7 @@ from app.etl.load import (
     upsert_daily_register_rows,
     upsert_facebook_page_insights_rows,
     upsert_facebook_page_media_insights_rows,
+    upsert_first_deposit_ba_rows,
     upsert_first_deposit_rows,
     upsert_ms_deposit_rows,
     upsert_ga4_rows,
@@ -89,6 +92,7 @@ from app.etl.transform import (
     parse_facebook_page_insights_dataframe,
     parse_facebook_page_media_insights_dataframe,
     parse_first_deposit_dataframe,
+    parse_first_deposit_ba_dataframe,
     parse_ms_deposit_dataframe,
     parse_ga4_dataframe,
     parse_instagram_insights_dataframe,
@@ -252,6 +256,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return parse_first_deposit_dataframe(raw_rows)
 
     @staticmethod
+    def _parse_first_deposit_ba_dataframe(raw_rows: list[dict]):
+        """Parse raw BA first-deposit rows into a normalized dataframe."""
+        return parse_first_deposit_ba_dataframe(raw_rows)
+
+    @staticmethod
     def _parse_ms_deposit_dataframe(raw_rows: list[dict]):
         """Parse raw MS1 deposit/activity rows into a normalized dataframe."""
         return parse_ms_deposit_dataframe(raw_rows)
@@ -341,6 +350,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         Returns:
             list[dict]: ``data_depo`` payload rows for idempotent upsert.
         """
+        return build_first_deposit_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_first_deposit_ba_models(df, pull_date):
+        """Convert validated BA first-deposit rows into load payloads."""
         return build_first_deposit_rows(df=df, pull_date=pull_date)
 
     @staticmethod
@@ -1153,6 +1167,56 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_first_deposit_models,
             delete_window=delete_window,
             load_rows=upsert_first_deposit_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def first_deposit_ba(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run the BA first-deposit ETL flow into ``data_depo_ba``."""
+        async def extract(_target_start, _target_end):
+            return await self._fetch_first_deposit_records()
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_first_deposit_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="first_deposit_ba",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_first_deposit_ba_rows_in_window(
+                session=session_,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="first_deposit_ba",
+            source="first_deposit_ba",
+            empty_metric_name="BA first deposit",
+            date_column="tanggal_regis",
+            auto_skip_model=DataDepoBa,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_first_deposit_ba_dataframe,
+            validate=validate_first_deposit_dataframe,
+            build_rows=self._build_first_deposit_ba_models,
+            delete_window=delete_window,
+            load_rows=upsert_first_deposit_ba_rows,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

@@ -37,6 +37,13 @@ class Campaign(SqliteBase):
         viewonly=True
     )
 
+    data_depo_ba = relationship(
+        'DataDepoBa',
+        lazy=True,
+        back_populates='campaign',
+        viewonly=True
+    )
+
     data_ms_deposit = relationship(
         'DataMsDeposit',
         lazy=True,
@@ -163,6 +170,52 @@ class DataMsDeposit(SqliteBase):
         'Campaign',
         lazy=True,
         back_populates='data_ms_deposit',
+        viewonly=True
+    )
+
+
+class DataDepoBa(SqliteBase):
+    """Model for BA first-deposit records tied to campaigns."""
+
+    __tablename__ = "data_depo_ba"
+    __table_args__ = (
+        ForeignKeyConstraint(["campaign_id"], ["campaign.campaign_id"]),
+        UniqueConstraint(
+            "user_id",
+            "tanggal_regis",
+            "campaign_id",
+            name="uq_data_depo_ba_user_regis_campaign",
+        ),
+        Index("ix_data_depo_ba_tanggal_regis", "tanggal_regis"),
+        Index("ix_data_depo_ba_campaign_id", "campaign_id"),
+        {"schema": None}
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    user_id = Column("user_id", Integer, nullable=False)
+    tanggal_regis = Column("tanggal_regis", Date, nullable=False)
+    fullname = Column("fullname", String, nullable=True)
+    email = Column("email", String, nullable=True)
+    phone = Column("phone", String, nullable=True)
+    user_status = Column("user_status", String, nullable=True)
+    campaign_id = Column("campaign_id", String, nullable=False, default=ForeignKey("campaign.campaign_id"))
+    tag = Column("tag", String, nullable=True)
+    protection = Column("protection", Integer, nullable=True)
+    assign_date = Column("assign_date", Date, nullable=True)
+    analyst = Column("analyst", Integer, nullable=True)
+    first_depo_date = Column("first_depo_date", Date, nullable=True)
+    first_depo = Column("first_depo", Float, nullable=True)
+    time_to_closing = Column("time_to_closing", String, nullable=True)
+    nmi = Column("nmi", Float, nullable=True)
+    lot = Column("lot", Float, nullable=True)
+    cabang = Column("cabang", String, nullable=True)
+    pool = Column("pool", Boolean, nullable=True)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+    campaign = relationship(
+        'Campaign',
+        lazy=True,
+        back_populates='data_depo_ba',
         viewonly=True
     )
 
@@ -414,16 +467,19 @@ class DailyRegister(SqliteBase):
         UniqueConstraint(
             "date",
             "campaign_id",
-            name="uq_daily_register_date_campaign",
+            "tag_name",
+            name="uq_daily_register_date_campaign_tag",
         ),
         Index("ix_daily_register_date", "date"),
         Index("ix_daily_register_campaign_id", "campaign_id"),
+        Index("ix_daily_register_tag_name", "tag_name"),
         {"schema": None},
     )
 
     id = Column("id", Integer, primary_key=True, autoincrement=True)
     date = Column("date", Date, nullable=False)
     campaign_id = Column("campaign_id", String, nullable=False, default=ForeignKey("campaign.campaign_id"))
+    tag_name = Column("tag_name", String, nullable=False, default="CP1")
     total_regis = Column("total_regis", Integer, nullable=False, default=0)
     pull_date = Column("pull_date", Date, nullable=False)
 

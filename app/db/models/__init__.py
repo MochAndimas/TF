@@ -7,6 +7,7 @@ from app.db.models.schema_migration import SchemaMigration  # noqa: F401
 from app.db.models.external_api import (  # noqa: F401
     Campaign,
     DataDepo,
+    DataDepoBa,
     DataMsDeposit,
     DailyRegister,
     FacebookAds,

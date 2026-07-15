@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.external_api import (
     Campaign,
     DataDepo,
+    DataDepoBa,
     DataMsDeposit,
     DailyRegister,
     FacebookAds,
@@ -190,6 +191,7 @@ def build_daily_register_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
             {
                 "date": row["date"],
                 "campaign_id": row["campaign_id"],
+                "tag_name": row["tag_name"],
                 "total_regis": int(row["total_regis"]),
                 "pull_date": pull_date,
             }
@@ -552,7 +554,7 @@ async def upsert_ga4_rows(session: AsyncSession, rows: list[dict]) -> None:
 
 
 async def upsert_daily_register_rows(session: AsyncSession, rows: list[dict]) -> None:
-    """Upsert rows into ``daily_register`` using date and campaign key."""
+    """Upsert rows into ``daily_register`` using date, campaign, and tag key."""
     if not rows:
         return
 
@@ -564,7 +566,7 @@ async def upsert_daily_register_rows(session: AsyncSession, rows: list[dict]) ->
     for chunk in _iter_row_chunks(rows, columns_per_row):
         insert_stmt = sqlite_insert(DailyRegister).values(chunk)
         upsert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["date", "campaign_id"],
+            index_elements=["date", "campaign_id", "tag_name"],
             set_={
                 "total_regis": insert_stmt.excluded.total_regis,
                 "pull_date": insert_stmt.excluded.pull_date,
@@ -946,6 +948,42 @@ async def upsert_first_deposit_rows(session: AsyncSession, rows: list[dict]) -> 
         await session.execute(upsert_stmt)
 
 
+async def upsert_first_deposit_ba_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert BA first-deposit rows into ``data_depo_ba``."""
+    if not rows:
+        return
+
+    await _ensure_campaign_rows_for_deposits(
+        session=session,
+        campaign_ids={str(row["campaign_id"]).strip() or "-" for row in rows},
+    )
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(DataDepoBa).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["user_id", "tanggal_regis", "campaign_id"],
+            set_={
+                "fullname": insert_stmt.excluded.fullname,
+                "email": insert_stmt.excluded.email,
+                "phone": insert_stmt.excluded.phone,
+                "user_status": insert_stmt.excluded.user_status,
+                "tag": insert_stmt.excluded.tag,
+                "protection": insert_stmt.excluded.protection,
+                "assign_date": insert_stmt.excluded.assign_date,
+                "analyst": insert_stmt.excluded.analyst,
+                "first_depo_date": insert_stmt.excluded.first_depo_date,
+                "first_depo": insert_stmt.excluded.first_depo,
+                "time_to_closing": insert_stmt.excluded.time_to_closing,
+                "nmi": insert_stmt.excluded.nmi,
+                "lot": insert_stmt.excluded.lot,
+                "cabang": insert_stmt.excluded.cabang,
+                "pool": insert_stmt.excluded.pool,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
 async def delete_first_deposit_rows_in_window(
     session: AsyncSession,
     *,
@@ -955,6 +993,19 @@ async def delete_first_deposit_rows_in_window(
     """Delete first-deposit rows whose registration date falls in a window."""
     result = await session.execute(
         delete(DataDepo).where(DataDepo.tanggal_regis.between(window_start, window_end))
+    )
+    return int(result.rowcount or 0)
+
+
+async def delete_first_deposit_ba_rows_in_window(
+    session: AsyncSession,
+    *,
+    window_start: date,
+    window_end: date,
+) -> int:
+    """Delete BA first-deposit rows whose registration date falls in a window."""
+    result = await session.execute(
+        delete(DataDepoBa).where(DataDepoBa.tanggal_regis.between(window_start, window_end))
     )
     return int(result.rowcount or 0)
 

@@ -456,7 +456,7 @@ class DepositData:
 
         grouped_df = dataframe.copy()
         grouped_df["deposit_method"] = grouped_df["time_to_closing"].fillna("").astype(str).str.strip().apply(
-            lambda value: "straight_to_deposit" if value.startswith("-") else "close_with_consultant"
+            lambda value: "straight_to_deposit" if not value or value.startswith("-") else "close_with_consultant"
         )
         grouped_df["first_depo"] = pd.to_numeric(grouped_df["first_depo"], errors="coerce").fillna(0.0)
         grouped = (

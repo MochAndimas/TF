@@ -219,27 +219,32 @@ def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
     if missing_columns:
         raise ValueError(f"Missing columns in daily register sheet: {missing_columns}")
 
-    df = df[df["tag"].fillna("").astype(str).str.contains("CP1", case=False, na=False)].copy()
+    tag_values = df["tag"].fillna("").astype(str)
+    df = df[tag_values.str.contains("CP1|NUUAAON1", case=False, na=False)].copy()
     if df.empty:
-        return pd.DataFrame(columns=["date", "campaign_id", "total_regis"])
+        return pd.DataFrame(columns=["date", "campaign_id", "tag_name", "total_regis"])
+    df["tag_name"] = df["tag"].fillna("").astype(str).str.upper().apply(
+        lambda value: "NUUAAON1" if "NUUAAON1" in value else "CP1"
+    )
 
     parsed = pd.DataFrame(
         {
             "date": pd.to_datetime(df[date_column], errors="coerce").dt.date,
             "campaign_id": df[campaign_column].fillna("").astype(str).str.strip(),
+            "tag_name": df["tag_name"],
             "id": df["id"].fillna("").astype(str).str.strip(),
         }
     )
     parsed["campaign_id"] = parsed["campaign_id"].replace({"": "-", "0": "-"})
     parsed = parsed[(parsed["date"].notna()) & (parsed["id"] != "")].copy()
     if parsed.empty:
-        return pd.DataFrame(columns=["date", "campaign_id", "total_regis"])
+        return pd.DataFrame(columns=["date", "campaign_id", "tag_name", "total_regis"])
 
     parsed = (
-        parsed.groupby(["date", "campaign_id"], as_index=False)["id"]
+        parsed.groupby(["date", "campaign_id", "tag_name"], as_index=False)["id"]
         .nunique()
         .rename(columns={"id": "total_regis"})
-        .sort_values(["date", "campaign_id"])
+        .sort_values(["date", "campaign_id", "tag_name"])
     )
     parsed["total_regis"] = parsed["total_regis"].astype(int)
     return parsed
@@ -629,7 +634,11 @@ def parse_facebook_page_media_insights_dataframe(raw_rows: list[dict]) -> pd.Dat
     return parsed.sort_values(["date", "page_id", "post_id"])
 
 
-def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+def parse_first_deposit_dataframe(
+    raw_rows: list[dict],
+    *,
+    tag_pattern: str = "CP1|NUUAAON",
+) -> pd.DataFrame:
     """Parse raw first-deposit API payload into a load-ready dataframe.
 
     The upstream response is a list of JSON objects with mixed field naming and
@@ -716,7 +725,7 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     parsed = parsed.loc[
         parsed["tanggal_regis"].notna()
         & (parsed["first_depo"] > 0)
-        & parsed["tag"].fillna("").str.contains("CP1", case=False, na=False)
+        & parsed["tag"].fillna("").str.contains(tag_pattern, case=False, na=False, regex=True)
     ].copy()
     parsed = parsed.loc[parsed["user_id"].notna()].copy()
     if parsed.empty:
@@ -727,6 +736,11 @@ def parse_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     parsed["nmi"] = parsed["nmi"].where(parsed["nmi"].notna(), None)
     parsed["lot"] = parsed["lot"].where(parsed["lot"].notna(), None)
     return parsed
+
+
+def parse_first_deposit_ba_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse BA first-deposit rows into a load-ready dataframe."""
+    return parse_first_deposit_dataframe(raw_rows, tag_pattern=r"^NUBAAON1$")
 
 
 def parse_ms_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:

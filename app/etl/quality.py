@@ -102,7 +102,7 @@ def validate_daily_register_dataframe(df: pd.DataFrame) -> None:
     if df.empty:
         return
 
-    missing_key = df[["date", "campaign_id"]].isna().any(axis=1).sum()
+    missing_key = df[["date", "campaign_id", "tag_name"]].isna().any(axis=1).sum()
     if missing_key:
         raise ValueError(
             f"DQ failed: daily register data has {int(missing_key)} rows with missing business keys."
@@ -120,7 +120,7 @@ def validate_daily_register_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: daily register data has {int(negative_metric)} rows with negative total_regis."
         )
 
-    dup_ratio = _duplicate_ratio(df, ["date", "campaign_id"])
+    dup_ratio = _duplicate_ratio(df, ["date", "campaign_id", "tag_name"])
     if dup_ratio > 0:
         raise ValueError(f"DQ failed: daily register duplicate key ratio {dup_ratio:.2%}.")
 

@@ -16,6 +16,7 @@ from app.db.models.external_api import (
     Campaign,
     DailyRegister,
     DataDepo,
+    DataDepoBa,
     DataMsDeposit,
     FacebookAds,
     FacebookPageInsights,
@@ -62,6 +63,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "facebook_page_media_insights",
     "daily_register",
     "first_deposit",
+    "first_deposit_ba",
     "ms_deposit",
 )
 
@@ -340,6 +342,23 @@ async def _run_ms_deposit(
     )
 
 
+async def _run_first_deposit_ba(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.first_deposit_ba(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -356,6 +375,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "facebook_page_media_insights": _run_facebook_page_media_insights,
     "daily_register": _run_daily_register,
     "first_deposit": _run_first_deposit,
+    "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
 }
 
@@ -375,6 +395,7 @@ SOURCE_MODELS = {
     "facebook_page_media_insights": FacebookPageMediaInsights,
     "daily_register": DailyRegister,
     "first_deposit": DataDepo,
+    "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
 }
 
@@ -512,6 +533,7 @@ async def execute_update_job(
                 "tiktok_ads",
                 "daily_register",
                 "first_deposit",
+                "first_deposit_ba",
                 "ms_deposit",
                 "unique_campaign",
                 "instagram_insights",

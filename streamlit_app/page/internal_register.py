@@ -20,6 +20,7 @@ SOURCE_OPTIONS = {
     "Facebook Ads": "facebook",
     "TikTok Ads": "tiktok",
 }
+TAG_MIX_PANEL_HEIGHT = 400
 
 
 def _render_filters() -> tuple[dt.date | None, dt.date | None, str | None]:
@@ -105,6 +106,39 @@ def _details_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     return df[[column for column in columns if column in df.columns]]
 
 
+def _tag_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(columns=["Tag Name", "Total Register"])
+    df = pd.DataFrame(rows)
+    df = df.rename(columns={"tag_name": "Tag Name", "total_regis": "Total Register"})
+    if "Total Register" in df.columns:
+        df["Total Register"] = pd.to_numeric(df["Total Register"], errors="coerce").fillna(0).astype(int)
+    return df[[column for column in ["Tag Name", "Total Register"] if column in df.columns]]
+
+
+def _render_tag_mix(tag_rows: list[dict[str, object]], tag_figure) -> None:
+    tag_df = _tag_dataframe(tag_rows)
+    table_col, chart_col = st.columns(2, gap="small")
+    with table_col:
+        with st.container(border=True, height=TAG_MIX_PANEL_HEIGHT):
+            st.markdown("### Register by Tag")
+            if tag_df.empty:
+                st.info("No tag data for selected date range.")
+            else:
+                st.dataframe(
+                    tag_df,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "Tag Name": st.column_config.TextColumn("Tag Name", width="medium"),
+                        "Total Register": st.column_config.NumberColumn("Total Register", format="%d"),
+                    },
+                )
+    with chart_col:
+        with st.container(border=True, height=TAG_MIX_PANEL_HEIGHT):
+            st.plotly_chart(tag_figure, width="stretch")
+
+
 async def show_internal_register_page(host: str) -> None:
     start_date, end_date, selected_source = _render_filters()
     if not start_date:
@@ -116,7 +150,12 @@ async def show_internal_register_page(host: str) -> None:
     source_key = SOURCE_OPTIONS[selected_source]
     selected_range = (start_date, end_date, source_key)
     cached_payload = st.session_state.get("internal_register_payload", {})
-    should_fetch = "internal_register_payload" not in st.session_state or st.session_state.get("internal_register_range") != selected_range
+    cached_charts = cached_payload.get("data", {}).get("charts", {}) if isinstance(cached_payload, dict) else {}
+    should_fetch = (
+        "internal_register_payload" not in st.session_state
+        or st.session_state.get("internal_register_range") != selected_range
+        or "tag_mix" not in cached_charts
+    )
 
     if should_fetch:
         if not st.session_state.get("access_token"):
@@ -140,6 +179,8 @@ async def show_internal_register_page(host: str) -> None:
     _render_metrics(data.get("metrics", {}))
 
     charts = data.get("charts", {})
+    tag_mix = charts.get("tag_mix", {})
+    tag_figure = set_transparent_chart_background(campaign_figure_from_payload(tag_mix.get("figure"), "Register by Tag"))
     daily_figure = set_transparent_chart_background(campaign_figure_from_payload(charts.get("daily_trend", {}).get("figure"), "Daily Internal Register"))
     cumulative_figure = set_transparent_chart_background(campaign_figure_from_payload(charts.get("cumulative_trend", {}).get("figure"), "Cumulative Register by Campaign"))
     source_figure = set_transparent_chart_background(campaign_figure_from_payload(charts.get("source_mix", {}).get("figure"), "Register by Source"))
@@ -147,12 +188,15 @@ async def show_internal_register_page(host: str) -> None:
     top_figure = set_transparent_chart_background(campaign_figure_from_payload(charts.get("top_campaigns", {}).get("figure"), "Top Campaigns by Register"))
     heatmap_figure = set_transparent_chart_background(campaign_figure_from_payload(charts.get("campaign_heatmap", {}).get("figure"), "Daily Register Heatmap"))
 
+    tag_figure.update_layout(height=360)
     daily_figure.update_layout(height=440)
     cumulative_figure.update_layout(height=440)
     source_figure.update_layout(height=440)
     type_figure.update_layout(height=440)
     top_figure.update_layout(height=520)
     heatmap_figure.update_layout(height=560)
+
+    _render_tag_mix(tag_mix.get("rows", []), tag_figure)
 
     for column, figure in zip(st.columns(2, gap="small"), [daily_figure, cumulative_figure]):
         with column:

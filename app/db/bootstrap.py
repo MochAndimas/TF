@@ -228,6 +228,49 @@ async def _migration_20260701_002_instagram_media_profile_actions(connection) ->
             )
 
 
+async def _migration_20260715_001_daily_register_tag_name(connection) -> None:
+    """Store daily register totals at date + campaign + tag grain."""
+    columns = {
+        row[1]
+        for row in (await connection.execute(text("PRAGMA table_info('daily_register')"))).fetchall()
+    }
+    if not columns or "tag_name" in columns:
+        return
+
+    await connection.execute(text("DROP TABLE IF EXISTS daily_register_new"))
+    await connection.execute(
+        text(
+            """
+            CREATE TABLE daily_register_new (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                date DATE NOT NULL,
+                campaign_id VARCHAR NOT NULL,
+                tag_name VARCHAR NOT NULL DEFAULT 'CP1',
+                total_regis INTEGER NOT NULL DEFAULT 0,
+                pull_date DATE NOT NULL,
+                CONSTRAINT uq_daily_register_date_campaign_tag UNIQUE (date, campaign_id, tag_name),
+                FOREIGN KEY(campaign_id) REFERENCES campaign (campaign_id)
+            )
+            """
+        )
+    )
+    await connection.execute(
+        text(
+            """
+            INSERT INTO daily_register_new (date, campaign_id, tag_name, total_regis, pull_date)
+            SELECT date, campaign_id, 'CP1', SUM(total_regis), MAX(pull_date)
+            FROM daily_register
+            GROUP BY date, campaign_id
+            """
+        )
+    )
+    await connection.execute(text("DROP TABLE daily_register"))
+    await connection.execute(text("ALTER TABLE daily_register_new RENAME TO daily_register"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_register_date ON daily_register(date)"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_register_campaign_id ON daily_register(campaign_id)"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_register_tag_name ON daily_register(tag_name)"))
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -263,6 +306,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260701_002_instagram_media_profile_actions",
         "Add Instagram media profile visits and follows metrics.",
         _migration_20260701_002_instagram_media_profile_actions,
+    ),
+    (
+        "20260715_001_daily_register_tag_name",
+        "Store daily register totals by tag name.",
+        _migration_20260715_001_daily_register_tag_name,
     ),
 )
 

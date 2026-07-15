@@ -150,9 +150,19 @@ class CampaignRepository:
             .group_by(daily_rows.c.date, daily_rows.c.campaign_id)
             .subquery()
         )
+        daily_register = (
+            select(
+                DailyRegister.date.label("date"),
+                DailyRegister.campaign_id.label("campaign_id"),
+                func.sum(DailyRegister.total_regis).label("total_regis"),
+            )
+            .where(DailyRegister.date.between(from_date, to_date))
+            .group_by(DailyRegister.date, DailyRegister.campaign_id)
+            .subquery()
+        )
         lead_allocation = case(
-            (campaign_daily_totals.c.campaign_spend > 0, func.coalesce(DailyRegister.total_regis, 0) * (daily_rows.c.spend / campaign_daily_totals.c.campaign_spend)),
-            else_=func.coalesce(DailyRegister.total_regis, 0) / campaign_daily_totals.c.row_count,
+            (campaign_daily_totals.c.campaign_spend > 0, func.coalesce(daily_register.c.total_regis, 0) * (daily_rows.c.spend / campaign_daily_totals.c.campaign_spend)),
+            else_=func.coalesce(daily_register.c.total_regis, 0) / campaign_daily_totals.c.row_count,
         )
         query = (
             select(
@@ -168,7 +178,7 @@ class CampaignRepository:
             )
             .select_from(daily_rows)
             .join(campaign_daily_totals, and_(campaign_daily_totals.c.date == daily_rows.c.date, campaign_daily_totals.c.campaign_id == daily_rows.c.campaign_id))
-            .outerjoin(DailyRegister, and_(DailyRegister.date == daily_rows.c.date, DailyRegister.campaign_id == daily_rows.c.campaign_id))
+            .outerjoin(daily_register, and_(daily_register.c.date == daily_rows.c.date, daily_register.c.campaign_id == daily_rows.c.campaign_id))
             .group_by(daily_rows.c.campaign_source, daily_rows.c.campaign_id, daily_rows.c.campaign_name, daily_rows.c.ad_group, daily_rows.c.ad_name)
             .order_by(func.sum(daily_rows.c.spend).desc())
         )

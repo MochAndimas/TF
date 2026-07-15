@@ -27,6 +27,7 @@ DATA_SOURCE_OPTIONS = {
     "Facebook Page Media Insights (API)": "facebook_page_media_insights",
     "Daily Register (GSheet)": "daily_register",
     "First Deposit (GSheet)": "first_deposit",
+    "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
 }
 
@@ -46,6 +47,7 @@ ALL_DATA_SOURCE_VALUES = [
     "facebook_page_media_insights",
     "daily_register",
     "first_deposit",
+    "first_deposit_ba",
     "ms_deposit",
 ]
 
