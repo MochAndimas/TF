@@ -143,6 +143,7 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         "overview_leads_payload" not in st.session_state
         or not _has_metric(cached_leads_payload, "data", "metrics_with_growth", "current_period", "metrics", "cost_leads")
         or not _has_metric(cached_leads_payload, "data", "cost_to_revenue_modes", "user_acquisition", "metrics_with_growth", "current_period", "metrics", "cost_to_revenue_cost")
+        or not _has_metric(cached_leads_payload, "data", "cost_to_revenue_modes", "brand_awareness", "metrics_with_growth", "current_period", "metrics", "cost_to_revenue_cost")
         or st.session_state.get("overview_leads_range") != selected_range
     )
     should_fetch_brand = (
@@ -357,6 +358,11 @@ async def show_overview_page(host: str) -> None:
             "key": "user_acquisition",
             "cost_label": "User Acquisition Cost",
             "revenue_label": "First Deposit",
+        },
+        "Brand Awareness": {
+            "key": "brand_awareness",
+            "cost_label": "Brand Awareness Cost",
+            "revenue_label": "Brand Awareness Revenue",
         },
         "Remarketing": {
             "key": "remarketing",

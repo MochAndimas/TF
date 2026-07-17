@@ -260,19 +260,25 @@ class OverviewLeadsAcquisitionData:
         return {"rows": rows, "figure": json.loads(chart_json)}
 
     async def _cost_to_revenue_frames(self, mode: str, from_date: date, to_date: date) -> tuple[pd.DataFrame, pd.DataFrame]:
+        if mode == "brand_awareness":
+            return (
+                await self._read_ads_by_ad_type_with_range("brand_awareness", from_date, to_date),
+                pd.DataFrame(columns=["date", "revenue"]),
+            )
         if mode == "remarketing":
             return (
                 await self._read_ads_by_ad_type_with_range("remarketing", from_date, to_date),
                 await self._read_remarketing_revenue_with_range(from_date, to_date),
             )
         if mode == "overall":
-            ua_ads, rm_ads, ua_revenue, rm_revenue = await asyncio.gather(
+            ua_ads, ba_ads, rm_ads, ua_revenue, rm_revenue = await asyncio.gather(
                 self._read_ads_by_ad_type_with_range("user_acquisition", from_date, to_date),
+                self._read_ads_by_ad_type_with_range("brand_awareness", from_date, to_date),
                 self._read_ads_by_ad_type_with_range("remarketing", from_date, to_date),
                 self._read_first_deposit_revenue_with_range(from_date, to_date, ad_type="user_acquisition"),
                 self._read_remarketing_revenue_with_range(from_date, to_date),
             )
-            ads_frames = [frame for frame in (ua_ads, rm_ads) if not frame.empty]
+            ads_frames = [frame for frame in (ua_ads, ba_ads, rm_ads) if not frame.empty]
             revenue_frames = [frame for frame in (ua_revenue, rm_revenue) if not frame.empty]
             ads_df = pd.concat(ads_frames, ignore_index=True) if ads_frames else pd.DataFrame(columns=["date", "cost", "impressions", "clicks", "leads", "source"])
             revenue_df = pd.concat(revenue_frames, ignore_index=True) if revenue_frames else pd.DataFrame(columns=["date", "revenue"])
@@ -311,12 +317,13 @@ class OverviewLeadsAcquisitionData:
         return {"metrics_with_growth": metrics, "chart": chart}
 
     async def cost_to_revenue_modes_payload(self, from_date: date, to_date: date) -> dict[str, object]:
-        user_acquisition, remarketing, overall = await asyncio.gather(
+        user_acquisition, brand_awareness, remarketing, overall = await asyncio.gather(
             self.cost_to_revenue_mode_payload("user_acquisition", from_date, to_date),
+            self.cost_to_revenue_mode_payload("brand_awareness", from_date, to_date),
             self.cost_to_revenue_mode_payload("remarketing", from_date, to_date),
             self.cost_to_revenue_mode_payload("overall", from_date, to_date),
         )
-        return {"user_acquisition": user_acquisition, "remarketing": remarketing, "overall": overall}
+        return {"user_acquisition": user_acquisition, "brand_awareness": brand_awareness, "remarketing": remarketing, "overall": overall}
 
     async def cost_to_revenue_chart(self, from_date: date, to_date: date, mode: str = "user_acquisition") -> dict[str, object]:
         ads_df, revenue_df = await self._cost_to_revenue_frames(mode, from_date, to_date)
