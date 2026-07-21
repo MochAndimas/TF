@@ -28,9 +28,11 @@ from app.api.v1.endpoint.deposit import router as deposit_router
 from app.api.v1.endpoint.facebook import router as facebook_router
 from app.api.v1.endpoint.feature import router as feature_router
 from app.api.v1.endpoint.google_ads_oauth import router as google_ads_oauth_router
+from app.api.v1.endpoint.install import router as install_router
 from app.api.v1.endpoint.instagram_token import router as instagram_token_router
 from app.api.v1.endpoint.meta_ads_token import router as meta_ads_token_router
 from app.api.v1.endpoint.overview import router as overview_router
+from app.api.v1.endpoint.sqlite_maintenance import router as sqlite_maintenance_router
 from app.api.v1.endpoint.tiktok import router as tiktok_router
 from app.api.v1.endpoint.tiktok_oauth import router as tiktok_oauth_router
 from app.api.v1.endpoint.youtube import router as youtube_router
@@ -489,7 +491,9 @@ class FastApiApp:
         self.app.include_router(instagram_token_router, tags=["Instagram Token"])
         self.app.include_router(meta_ads_token_router, tags=["Meta Ads Token"])
         self.app.include_router(feature_router, tags=["Update Data"])
+        self.app.include_router(sqlite_maintenance_router, tags=["SQLite Maintenance"])
         self.app.include_router(overview_router, tags=["Overview Analytics"])
+        self.app.include_router(install_router, tags=["Install Analytics"])
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])
         self.app.include_router(deposit_router, tags=["Deposit Analytics"])
         self.app.include_router(facebook_router, tags=["Facebook Analytics"])

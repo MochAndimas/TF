@@ -22,6 +22,7 @@ from app.db.models.external_api import (
     GoogleAds,
     InstagramInsights,
     InstagramMediaInsights,
+    PlayConsoleInstallMetrics,
     TikTokAds,
     TikTokInsights,
     TikTokMediaInsights,
@@ -1030,6 +1031,24 @@ def build_ms_deposit_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
     return rows
 
 
+def build_play_console_install_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert normalized Play Console install metrics into insert dictionaries."""
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "date": row["date"],
+                "package_name": row["package_name"],
+                "country": row["country"],
+                "installers": int(row["installers"]),
+                "uninstallers": int(row["uninstallers"]),
+                "active_devices": int(row["active_devices"]),
+                "pull_date": pull_date,
+            }
+        )
+    return rows
+
+
 async def upsert_ms_deposit_rows(session: AsyncSession, rows: list[dict]) -> None:
     """Upsert MS1 deposit/activity rows into ``data_ms_deposit``."""
     if not rows:
@@ -1065,5 +1084,38 @@ async def delete_ms_deposit_rows_in_window(
     """Delete MS1 deposit rows whose last activity date falls in a window."""
     result = await session.execute(
         delete(DataMsDeposit).where(DataMsDeposit.last_activity.between(window_start, window_end))
+    )
+    return int(result.rowcount or 0)
+
+
+async def upsert_play_console_install_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert Google Play Console install metrics by date, package, and country."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(PlayConsoleInstallMetrics).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date", "package_name", "country"],
+            set_={
+                "installers": insert_stmt.excluded.installers,
+                "uninstallers": insert_stmt.excluded.uninstallers,
+                "active_devices": insert_stmt.excluded.active_devices,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def delete_play_console_install_rows_in_window(
+    session: AsyncSession,
+    *,
+    window_start: date,
+    window_end: date,
+) -> int:
+    """Delete Play Console install rows inside a reporting window."""
+    result = await session.execute(
+        delete(PlayConsoleInstallMetrics).where(PlayConsoleInstallMetrics.date.between(window_start, window_end))
     )
     return int(result.rowcount or 0)

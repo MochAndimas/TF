@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import gzip
+import io
 import json
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -11,6 +14,7 @@ from decouple import config
 from google.ads.googleads.client import GoogleAdsClient
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
 import httpx
 
 from app.core.security import decrypt_secret, encrypt_secret
@@ -22,6 +26,48 @@ from app.etl.extract_helpers import (
     normalize_customer_id,
     normalize_meta_ad_account_id,
 )
+
+
+def _parse_gcs_bucket_config(raw_value: str) -> tuple[str, str | None]:
+    """Split a GCS bucket config that may include a path prefix."""
+    normalized = raw_value.strip().replace("gs://", "").strip("/")
+    if normalized.startswith("storage.cloud.google.com/"):
+        normalized = normalized.removeprefix("storage.cloud.google.com/").split("?", 1)[0].strip("/")
+    if not normalized:
+        return "", None
+    bucket, _, prefix = normalized.partition("/")
+    return bucket, prefix.strip("/") or None
+
+
+def _decode_play_console_csv_payload(payload: bytes) -> str:
+    """Decode Play Console CSV exports, which may be UTF-8 or UTF-16."""
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be"):
+        try:
+            return payload.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return payload.decode("utf-8-sig", errors="replace")
+
+
+def _play_console_month_tokens(start_date: date, end_date: date) -> set[str]:
+    """Return month tokens used by Play Console monthly export file names."""
+    tokens: set[str] = set()
+    current = date(start_date.year, start_date.month, 1)
+    end_month = date(end_date.year, end_date.month, 1)
+    while current <= end_month:
+        tokens.update(
+            {
+                current.strftime("%Y%m"),
+                current.strftime("%Y-%m"),
+                current.strftime("%Y_%m"),
+            }
+        )
+        if current.month == 12:
+            current = date(current.year + 1, 1, 1)
+        else:
+            current = date(current.year, current.month + 1, 1)
+    return tokens
+
 
 class ExternalApiExtractor:
     """Extract raw payloads from active ETL sources.
@@ -81,6 +127,36 @@ class ExternalApiExtractor:
                 "analyticsdata",
                 version="v1beta",
                 credentials=ga4_creds,
+                cache_discovery=False,
+            )
+        self.play_console_package_name = config("PLAY_CONSOLE_NAME_APP", default="", cast=str).strip()
+        play_console_bucket, play_console_prefix = _parse_gcs_bucket_config(
+            config("PLAY_CONSOLE_REPORT_BUCKET", default="", cast=str)
+        )
+        self.play_console_report_bucket = play_console_bucket
+        self.play_console_report_prefixes = [
+            item.strip().strip("/")
+            for item in config(
+                "PLAY_CONSOLE_REPORT_PREFIXES",
+                default="stats/installs,stats/store_performance,stats/acquisition",
+                cast=str,
+            ).split(",")
+            if item.strip()
+        ]
+        if play_console_prefix and play_console_prefix not in self.play_console_report_prefixes:
+            self.play_console_report_prefixes.insert(0, play_console_prefix)
+        self.play_console_storage_service = None
+        raw_play_console_sa = config("PLAY_CONSOLE_SA", default="", cast=str).strip()
+        if raw_play_console_sa:
+            play_console_sa = load_service_account_info("PLAY_CONSOLE_SA")
+            play_console_creds = ServiceAccountCredentials.from_service_account_info(
+                play_console_sa,
+                scopes=["https://www.googleapis.com/auth/devstorage.read_only"],
+            )
+            self.play_console_storage_service = build(
+                "storage",
+                version="v1",
+                credentials=play_console_creds,
                 cache_discovery=False,
             )
         self.google_ads_customer_id = normalize_customer_id(
@@ -2213,3 +2289,92 @@ class ExternalApiExtractor:
             return result.get("values", [])
 
         return await asyncio.to_thread(_request)
+
+    async def fetch_play_console_install_rows(self, start_date: date, end_date: date) -> list[dict]:
+        """Fetch Google Play Console install/acquisition report rows from GCS exports."""
+        if self.play_console_storage_service is None:
+            raise ValueError(
+                "Google Play Console credentials are not configured. "
+                "Set PLAY_CONSOLE_SA with a service-account JSON payload."
+            )
+        if not self.play_console_package_name:
+            raise ValueError("PLAY_CONSOLE_NAME_APP is required and should contain the app package name.")
+        if not self.play_console_report_bucket:
+            raise ValueError(
+                "PLAY_CONSOLE_REPORT_BUCKET is required for Play Console report exports "
+                "(example: pubsite_prod_rev_XXXXXXXXXXXX)."
+            )
+
+        return await asyncio.to_thread(
+            self._fetch_play_console_install_rows_sync,
+            start_date,
+            end_date,
+        )
+
+    def _fetch_play_console_install_rows_sync(self, start_date: date, end_date: date) -> list[dict]:
+        month_tokens = _play_console_month_tokens(start_date, end_date)
+        objects = [
+            object_name
+            for object_name in self._list_play_console_report_objects()
+            if self._is_play_console_install_overview_object(object_name)
+            and any(token in object_name for token in month_tokens)
+        ]
+        if not objects:
+            return []
+
+        rows: list[dict] = []
+        for object_name in objects:
+            object_rows = self._download_play_console_csv(object_name)
+            if not object_rows:
+                continue
+            for row in object_rows:
+                row["source_object"] = object_name
+                rows.append(row)
+        return rows
+
+    @staticmethod
+    def _is_play_console_install_overview_object(object_name: str) -> bool:
+        normalized = object_name.lower()
+        return (
+            normalized.startswith("stats/installs/")
+            and normalized.endswith("_overview.csv")
+        )
+
+    def _list_play_console_report_objects(self) -> list[str]:
+        object_names: list[str] = []
+        for prefix in self.play_console_report_prefixes:
+            page_token = None
+            while True:
+                request = self.play_console_storage_service.objects().list(
+                    bucket=self.play_console_report_bucket,
+                    prefix=f"{prefix}/",
+                    pageToken=page_token,
+                )
+                response = request.execute()
+                for item in response.get("items", []):
+                    name = item.get("name", "")
+                    if not name.lower().endswith((".csv", ".csv.gz")):
+                        continue
+                    if self.play_console_package_name and self.play_console_package_name not in name:
+                        continue
+                    object_names.append(name)
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
+        return sorted(set(object_names))
+
+    def _download_play_console_csv(self, object_name: str) -> list[dict]:
+        request = self.play_console_storage_service.objects().get_media(
+            bucket=self.play_console_report_bucket,
+            object=object_name,
+        )
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            _status, done = downloader.next_chunk()
+        payload = buffer.getvalue()
+        if object_name.lower().endswith(".gz"):
+            payload = gzip.decompress(payload)
+        text = _decode_play_console_csv_payload(payload)
+        return list(csv.DictReader(io.StringIO(text)))

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import insert
+from sqlalchemy import delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.models.external_api import StgAdsRaw
 from app.etl.transform import normalize_columns
 
@@ -24,6 +25,24 @@ def _payload_hash(payload) -> str:
     """
     serialized = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+async def cleanup_old_staging_rows(session: AsyncSession) -> int:
+    """Delete raw staging rows older than the configured retention window."""
+    retention_days = settings.STG_ADS_RAW_RETENTION_DAYS
+    if retention_days <= 0:
+        return 0
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    result = await session.execute(delete(StgAdsRaw).where(StgAdsRaw.ingested_at < cutoff))
+    return int(result.rowcount or 0)
+
+
+async def _insert_staging_rows(session: AsyncSession, rows: list[dict]) -> int:
+    if not rows:
+        return 0
+    await session.execute(insert(StgAdsRaw), rows)
+    await cleanup_old_staging_rows(session)
+    return len(rows)
 
 
 async def stage_ads_raw(
@@ -71,11 +90,7 @@ async def stage_ads_raw(
         }
         for item in payloads
     ]
-    if not rows:
-        return 0
-
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_ga4_raw(
@@ -111,8 +126,7 @@ async def stage_ga4_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_instagram_insights_raw(
@@ -138,8 +152,7 @@ async def stage_instagram_insights_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_tiktok_insights_raw(
@@ -165,8 +178,7 @@ async def stage_tiktok_insights_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_tiktok_media_insights_raw(
@@ -192,8 +204,7 @@ async def stage_tiktok_media_insights_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_youtube_daily_insight_raw(
@@ -219,8 +230,7 @@ async def stage_youtube_daily_insight_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_youtube_media_insight_raw(
@@ -246,8 +256,7 @@ async def stage_youtube_media_insight_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_instagram_media_insights_raw(
@@ -273,8 +282,7 @@ async def stage_instagram_media_insights_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_facebook_page_insights_raw(
@@ -300,8 +308,7 @@ async def stage_facebook_page_insights_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_facebook_page_media_insights_raw(
@@ -327,8 +334,7 @@ async def stage_facebook_page_media_insights_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_first_deposit_raw(
@@ -370,8 +376,7 @@ async def stage_first_deposit_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
 
 
 async def stage_ms_deposit_raw(
@@ -397,5 +402,30 @@ async def stage_ms_deposit_raw(
         }
         for item in raw_rows
     ]
-    await session.execute(insert(StgAdsRaw), rows)
-    return len(rows)
+    return await _insert_staging_rows(session, rows)
+
+
+async def stage_play_console_install_raw(
+    session: AsyncSession,
+    raw_rows: list[dict],
+    *,
+    run_id: str | None,
+    source: str,
+) -> int:
+    """Persist Google Play Console install/acquisition report rows."""
+    if not raw_rows:
+        return 0
+
+    ingested_at = datetime.now()
+    rows = [
+        {
+            "run_id": run_id,
+            "source": source,
+            "range_name": "play_console_gcs_export",
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
+        for item in raw_rows
+    ]
+    return await _insert_staging_rows(session, rows)

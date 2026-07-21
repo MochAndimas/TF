@@ -25,6 +25,7 @@ from app.db.models.external_api import (
     GoogleAds,
     InstagramInsights,
     InstagramMediaInsights,
+    PlayConsoleInstallMetrics,
     TikTokAds,
     TikTokInsights,
     TikTokMediaInsights,
@@ -65,6 +66,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "first_deposit",
     "first_deposit_ba",
     "ms_deposit",
+    "play_console_install_metrics",
 )
 
 PipelineExecutor = Callable[[GoogleSheetApi, Any, str, Any, Any, str], Awaitable[str]]
@@ -359,6 +361,23 @@ async def _run_first_deposit_ba(
     )
 
 
+async def _run_play_console_install_metrics(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.play_console_install_metrics(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -377,6 +396,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "first_deposit": _run_first_deposit,
     "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
+    "play_console_install_metrics": _run_play_console_install_metrics,
 }
 
 SOURCE_MODELS = {
@@ -397,6 +417,27 @@ SOURCE_MODELS = {
     "first_deposit": DataDepo,
     "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
+    "play_console_install_metrics": PlayConsoleInstallMetrics,
+}
+
+SOURCE_DATE_COLUMNS = {
+    "google_ads": "date",
+    "facebook_ads": "date",
+    "tiktok_ads": "date",
+    "ga4_daily_metrics": "date",
+    "instagram_insights": "date",
+    "instagram_media_insights": "date",
+    "tiktok_insights": "date",
+    "tiktok_media_insights": "date",
+    "youtube_daily_insight": "date",
+    "youtube_media_insight": "date",
+    "facebook_page_insights": "date",
+    "facebook_page_media_insights": "date",
+    "daily_register": "date",
+    "first_deposit": "tanggal_regis",
+    "first_deposit_ba": "tanggal_regis",
+    "ms_deposit": "last_activity",
+    "play_console_install_metrics": "date",
 }
 
 
@@ -418,12 +459,16 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
     return resolve_date_window(types, start_date, end_date)
 
 
-async def count_source_rows(session, source: str) -> int | None:
+async def count_source_rows(session, source: str, window_start=None, window_end=None) -> int | None:
     """Count current rows in the target table for one ETL source."""
     model = SOURCE_MODELS.get(source)
     if model is None:
         return None
-    result = await session.execute(select(func.count()).select_from(model))
+    query = select(func.count()).select_from(model)
+    date_column_name = SOURCE_DATE_COLUMNS.get(source)
+    if window_start is not None and window_end is not None and date_column_name is not None:
+        query = query.where(getattr(model, date_column_name).between(window_start, window_end))
+    result = await session.execute(query)
     return int(result.scalar_one())
 
 
@@ -521,7 +566,13 @@ async def execute_update_job(
                 raise HTTPException(status_code=404, detail="Something is error, data update is failed!")
 
             duration_ms = _duration_ms()
-            rows_loaded = await count_source_rows(session=session, source=data)
+            target_start, target_end = resolve_run_window(data, types, start_date, end_date)
+            rows_loaded = await count_source_rows(
+                session=session,
+                source=data,
+                window_start=target_start,
+                window_end=target_end,
+            )
             await _mark_success(
                 message=message,
                 duration_ms=duration_ms,
@@ -535,6 +586,7 @@ async def execute_update_job(
                 "first_deposit",
                 "first_deposit_ba",
                 "ms_deposit",
+                "play_console_install_metrics",
                 "unique_campaign",
                 "instagram_insights",
                 "instagram_media_insights",
@@ -544,6 +596,7 @@ async def execute_update_job(
                 "youtube_media_insight",
                 "facebook_page_insights",
                 "facebook_page_media_insights",
+                "play_console_install_metrics",
             }:
                 clear_campaign_analytics_cache()
             logger.info(

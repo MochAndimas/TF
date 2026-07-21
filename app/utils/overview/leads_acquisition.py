@@ -251,8 +251,15 @@ class OverviewLeadsAcquisitionData:
         return {"rows": rows, "figure": json.loads(chart_json)}
 
     async def leads_per_day_chart(self, from_date: date, to_date: date) -> dict[str, object]:
-        ads_df = await self._ads_for_range(from_date, to_date)
-        daily = self._daily_totals_frame(ads_df, from_date, to_date)
+        register_df = await self._read_daily_register_db(from_date=from_date, to_date=to_date)
+        timeline = pd.DataFrame({"date": pd.date_range(start=from_date, end=to_date, freq="D").date})
+        if register_df.empty:
+            daily = timeline.copy()
+            daily["leads"] = 0
+        else:
+            grouped = register_df.groupby("date", as_index=False)["leads"].sum().sort_values("date")
+            daily = timeline.merge(grouped, on="date", how="left")
+            daily["leads"] = pd.to_numeric(daily["leads"], errors="coerce").fillna(0).astype(int)
         figure = go.Figure(data=[go.Bar(x=pd.to_datetime(daily["date"]).dt.strftime("%b %d\n%Y").tolist(), y=pd.to_numeric(daily["leads"], errors="coerce").fillna(0).tolist(), name="Register", marker_color="#6176ff", hovertemplate="<b>%{x}</b><br>Register: %{y:,}<extra></extra>")])
         figure.update_layout(title="Register per Day", xaxis=dict(type="category"), yaxis=dict(title="Register"))
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)

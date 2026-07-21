@@ -17,6 +17,7 @@ from app.db.models.external_api import (
     Ga4DailyMetrics,
     InstagramInsights,
     InstagramMediaInsights,
+    PlayConsoleInstallMetrics,
     TikTokInsights,
     TikTokMediaInsights,
     YouTubeDailyInsight,
@@ -30,6 +31,7 @@ from app.etl.load import (
     build_facebook_page_media_insights_rows,
     build_first_deposit_rows,
     build_ms_deposit_rows,
+    build_play_console_install_rows,
     build_ga4_rows,
     build_instagram_insights_rows,
     build_instagram_media_insights_rows,
@@ -40,6 +42,7 @@ from app.etl.load import (
     delete_first_deposit_ba_rows_in_window,
     delete_first_deposit_rows_in_window,
     delete_ms_deposit_rows_in_window,
+    delete_play_console_install_rows_in_window,
     delete_rows_in_date_window,
     upsert_ads_rows,
     upsert_daily_register_rows,
@@ -48,6 +51,7 @@ from app.etl.load import (
     upsert_first_deposit_ba_rows,
     upsert_first_deposit_rows,
     upsert_ms_deposit_rows,
+    upsert_play_console_install_rows,
     upsert_ga4_rows,
     upsert_instagram_insights_rows,
     upsert_instagram_media_insights_rows,
@@ -63,6 +67,7 @@ from app.etl.quality import (
     validate_facebook_page_media_insights_dataframe,
     validate_first_deposit_dataframe,
     validate_ms_deposit_dataframe,
+    validate_play_console_install_dataframe,
     validate_ga4_dataframe,
     validate_instagram_insights_dataframe,
     validate_instagram_media_insights_dataframe,
@@ -85,6 +90,7 @@ from app.etl.staging import (
     stage_youtube_daily_insight_raw,
     stage_youtube_media_insight_raw,
     stage_ms_deposit_raw,
+    stage_play_console_install_raw,
 )
 from app.etl.transform import (
     parse_ads_dataframe,
@@ -94,6 +100,7 @@ from app.etl.transform import (
     parse_first_deposit_dataframe,
     parse_first_deposit_ba_dataframe,
     parse_ms_deposit_dataframe,
+    parse_play_console_install_dataframe,
     parse_ga4_dataframe,
     parse_instagram_insights_dataframe,
     parse_instagram_media_insights_dataframe,
@@ -167,6 +174,10 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             cached_follow_activity=cached_follow_activity,
             cached_media_totals=cached_media_totals,
         )
+
+    async def _fetch_play_console_install_metrics(self, start_date, end_date) -> list[dict]:
+        """Fetch raw Google Play Console install metrics for the requested window."""
+        return await self.extractor.fetch_play_console_install_rows(start_date=start_date, end_date=end_date)
 
     async def _fetch_instagram_media_insights(self, start_date, end_date) -> list[dict]:
         """Fetch raw Instagram post/reels media insight metrics for the requested ETL window."""
@@ -271,6 +282,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return parse_daily_register_dataframe(raw_rows)
 
     @staticmethod
+    def _parse_play_console_install_dataframe(raw_rows: list[dict]):
+        """Parse raw Play Console install report rows into normalized metrics."""
+        return parse_play_console_install_dataframe(raw_rows)
+
+    @staticmethod
     def _parse_instagram_insights_dataframe(raw_rows: list[dict]):
         """Parse raw Instagram insights into a normalized dataframe."""
         return parse_instagram_insights_dataframe(raw_rows)
@@ -366,6 +382,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _build_daily_register_models(df, pull_date):
         """Convert validated daily register dataframe into load payload rows."""
         return build_daily_register_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_play_console_install_models(df, pull_date):
+        """Convert validated Play Console install dataframe into load payload rows."""
+        return build_play_console_install_rows(df=df, pull_date=pull_date)
 
     @staticmethod
     def _build_instagram_insights_models(df, pull_date):
@@ -1267,6 +1288,56 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_ms_deposit_models,
             delete_window=delete_window,
             load_rows=upsert_ms_deposit_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec,
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+        )
+
+    async def play_console_install_metrics(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run Google Play Console install/acquisition ETL."""
+        async def extract(target_start, target_end):
+            return await self._fetch_play_console_install_metrics(target_start, target_end)
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_play_console_install_raw(
+                session=session_,
+                raw_rows=raw_rows,
+                run_id=run_id_,
+                source="play_console_install_metrics",
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_play_console_install_rows_in_window(
+                session=session_,
+                window_start=target_start,
+                window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="play_console_install_metrics",
+            source="play_console_install_metrics",
+            empty_metric_name="Play Console install metrics",
+            date_column="date",
+            auto_skip_model=PlayConsoleInstallMetrics,
+            extract=extract,
+            stage=stage,
+            parse=self._parse_play_console_install_dataframe,
+            validate=validate_play_console_install_dataframe,
+            build_rows=self._build_play_console_install_models,
+            delete_window=delete_window,
+            load_rows=upsert_play_console_install_rows,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

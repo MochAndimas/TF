@@ -458,6 +458,33 @@ class Ga4DailyMetrics(SqliteBase):
     pull_date = Column("pull_date", Date, nullable=False)
 
 
+class PlayConsoleInstallMetrics(SqliteBase):
+    """Store daily Google Play Console install/acquisition metrics by country."""
+
+    __tablename__ = "play_console_install_metrics"
+    __table_args__ = (
+        UniqueConstraint(
+            "date",
+            "package_name",
+            "country",
+            name="uq_play_console_install_metrics_date_package_country",
+        ),
+        Index("ix_play_console_install_metrics_date", "date"),
+        Index("ix_play_console_install_metrics_package_name", "package_name"),
+        Index("ix_play_console_install_metrics_country", "country"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    package_name = Column("package_name", String, nullable=False)
+    country = Column("country", String, nullable=False)
+    installers = Column("installers", Integer, nullable=False, default=0)
+    uninstallers = Column("uninstallers", Integer, nullable=False, default=0)
+    active_devices = Column("active_devices", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class DailyRegister(SqliteBase):
     """Store daily registration totals by campaign from Google Sheets."""
 

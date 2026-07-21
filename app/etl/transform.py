@@ -806,3 +806,118 @@ def parse_ms_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     ].copy()
     parsed = parsed.loc[parsed["email"].notna()].copy()
     return parsed
+
+
+def _first_present_column(df: pd.DataFrame, aliases: list[str]) -> str | None:
+    for alias in aliases:
+        if alias in df.columns:
+            return alias
+    return None
+
+
+def parse_play_console_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Parse Google Play Console overview install CSV rows into daily metrics."""
+    if not raw_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(raw_rows)
+    df.columns = normalize_columns(df.columns.tolist())
+    if "source_object" in df.columns:
+        source_object = df["source_object"].fillna("").astype(str).str.lower()
+        overview_rows = df.loc[
+            source_object.str.contains("/installs/", regex=False)
+            & source_object.str.endswith("_overview.csv")
+        ].copy()
+        if not overview_rows.empty:
+            df = overview_rows
+
+    column_aliases = {
+        "date": ["date"],
+        "package_name": ["package_name", "package"],
+        "country": ["country", "country/region", "country_region", "country_or_region"],
+        "installers": [
+            "installers",
+            "install_events",
+            "daily_user_installs",
+            "user_installs",
+            "daily_device_installs",
+        ],
+        "uninstallers": [
+            "uninstallers",
+            "uninstall_events",
+            "daily_user_uninstalls",
+            "user_uninstalls",
+            "daily_device_uninstalls",
+        ],
+        "active_devices": [
+            "active_devices",
+            "active_device_installs",
+            "current_device_installs",
+        ],
+    }
+    resolved = {
+        target: _first_present_column(df, aliases)
+        for target, aliases in column_aliases.items()
+    }
+    required = ["date", "package_name"]
+    missing_required = [column for column in required if resolved[column] is None]
+    if missing_required:
+        raise ValueError(f"Missing columns in Play Console report: {missing_required}")
+
+    if resolved["country"] is None:
+        country = pd.Series(["all"] * len(df), index=df.index)
+    else:
+        country = df[resolved["country"]].fillna("").astype(str).str.strip()
+        if (country == "").all():
+            country = pd.Series(["all"] * len(df), index=df.index)
+        else:
+            country = country.replace({"": "unknown"})
+
+    parsed = pd.DataFrame(
+        {
+            "date": pd.to_datetime(df[resolved["date"]], errors="coerce").dt.date,
+            "package_name": df[resolved["package_name"]].fillna("").astype(str).str.strip(),
+            "country": country,
+        }
+    )
+    for metric in (
+        "installers",
+        "uninstallers",
+        "active_devices",
+    ):
+        source_column = resolved.get(metric)
+        if source_column is None:
+            parsed[metric] = 0
+        else:
+            parsed[metric] = (
+                df[source_column]
+                .astype(str)
+                .str.replace(",", "", regex=False)
+                .replace({"": "0", "nan": "0", "None": "0"})
+            )
+            parsed[metric] = pd.to_numeric(parsed[metric], errors="coerce").fillna(0).astype(int)
+
+    parsed = parsed[(parsed["date"].notna()) & (parsed["package_name"] != "")].copy()
+    if parsed.empty:
+        return pd.DataFrame(
+            columns=[
+                "date",
+                "package_name",
+                "country",
+                "installers",
+                "uninstallers",
+                "active_devices",
+            ]
+        )
+    grouped = (
+        parsed.groupby(["date", "package_name", "country"], as_index=False)[
+            [
+                "installers",
+                "uninstallers",
+                "active_devices",
+            ]
+        ]
+        .sum()
+        .sort_values(["date", "package_name", "country"])
+    )
+    return grouped

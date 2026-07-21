@@ -575,3 +575,36 @@ def validate_ms_deposit_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(
             f"DQ failed: MS deposit data has {int(invalid_metric)} rows with negative first deposit."
         )
+
+
+def validate_play_console_install_dataframe(df: pd.DataFrame) -> None:
+    """Validate transformed Google Play Console install metrics before load."""
+    if df.empty:
+        return
+
+    missing_key = df[["date", "package_name", "country"]].isna().any(axis=1).sum()
+    if missing_key:
+        raise ValueError(
+            f"DQ failed: Play Console install data has {int(missing_key)} rows with missing business keys."
+        )
+
+    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: Play Console install data has {int(invalid_dates)} rows with invalid dates."
+        )
+
+    metric_columns = [
+        "installers",
+        "uninstallers",
+        "active_devices",
+    ]
+    negative_metric = (df[metric_columns].apply(pd.to_numeric, errors="coerce").fillna(0) < 0).any(axis=1).sum()
+    if negative_metric:
+        raise ValueError(
+            f"DQ failed: Play Console install data has {int(negative_metric)} rows with negative metrics."
+        )
+
+    dup_ratio = _duplicate_ratio(df, ["date", "package_name", "country"])
+    if dup_ratio > 0:
+        raise ValueError(f"DQ failed: Play Console install duplicate key ratio {dup_ratio:.2%}.")

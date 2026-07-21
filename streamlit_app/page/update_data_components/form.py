@@ -29,6 +29,7 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit (GSheet)": "first_deposit",
     "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
+    "Google Play Console Install Metrics": "play_console_install_metrics",
 }
 
 ALL_DATA_SOURCE_VALUES = [
@@ -49,6 +50,7 @@ ALL_DATA_SOURCE_VALUES = [
     "first_deposit",
     "first_deposit_ba",
     "ms_deposit",
+    "play_console_install_metrics",
 ]
 
 
