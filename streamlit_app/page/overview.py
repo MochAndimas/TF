@@ -10,12 +10,16 @@ from streamlit_app.functions.api import ApiClientResult, fetch_api_result
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import (
+    _campaign_format_growth,
+    _campaign_format_number,
     render_brand_awareness_metric_cards,
     render_overview_cost_to_revenue_metric_cards,
     render_overview_cost_metric_cards,
     render_overview_leads_metric_cards,
     render_overview_metric_cards,
 )
+from streamlit_app.page.install import _build_daily_figure as build_install_daily_figure
+from streamlit_app.page.install import _daily_dataframe as install_daily_dataframe
 from streamlit_app.page.overview_components.charts import (
     build_cost_to_deposit_ratio_figure,
     build_cost_vs_deposit_figure,
@@ -120,12 +124,39 @@ def _raw_payload_or_error(result: ApiClientResult | None, fallback_message: str)
     return None
 
 
+def _render_install_metric_cards(summary_payload: dict[str, object]) -> None:
+    current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
+    growth_metrics = summary_payload.get("growth_percentage", {})
+    cards = [
+        ("Install", "installers"),
+        ("Uninstall", "uninstallers"),
+        ("Active Users", "active_devices"),
+    ]
+
+    for column, (label, key) in zip(st.columns(3, gap="small"), cards):
+        with column:
+            with st.container(border=True):
+                raw_value = current_metrics.get(key, 0)
+                growth_value = growth_metrics.get(key, 0.0)
+                delta_color = "inverse" if key == "uninstallers" else "normal"
+                if growth_value == 0:
+                    delta_color = "off"
+                st.metric(
+                    label=label,
+                    value=_campaign_format_number(raw_value),
+                    delta=_campaign_format_growth(growth_value),
+                    delta_color=delta_color,
+                )
+
+
 async def _ensure_overview_payloads(host: str, start_date, end_date, selected_range) -> bool:
     cached_cost_payload = st.session_state.get("overview_campaign_cost_payload", {})
     cached_active_payload_map = st.session_state.get("overview_active_users_payload_by_source", {})
+    cached_install_payload = st.session_state.get("overview_install_payload", {})
     cached_leads_payload = st.session_state.get("overview_leads_payload", {})
     cached_brand_payload = st.session_state.get("overview_brand_payload", {})
     cached_remarketing_payload = st.session_state.get("overview_remarketing_payload", {})
+    can_view_install = "install" in st.session_state.get("allowed_pages", [])
 
     should_fetch_cost = (
         "overview_campaign_cost_payload" not in st.session_state
@@ -138,6 +169,11 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         or not _has_metric(cached_active_payload_map.get("web", {}), "data", "stickiness_with_growth", "current_period", "metrics", "active_user")
         or not _has_metric(cached_active_payload_map.get("app_web", {}), "data", "stickiness_with_growth", "current_period", "metrics", "active_user")
         or st.session_state.get("overview_active_range") != selected_range
+    )
+    should_fetch_install = can_view_install and (
+        "overview_install_payload" not in st.session_state
+        or not _has_metric(cached_install_payload, "data", "daily_rows")
+        or st.session_state.get("overview_install_range") != selected_range
     )
     should_fetch_leads = (
         "overview_leads_payload" not in st.session_state
@@ -157,7 +193,7 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         or st.session_state.get("overview_remarketing_range") != selected_range
     )
 
-    if not any([should_fetch_cost, should_fetch_active, should_fetch_leads, should_fetch_brand, should_fetch_remarketing]):
+    if not any([should_fetch_cost, should_fetch_active, should_fetch_install, should_fetch_leads, should_fetch_brand, should_fetch_remarketing]):
         return True
 
     if not st.session_state.get("access_token"):
@@ -165,6 +201,7 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
         return False
 
     result_cost = result_leads = result_brand = result_remarketing = None
+    result_install = None
     result_app = result_web = result_combined = None
     with st.spinner("Fetching data..."):
         if should_fetch_cost:
@@ -174,6 +211,19 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
                 fetch_api_result(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "app"}),
                 fetch_api_result(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "web"}),
                 fetch_api_result(st=st, host=host, uri="overview/active-users", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "source": "app_web"}),
+            )
+        if should_fetch_install:
+            result_install = await fetch_api_result(
+                st=st,
+                host=host,
+                uri="install/analytics",
+                method="GET",
+                params={
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "package_name": "all",
+                    "country": "all",
+                },
             )
         if should_fetch_leads:
             result_leads = await fetch_api_result(st=st, host=host, uri="overview/leads-acquisition", method="GET", params={"start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
@@ -214,6 +264,11 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
             return False
         st.session_state["overview_active_users_payload_by_source"] = {"app": response_app, "web": response_web, "app_web": response_combined}
         st.session_state["overview_active_range"] = selected_range
+    if should_fetch_install:
+        response_install = _raw_payload_or_error(result_install, "Failed to fetch overview install analytics.")
+        if response_install is not None:
+            st.session_state["overview_install_payload"] = response_install
+            st.session_state["overview_install_range"] = selected_range
     return True
 
 
@@ -265,6 +320,16 @@ async def show_overview_page(host: str) -> None:
     render_overview_metric_cards(st, stickiness_summary)
     with st.container(border=True):
         st.plotly_chart(active_chart_figure, width="stretch")
+
+    if "install" in st.session_state.get("allowed_pages", []):
+        st.markdown('<div class="metric-section-title">App Install</div>', unsafe_allow_html=True)
+        install_data = st.session_state.get("overview_install_payload", {}).get("data", {})
+        _render_install_metric_cards(install_data.get("metrics", {}))
+        install_daily_df = install_daily_dataframe(install_data.get("daily_rows", []))
+        install_daily_figure = set_transparent_chart_background(build_install_daily_figure(install_daily_df))
+        install_daily_figure.update_layout(height=440)
+        with st.container(border=True):
+            st.plotly_chart(install_daily_figure, width="stretch")
 
     overview_data = st.session_state.get("overview_campaign_cost_payload", {}).get("data", {})
     cost_summary = overview_data.get("cost_metrics_with_growth", {})
