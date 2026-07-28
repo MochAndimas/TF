@@ -7,6 +7,7 @@ import csv
 import gzip
 import io
 import json
+import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from google.oauth2.service_account import Credentials as ServiceAccountCredentia
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 import httpx
+from jose import jwt
 
 from app.core.security import decrypt_secret, encrypt_secret
 from app.db.models.external_api import ManagedSecret
@@ -159,6 +161,17 @@ class ExternalApiExtractor:
                 credentials=play_console_creds,
                 cache_discovery=False,
             )
+        self.apple_asc_key_id = config("APPLE_ASC_KEY_ID", default="", cast=str).strip()
+        self.apple_asc_issuer_id = config("APPLE_ASC_ISSUER_ID", default="", cast=str).strip()
+        self.apple_asc_private_key = (
+            config("APPLE_ASC_PRIVATE_KEY", default="", cast=str).strip().replace("\\n", "\n")
+        )
+        self.apple_asc_app_id = config("APPLE_ASC_APP_ID", default="", cast=str).strip()
+        self.apple_asc_report_request_id = config(
+            "APPLE_ASC_REPORT_REQUEST_ID",
+            default="",
+            cast=str,
+        ).strip()
         self.google_ads_customer_id = normalize_customer_id(
             config("GOOGLE_ADS_CUSTOMER_ID", default="", cast=str)
         )
@@ -2289,6 +2302,214 @@ class ExternalApiExtractor:
             return result.get("values", [])
 
         return await asyncio.to_thread(_request)
+
+    def _build_apple_asc_token(self) -> str:
+        """Create a short-lived App Store Connect API JWT."""
+        missing = [
+            name
+            for name, value in (
+                ("APPLE_ASC_KEY_ID", self.apple_asc_key_id),
+                ("APPLE_ASC_ISSUER_ID", self.apple_asc_issuer_id),
+                ("APPLE_ASC_PRIVATE_KEY", self.apple_asc_private_key),
+                ("APPLE_ASC_APP_ID", self.apple_asc_app_id),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(f"Missing App Store Connect configuration: {', '.join(missing)}")
+
+        issued_at = int(time.time())
+        return jwt.encode(
+            {
+                "iss": self.apple_asc_issuer_id,
+                "iat": issued_at,
+                "exp": issued_at + 600,
+                "aud": "appstoreconnect-v1",
+            },
+            self.apple_asc_private_key,
+            algorithm="ES256",
+            headers={"kid": self.apple_asc_key_id, "typ": "JWT"},
+        )
+
+    @staticmethod
+    async def _apple_get_json(
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        headers: dict[str, str],
+        params: dict[str, str] | None = None,
+    ) -> dict:
+        response = await client.get(url, headers=headers, params=params)
+        if response.status_code >= 400:
+            detail = response.text
+            try:
+                errors = response.json().get("errors", [])
+                if errors:
+                    detail = errors[0].get("detail") or errors[0].get("title") or detail
+            except ValueError:
+                pass
+            raise ValueError(
+                f"App Store Connect API returned {response.status_code}: {detail}"
+            )
+        return response.json()
+
+    async def _resolve_apple_report_request_id(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        headers: dict[str, str],
+    ) -> str:
+        if self.apple_asc_report_request_id:
+            return self.apple_asc_report_request_id
+
+        payload = await self._apple_get_json(
+            client,
+            (
+                "https://api.appstoreconnect.apple.com/v1/apps/"
+                f"{self.apple_asc_app_id}/relationships/analyticsReportRequests"
+            ),
+            headers=headers,
+        )
+        request_ids = [item.get("id") for item in payload.get("data", []) if item.get("id")]
+        if not request_ids:
+            raise ValueError(
+                "No App Store Connect Analytics Report Request exists for this app. "
+                "An Admin must create an ONGOING analytics report request first."
+            )
+        return request_ids[0]
+
+    async def _apple_paginated_data(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        headers: dict[str, str],
+        params: dict[str, str] | None = None,
+    ) -> list[dict]:
+        rows: list[dict] = []
+        next_url: str | None = url
+        next_params = params
+        while next_url:
+            payload = await self._apple_get_json(
+                client,
+                next_url,
+                headers=headers,
+                params=next_params,
+            )
+            rows.extend(payload.get("data", []))
+            next_url = payload.get("links", {}).get("next")
+            next_params = None
+        return rows
+
+    @staticmethod
+    def _select_apple_install_reports(reports: list[dict]) -> dict[str, dict]:
+        """Select standard reports needed for the requested date-grain metrics."""
+        targets = {
+            "downloads": ("app store downloads",),
+            "installs": ("app store installations", "deletions"),
+            "sessions": ("app sessions",),
+        }
+        selected: dict[str, dict] = {}
+        for key, required_terms in targets.items():
+            candidates = []
+            for report in reports:
+                name = str(report.get("attributes", {}).get("name", "")).strip().lower()
+                if all(term in name for term in required_terms):
+                    candidates.append(report)
+            if not candidates:
+                continue
+            candidates.sort(
+                key=lambda item: (
+                    "detailed" in str(item.get("attributes", {}).get("name", "")).lower(),
+                    "standard" not in str(item.get("attributes", {}).get("name", "")).lower(),
+                )
+            )
+            selected[key] = candidates[0]
+        return selected
+
+    async def fetch_apple_install_rows(self, start_date: date, end_date: date) -> list[dict]:
+        """Download latest daily Apple download/install/session report partitions."""
+        token = self._build_apple_asc_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            request_id = await self._resolve_apple_report_request_id(client, headers=headers)
+            reports = await self._apple_paginated_data(
+                client,
+                (
+                    "https://api.appstoreconnect.apple.com/v1/"
+                    f"analyticsReportRequests/{request_id}/reports"
+                ),
+                headers=headers,
+            )
+            selected = self._select_apple_install_reports(reports)
+            missing = [
+                label for label in ("downloads", "installs", "sessions") if label not in selected
+            ]
+            if missing:
+                raise ValueError(
+                    "Required App Store Connect reports are not available yet: "
+                    + ", ".join(missing)
+                    + ". New report requests usually need 24-48 hours to generate."
+                )
+
+            raw_rows: list[dict] = []
+            today = datetime.now(timezone.utc).date()
+            for report_key, report in selected.items():
+                report_id = report["id"]
+                report_name = report.get("attributes", {}).get("name", report_key)
+                instances = await self._apple_paginated_data(
+                    client,
+                    (
+                        "https://api.appstoreconnect.apple.com/v1/"
+                        f"analyticsReports/{report_id}/instances"
+                    ),
+                    headers=headers,
+                    params={"filter[granularity]": "DAILY"},
+                )
+
+                relevant_instances = []
+                for instance in instances:
+                    attributes = instance.get("attributes", {})
+                    processing_date = pd_date = attributes.get("processingDate")
+                    if not processing_date:
+                        continue
+                    try:
+                        pd_date = date.fromisoformat(str(processing_date))
+                    except ValueError:
+                        continue
+                    # Apple overwrites a Date partition with the newest processing
+                    # date. Include the completeness window plus today's corrections.
+                    if start_date <= pd_date <= min(today, end_date + timedelta(days=5)):
+                        relevant_instances.append(instance)
+                    elif pd_date == today:
+                        relevant_instances.append(instance)
+
+                relevant_instances.sort(
+                    key=lambda item: item.get("attributes", {}).get("processingDate", "")
+                )
+                for instance in relevant_instances:
+                    processing_date = instance.get("attributes", {}).get("processingDate")
+                    segments = await self._apple_paginated_data(
+                        client,
+                        (
+                            "https://api.appstoreconnect.apple.com/v1/"
+                            f"analyticsReportInstances/{instance['id']}/segments"
+                        ),
+                        headers=headers,
+                    )
+                    for segment in segments:
+                        url = segment.get("attributes", {}).get("url")
+                        if not url:
+                            continue
+                        response = await client.get(url)
+                        response.raise_for_status()
+                        content = gzip.decompress(response.content).decode("utf-8-sig")
+                        for row in csv.DictReader(io.StringIO(content), delimiter="\t"):
+                            row["_apple_report"] = report_key
+                            row["_apple_report_name"] = report_name
+                            row["_apple_processing_date"] = processing_date
+                            raw_rows.append(row)
+            return raw_rows
 
     async def fetch_play_console_install_rows(self, start_date: date, end_date: date) -> list[dict]:
         """Fetch Google Play Console install/acquisition report rows from GCS exports."""

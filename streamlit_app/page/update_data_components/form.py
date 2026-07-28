@@ -30,6 +30,7 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
     "Google Play Console Install Metrics": "play_console_install_metrics",
+    "Apple App Store Install Metrics": "apple_install",
 }
 
 ALL_DATA_SOURCE_VALUES = [
@@ -51,6 +52,7 @@ ALL_DATA_SOURCE_VALUES = [
     "first_deposit_ba",
     "ms_deposit",
     "play_console_install_metrics",
+    "apple_install",
 ]
 
 
@@ -104,8 +106,10 @@ def render_update_form() -> dict[str, object]:
         with right_col:
             preset_key = st.selectbox("Date Preset", options=list(presets.keys()), index=0 if mode == "auto" else None, disabled=(mode == "auto"), placeholder="Select date range preset", key="update_period")
             if mode == "auto":
-                auto_date = dt.date.today() - dt.timedelta(days=1)
-                st.info(f"Auto mode uses date: `{auto_date.isoformat()}`")
+                lag_days = 5 if source_label == "Apple App Store Install Metrics" else 1
+                auto_date = dt.date.today() - dt.timedelta(days=lag_days)
+                suffix = " (Apple completeness window)" if lag_days == 5 else ""
+                st.info(f"Auto mode uses date: `{auto_date.isoformat()}`{suffix}")
             elif preset_key:
                 try:
                     from_date, to_date = resolve_date_input(mode, preset_key, presets)

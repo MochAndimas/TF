@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Any
 
@@ -13,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.db.models.external_api import (
+    AppleInstall,
     Campaign,
     DailyRegister,
     DataDepo,
@@ -67,6 +69,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "first_deposit_ba",
     "ms_deposit",
     "play_console_install_metrics",
+    "apple_install",
 )
 
 PipelineExecutor = Callable[[GoogleSheetApi, Any, str, Any, Any, str], Awaitable[str]]
@@ -378,6 +381,23 @@ async def _run_play_console_install_metrics(
     )
 
 
+async def _run_apple_install(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.apple_install(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -397,6 +417,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
     "play_console_install_metrics": _run_play_console_install_metrics,
+    "apple_install": _run_apple_install,
 }
 
 SOURCE_MODELS = {
@@ -418,6 +439,7 @@ SOURCE_MODELS = {
     "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
     "play_console_install_metrics": PlayConsoleInstallMetrics,
+    "apple_install": AppleInstall,
 }
 
 SOURCE_DATE_COLUMNS = {
@@ -438,6 +460,7 @@ SOURCE_DATE_COLUMNS = {
     "first_deposit_ba": "tanggal_regis",
     "ms_deposit": "last_activity",
     "play_console_install_metrics": "date",
+    "apple_install": "date",
 }
 
 
@@ -456,6 +479,9 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
     """
     if data == "unique_campaign":
         return None, None
+    if data == "apple_install" and types == "auto":
+        complete_date = datetime.now().date() - timedelta(days=5)
+        return complete_date, complete_date
     return resolve_date_window(types, start_date, end_date)
 
 
@@ -587,6 +613,7 @@ async def execute_update_job(
                 "first_deposit_ba",
                 "ms_deposit",
                 "play_console_install_metrics",
+                "apple_install",
                 "unique_campaign",
                 "instagram_insights",
                 "instagram_media_insights",

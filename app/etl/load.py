@@ -10,6 +10,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import (
+    AppleInstall,
     Campaign,
     DataDepo,
     DataDepoBa,
@@ -1049,6 +1050,26 @@ def build_play_console_install_rows(df: pd.DataFrame, pull_date: date) -> list[d
     return rows
 
 
+def build_apple_install_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert date-grain Apple install metrics into database rows."""
+    metric_columns = [
+        "first_time_downloads",
+        "redownloads",
+        "total_downloads",
+        "installations",
+        "deletions",
+        "active_devices",
+    ]
+    return [
+        {
+            "date": row["date"],
+            **{column: int(row[column]) for column in metric_columns},
+            "pull_date": pull_date,
+        }
+        for _, row in df.iterrows()
+    ]
+
+
 async def upsert_ms_deposit_rows(session: AsyncSession, rows: list[dict]) -> None:
     """Upsert MS1 deposit/activity rows into ``data_ms_deposit``."""
     if not rows:
@@ -1108,6 +1129,29 @@ async def upsert_play_console_install_rows(session: AsyncSession, rows: list[dic
         await session.execute(upsert_stmt)
 
 
+async def upsert_apple_install_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert App Store Connect install metrics by date."""
+    if not rows:
+        return
+
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(AppleInstall).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date"],
+            set_={
+                "first_time_downloads": insert_stmt.excluded.first_time_downloads,
+                "redownloads": insert_stmt.excluded.redownloads,
+                "total_downloads": insert_stmt.excluded.total_downloads,
+                "installations": insert_stmt.excluded.installations,
+                "deletions": insert_stmt.excluded.deletions,
+                "active_devices": insert_stmt.excluded.active_devices,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
 async def delete_play_console_install_rows_in_window(
     session: AsyncSession,
     *,
@@ -1117,5 +1161,18 @@ async def delete_play_console_install_rows_in_window(
     """Delete Play Console install rows inside a reporting window."""
     result = await session.execute(
         delete(PlayConsoleInstallMetrics).where(PlayConsoleInstallMetrics.date.between(window_start, window_end))
+    )
+    return int(result.rowcount or 0)
+
+
+async def delete_apple_install_rows_in_window(
+    session: AsyncSession,
+    *,
+    window_start: date,
+    window_end: date,
+) -> int:
+    """Delete Apple install rows inside a reporting window."""
+    result = await session.execute(
+        delete(AppleInstall).where(AppleInstall.date.between(window_start, window_end))
     )
     return int(result.rowcount or 0)

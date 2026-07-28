@@ -608,3 +608,33 @@ def validate_play_console_install_dataframe(df: pd.DataFrame) -> None:
     dup_ratio = _duplicate_ratio(df, ["date", "package_name", "country"])
     if dup_ratio > 0:
         raise ValueError(f"DQ failed: Play Console install duplicate key ratio {dup_ratio:.2%}.")
+
+
+def validate_apple_install_dataframe(df: pd.DataFrame) -> None:
+    """Validate date-grain App Store Connect install metrics."""
+    if df.empty:
+        return
+
+    if df["date"].isna().any():
+        raise ValueError("DQ failed: Apple install data has missing dates.")
+    invalid_dates = (df["date"] < pd.Timestamp("2024-01-01").date()).sum()
+    if invalid_dates:
+        raise ValueError(
+            f"DQ failed: Apple install data has {int(invalid_dates)} dates before API history."
+        )
+
+    metric_columns = [
+        "first_time_downloads",
+        "redownloads",
+        "total_downloads",
+        "installations",
+        "deletions",
+        "active_devices",
+    ]
+    numeric = df[metric_columns].apply(pd.to_numeric, errors="coerce")
+    if numeric.isna().any(axis=1).any() or (numeric < 0).any(axis=1).any():
+        raise ValueError("DQ failed: Apple install data has invalid or negative metrics.")
+    if (df["total_downloads"] != df["first_time_downloads"] + df["redownloads"]).any():
+        raise ValueError("DQ failed: Apple total downloads does not match its components.")
+    if _duplicate_ratio(df, ["date"]) > 0:
+        raise ValueError("DQ failed: Apple install data contains duplicate dates.")

@@ -296,6 +296,31 @@ async def _migration_20260716_001_play_console_install_metrics(connection) -> No
     await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_play_console_install_metrics_country ON play_console_install_metrics(country)"))
 
 
+async def _migration_20260728_001_apple_install(connection) -> None:
+    """Create date-grain App Store Connect install metric storage."""
+    await connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS apple_install (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                date DATE NOT NULL,
+                first_time_downloads INTEGER NOT NULL DEFAULT 0,
+                redownloads INTEGER NOT NULL DEFAULT 0,
+                total_downloads INTEGER NOT NULL DEFAULT 0,
+                installations INTEGER NOT NULL DEFAULT 0,
+                deletions INTEGER NOT NULL DEFAULT 0,
+                active_devices INTEGER NOT NULL DEFAULT 0,
+                pull_date DATE NOT NULL,
+                CONSTRAINT uq_apple_install_date UNIQUE (date)
+            )
+            """
+        )
+    )
+    await connection.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_apple_install_date ON apple_install(date)")
+    )
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -341,6 +366,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260716_001_play_console_install_metrics",
         "Create Google Play Console install metric table.",
         _migration_20260716_001_play_console_install_metrics,
+    ),
+    (
+        "20260728_001_apple_install",
+        "Create App Store Connect install metric table.",
+        _migration_20260728_001_apple_install,
     ),
 )
 

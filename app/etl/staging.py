@@ -429,3 +429,29 @@ async def stage_play_console_install_raw(
         for item in raw_rows
     ]
     return await _insert_staging_rows(session, rows)
+
+
+async def stage_apple_install_raw(
+    session: AsyncSession,
+    raw_rows: list[dict],
+    *,
+    run_id: str | None,
+    source: str,
+) -> int:
+    """Persist raw App Store Connect analytics report records."""
+    if not raw_rows:
+        return 0
+
+    ingested_at = datetime.now()
+    rows = [
+        {
+            "run_id": run_id,
+            "source": source,
+            "range_name": str(item.get("_apple_report_name") or "apple_analytics_report"),
+            "payload": item,
+            "payload_hash": _payload_hash(item),
+            "ingested_at": ingested_at,
+        }
+        for item in raw_rows
+    ]
+    return await _insert_staging_rows(session, rows)

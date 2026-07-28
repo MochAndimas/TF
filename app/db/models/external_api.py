@@ -485,6 +485,27 @@ class PlayConsoleInstallMetrics(SqliteBase):
     pull_date = Column("pull_date", Date, nullable=False)
 
 
+class AppleInstall(SqliteBase):
+    """Store App Store Connect download and opt-in usage metrics by date."""
+
+    __tablename__ = "apple_install"
+    __table_args__ = (
+        UniqueConstraint("date", name="uq_apple_install_date"),
+        Index("ix_apple_install_date", "date"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    first_time_downloads = Column("first_time_downloads", Integer, nullable=False, default=0)
+    redownloads = Column("redownloads", Integer, nullable=False, default=0)
+    total_downloads = Column("total_downloads", Integer, nullable=False, default=0)
+    installations = Column("installations", Integer, nullable=False, default=0)
+    deletions = Column("deletions", Integer, nullable=False, default=0)
+    active_devices = Column("active_devices", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class DailyRegister(SqliteBase):
     """Store daily registration totals by campaign from Google Sheets."""
 

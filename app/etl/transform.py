@@ -921,3 +921,91 @@ def parse_play_console_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         .sort_values(["date", "package_name", "country"])
     )
     return grouped
+
+
+def parse_apple_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Aggregate App Store Connect reports to one row per event date."""
+    metric_columns = [
+        "first_time_downloads",
+        "redownloads",
+        "total_downloads",
+        "installations",
+        "deletions",
+        "active_devices",
+    ]
+    if not raw_rows:
+        return pd.DataFrame(columns=["date", *metric_columns])
+
+    df = pd.DataFrame(raw_rows)
+    df.columns = normalize_columns(df.columns.tolist())
+    required_metadata = ["_apple_report", "_apple_processing_date", "date"]
+    missing_metadata = [column for column in required_metadata if column not in df.columns]
+    if missing_metadata:
+        raise ValueError(f"Missing metadata in Apple analytics payload: {missing_metadata}")
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df["_apple_processing_date"] = pd.to_datetime(
+        df["_apple_processing_date"],
+        errors="coerce",
+    ).dt.date
+    df = df[df["date"].notna() & df["_apple_processing_date"].notna()].copy()
+    if df.empty:
+        return pd.DataFrame(columns=["date", *metric_columns])
+
+    latest = df.groupby(["_apple_report", "date"])["_apple_processing_date"].transform("max")
+    df = df[df["_apple_processing_date"] == latest].copy()
+    output: dict[date, dict[str, int]] = {}
+
+    def daily_row(event_date: date) -> dict[str, int]:
+        return output.setdefault(event_date, {column: 0 for column in metric_columns})
+
+    downloads = df[df["_apple_report"] == "downloads"].copy()
+    if not downloads.empty:
+        missing = [
+            column for column in ("download_type", "counts") if column not in downloads.columns
+        ]
+        if missing:
+            raise ValueError(f"Missing columns in App Store Downloads report: {missing}")
+        downloads["counts"] = pd.to_numeric(downloads["counts"], errors="coerce").fillna(0)
+        for _, row in downloads.iterrows():
+            download_type = str(row["download_type"]).strip().lower().replace("-", " ")
+            target = daily_row(row["date"])
+            if download_type == "first time download":
+                target["first_time_downloads"] += int(row["counts"])
+            elif download_type == "redownload":
+                target["redownloads"] += int(row["counts"])
+
+    installs = df[df["_apple_report"] == "installs"].copy()
+    if not installs.empty:
+        missing = [column for column in ("event", "counts") if column not in installs.columns]
+        if missing:
+            raise ValueError(
+                f"Missing columns in App Store Installations and Deletions report: {missing}"
+            )
+        installs["counts"] = pd.to_numeric(installs["counts"], errors="coerce").fillna(0)
+        for _, row in installs.iterrows():
+            event = str(row["event"]).strip().lower()
+            target = daily_row(row["date"])
+            if event == "install":
+                target["installations"] += int(row["counts"])
+            elif event == "delete":
+                target["deletions"] += int(row["counts"])
+
+    sessions = df[df["_apple_report"] == "sessions"].copy()
+    if not sessions.empty:
+        if "unique_devices" not in sessions.columns:
+            raise ValueError("Missing Unique Devices column in App Sessions report.")
+        sessions["unique_devices"] = pd.to_numeric(
+            sessions["unique_devices"],
+            errors="coerce",
+        ).fillna(0)
+        for event_date, group in sessions.groupby("date"):
+            daily_row(event_date)["active_devices"] = int(group["unique_devices"].sum())
+
+    rows = []
+    for event_date, metrics in sorted(output.items()):
+        metrics["total_downloads"] = (
+            metrics["first_time_downloads"] + metrics["redownloads"]
+        )
+        rows.append({"date": event_date, **metrics})
+    return pd.DataFrame(rows, columns=["date", *metric_columns])
