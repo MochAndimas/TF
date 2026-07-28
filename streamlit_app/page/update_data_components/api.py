@@ -20,6 +20,24 @@ async def trigger_update_job(host: str, access_token: str, payload: dict[str, ob
     return {"response": response, "data": data}
 
 
+async def has_successful_snapshot(host: str, access_token: str) -> bool:
+    """Return whether the Apple one-time snapshot has completed successfully."""
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.get(
+            f"{host}/api/feature-data/update-external-api/summary",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={
+                "source": "apple_install_snapshot",
+                "status": "success",
+                "limit": 1,
+            },
+        )
+    if response.status_code >= 400:
+        return False
+    payload = response.json() if response.content else {}
+    return bool(payload.get("latest_runs"))
+
+
 async def poll_update_job(host: str, access_token: str, run_id: str) -> dict[str, object]:
     """Poll one update job until completion or timeout."""
     status_url = f"{host}/api/feature-data/update-external-api/{run_id}"

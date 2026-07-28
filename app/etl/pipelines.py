@@ -191,6 +191,15 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         return await self.extractor.fetch_apple_install_rows(
             start_date=start_date,
             end_date=end_date,
+            access_type="ONGOING",
+        )
+
+    async def _fetch_apple_install_snapshot(self, start_date, end_date) -> list[dict]:
+        """Fetch one-time historical App Store Connect analytics reports."""
+        return await self.extractor.fetch_apple_install_rows(
+            start_date=start_date,
+            end_date=end_date,
+            access_type="ONE_TIME_SNAPSHOT",
         )
 
     async def _fetch_instagram_media_insights(self, start_date, end_date) -> list[dict]:
@@ -1378,9 +1387,53 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         types: str = "auto",
         run_id: str | None = None,
     ) -> str:
-        """Run date-grain App Store Connect install ETL."""
+        """Run date-grain ongoing App Store Connect install ETL."""
+        return await self._run_apple_install_pipeline(
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+            source="apple_install",
+            access_type="ONGOING",
+        )
 
+    async def apple_install_snapshot(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "manual",
+        run_id: str | None = None,
+    ) -> str:
+        """Run one-time historical App Store Connect install ETL."""
+        if types != "manual":
+            raise ValueError("Apple one-time snapshot can only run in manual mode.")
+        return await self._run_apple_install_pipeline(
+            session=session,
+            start_date=start_date,
+            end_date=end_date,
+            types=types,
+            run_id=run_id,
+            source="apple_install_snapshot",
+            access_type="ONE_TIME_SNAPSHOT",
+        )
+
+    async def _run_apple_install_pipeline(
+        self,
+        *,
+        session: AsyncSession,
+        start_date,
+        end_date,
+        types: str,
+        run_id: str | None,
+        source: str,
+        access_type: str,
+    ) -> str:
+        """Run the shared ongoing/snapshot App Store Connect pipeline."""
         async def extract(target_start, target_end):
+            if access_type == "ONE_TIME_SNAPSHOT":
+                return await self._fetch_apple_install_snapshot(target_start, target_end)
             return await self._fetch_apple_install(target_start, target_end)
 
         async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
@@ -1388,7 +1441,7 @@ class GoogleSheetApi(DateWindowPipelineRunner):
                 session=session_,
                 raw_rows=raw_rows,
                 run_id=run_id_,
-                source="apple_install",
+                source=source,
             )
 
         async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
@@ -1405,8 +1458,8 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             return self._resolve_date_window(mode, requested_start, requested_end)
 
         spec = DateWindowPipelineSpec(
-            label="apple_install",
-            source="apple_install",
+            label=source,
+            source=source,
             empty_metric_name="Apple install metrics",
             date_column="date",
             auto_skip_model=AppleInstall,
@@ -1417,7 +1470,7 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             build_rows=self._build_apple_install_models,
             delete_window=delete_window,
             load_rows=upsert_apple_install_rows,
-            resolve_window=resolve_window,
+            resolve_window=resolve_window if access_type == "ONGOING" else None,
         )
         return await self._run_date_window_pipeline(
             spec=spec,

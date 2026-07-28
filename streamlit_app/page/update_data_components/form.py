@@ -30,7 +30,7 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
     "Google Play Console Install Metrics": "play_console_install_metrics",
-    "Apple App Store Install Metrics": "apple_install",
+    "Apple App Store Install Metrics (ONGOING)": "apple_install",
 }
 
 ALL_DATA_SOURCE_VALUES = [
@@ -54,6 +54,16 @@ ALL_DATA_SOURCE_VALUES = [
     "play_console_install_metrics",
     "apple_install",
 ]
+
+
+def data_source_options(*, snapshot_completed: bool = False) -> dict[str, str]:
+    """Build source options, hiding the one-time snapshot after success."""
+    options = dict(DATA_SOURCE_OPTIONS)
+    if not snapshot_completed:
+        options["Apple App Store Install Metrics (ONE_TIME_SNAPSHOT)"] = (
+            "apple_install_snapshot"
+        )
+    return options
 
 
 def date_presets(today: dt.date) -> dict[str, tuple[dt.date, dt.date]]:
@@ -94,19 +104,35 @@ def resolve_date_input(mode: str, preset_key: str, presets: dict[str, tuple[dt.d
     return from_date, to_date
 
 
-def render_update_form() -> dict[str, object]:
+def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]:
     """Render the update-data form and return normalized selections."""
     presets = date_presets(dt.date.today())
+    source_options = data_source_options(snapshot_completed=snapshot_completed)
     from_date = to_date = None
     with st.container(border=True):
         left_col, right_col = st.columns(2)
         with left_col:
-            source_label = st.selectbox("Data Source", options=list(DATA_SOURCE_OPTIONS.keys()), index=None, placeholder="Select a data source", key="update_data_source")
-            mode = st.radio("Update Mode", options=["manual", "auto"], horizontal=True, key="update_mode")
+            source_label = st.selectbox("Data Source", options=list(source_options.keys()), index=None, placeholder="Select a data source", key="update_data_source")
+            selected_source = source_options.get(source_label or "")
+            snapshot_selected = selected_source == "apple_install_snapshot"
+            mode = st.radio(
+                "Update Mode",
+                options=["manual"] if snapshot_selected else ["manual", "auto"],
+                horizontal=True,
+                key=(
+                    "update_mode_apple_snapshot"
+                    if snapshot_selected
+                    else "update_mode"
+                ),
+            )
         with right_col:
             preset_key = st.selectbox("Date Preset", options=list(presets.keys()), index=0 if mode == "auto" else None, disabled=(mode == "auto"), placeholder="Select date range preset", key="update_period")
             if mode == "auto":
-                lag_days = 5 if source_label == "Apple App Store Install Metrics" else 1
+                lag_days = (
+                    5
+                    if source_label == "Apple App Store Install Metrics (ONGOING)"
+                    else 1
+                )
                 auto_date = dt.date.today() - dt.timedelta(days=lag_days)
                 suffix = " (Apple completeness window)" if lag_days == 5 else ""
                 st.info(f"Auto mode uses date: `{auto_date.isoformat()}`{suffix}")
@@ -116,4 +142,13 @@ def render_update_form() -> dict[str, object]:
                 except ValueError as error:
                     st.warning(str(error))
         submitted = st.button("Run Update", type="primary", width="stretch", key="update_submit")
-    return {"submitted": submitted, "source_label": source_label, "mode": mode, "preset_key": preset_key, "presets": presets, "from_date": from_date, "to_date": to_date}
+    return {
+        "submitted": submitted,
+        "source_label": source_label,
+        "source_options": source_options,
+        "mode": mode,
+        "preset_key": preset_key,
+        "presets": presets,
+        "from_date": from_date,
+        "to_date": to_date,
+    }

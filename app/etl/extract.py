@@ -2358,8 +2358,9 @@ class ExternalApiExtractor:
         client: httpx.AsyncClient,
         *,
         headers: dict[str, str],
+        access_type: str,
     ) -> str:
-        if self.apple_asc_report_request_id:
+        if access_type == "ONGOING" and self.apple_asc_report_request_id:
             return self.apple_asc_report_request_id
 
         payload = await self._apple_get_json(
@@ -2371,12 +2372,55 @@ class ExternalApiExtractor:
             headers=headers,
         )
         request_ids = [item.get("id") for item in payload.get("data", []) if item.get("id")]
-        if not request_ids:
-            raise ValueError(
-                "No App Store Connect Analytics Report Request exists for this app. "
-                "An Admin must create an ONGOING analytics report request first."
+        for request_id in request_ids:
+            request_payload = await self._apple_get_json(
+                client,
+                (
+                    "https://api.appstoreconnect.apple.com/v1/"
+                    f"analyticsReportRequests/{request_id}"
+                ),
+                headers=headers,
             )
-        return request_ids[0]
+            attributes = request_payload.get("data", {}).get("attributes", {})
+            if attributes.get("accessType") == access_type:
+                return request_id
+
+        response = await client.post(
+            "https://api.appstoreconnect.apple.com/v1/analyticsReportRequests",
+            headers={**headers, "Content-Type": "application/json"},
+            json={
+                "data": {
+                    "type": "analyticsReportRequests",
+                    "attributes": {"accessType": access_type},
+                    "relationships": {
+                        "app": {
+                            "data": {
+                                "type": "apps",
+                                "id": self.apple_asc_app_id,
+                            }
+                        }
+                    },
+                }
+            },
+        )
+        if response.status_code >= 400:
+            detail = response.text
+            try:
+                errors = response.json().get("errors", [])
+                if errors:
+                    detail = errors[0].get("detail") or errors[0].get("title") or detail
+            except ValueError:
+                pass
+            raise ValueError(
+                f"No {access_type} Analytics Report Request exists and Apple rejected "
+                f"its creation ({response.status_code}): {detail}. An Admin API key is required."
+            )
+        request_id = response.json().get("data", {}).get("id")
+        if not request_id:
+            raise ValueError(
+                f"Apple created the {access_type} request without returning its identifier."
+            )
+        return request_id
 
     async def _apple_paginated_data(
         self,
@@ -2427,12 +2471,24 @@ class ExternalApiExtractor:
             selected[key] = candidates[0]
         return selected
 
-    async def fetch_apple_install_rows(self, start_date: date, end_date: date) -> list[dict]:
+    async def fetch_apple_install_rows(
+        self,
+        start_date: date,
+        end_date: date,
+        *,
+        access_type: str = "ONGOING",
+    ) -> list[dict]:
         """Download latest daily Apple download/install/session report partitions."""
+        if access_type not in {"ONGOING", "ONE_TIME_SNAPSHOT"}:
+            raise ValueError(f"Unsupported Apple analytics access type: {access_type}")
         token = self._build_apple_asc_token()
         headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            request_id = await self._resolve_apple_report_request_id(client, headers=headers)
+            request_id = await self._resolve_apple_report_request_id(
+                client,
+                headers=headers,
+                access_type=access_type,
+            )
             reports = await self._apple_paginated_data(
                 client,
                 (
@@ -2479,7 +2535,9 @@ class ExternalApiExtractor:
                         continue
                     # Apple overwrites a Date partition with the newest processing
                     # date. Include the completeness window plus today's corrections.
-                    if start_date <= pd_date <= min(today, end_date + timedelta(days=5)):
+                    if access_type == "ONE_TIME_SNAPSHOT":
+                        relevant_instances.append(instance)
+                    elif start_date <= pd_date <= min(today, end_date + timedelta(days=5)):
                         relevant_instances.append(instance)
                     elif pd_date == today:
                         relevant_instances.append(instance)

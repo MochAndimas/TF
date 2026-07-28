@@ -7,7 +7,11 @@ Traders Family application.
 import httpx
 import streamlit as st
 
-from streamlit_app.page.update_data_components.api import poll_update_job, trigger_update_job
+from streamlit_app.page.update_data_components.api import (
+    has_successful_snapshot,
+    poll_update_job,
+    trigger_update_job,
+)
 from streamlit_app.page.update_data_components.form import (
     ALL_DATA_SOURCES_LABEL,
     ALL_DATA_SOURCE_VALUES,
@@ -104,9 +108,15 @@ async def show_update_page(host):
     st.markdown("""<h1 align="center">Update Data</h1>""", unsafe_allow_html=True)
     st.caption("Trigger manual or automatic synchronization for campaign, GA4, register, and first deposit datasets.")
 
-    form_state = render_update_form()
+    access_token = st.session_state.get("access_token")
+    snapshot_completed = False
+    if access_token:
+        snapshot_completed = await has_successful_snapshot(host, access_token)
+
+    form_state = render_update_form(snapshot_completed=snapshot_completed)
     submitted = form_state["submitted"]
     source_label = form_state["source_label"]
+    source_options = form_state["source_options"]
     mode = form_state["mode"]
     presets = form_state["presets"]
     from_date = form_state["from_date"]
@@ -125,14 +135,13 @@ async def show_update_page(host):
         st.warning("Please provide a valid date range.")
         return
 
-    access_token = st.session_state.get("access_token")
     if not access_token:
         st.error("Session is invalid. Please log in again.")
         return
 
     with st.spinner("Updating data..."):
         try:
-            selected_source = DATA_SOURCE_OPTIONS[source_label]
+            selected_source = source_options[source_label]
             if source_label == ALL_DATA_SOURCES_LABEL:
                 successful_sources = 0
                 failed_sources = []

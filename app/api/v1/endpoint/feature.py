@@ -9,6 +9,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoint.common import require_roles_dep
@@ -77,6 +78,25 @@ async def update_data(
         start_date = response.start_date
         end_date = response.end_date
         types = response.types
+        if response.data == "apple_install_snapshot":
+            if types != "manual":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Apple one-time snapshot can only run in manual mode.",
+                )
+            completed_snapshot = await session.scalar(
+                select(EtlRun.id)
+                .where(
+                    EtlRun.source == "apple_install_snapshot",
+                    EtlRun.status == "success",
+                )
+                .limit(1)
+            )
+            if completed_snapshot is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Apple one-time snapshot has already completed successfully.",
+                )
         cleaned_runs = await cleanup_stale_runs(session=session)
         window_start, window_end = resolve_run_window(
             data=response.data,
