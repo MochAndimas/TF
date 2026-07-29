@@ -31,6 +31,18 @@ def _safe_percentage(numerator: float, denominator: float) -> float:
     return round((numerator / denominator) * 100, 2) if denominator else 0.0
 
 
+def _weighted_average(df: pd.DataFrame, *, value_column: str, weight_column: str) -> float:
+    if df.empty or value_column not in df.columns or weight_column not in df.columns:
+        return 0.0
+    values = pd.to_numeric(df[value_column], errors="coerce").fillna(0.0)
+    weights = pd.to_numeric(df[weight_column], errors="coerce").fillna(0.0)
+    weight_sum = float(weights.sum())
+    if weight_sum <= 0:
+        non_zero_values = values[values > 0]
+        return round(float(non_zero_values.mean()), 2) if not non_zero_values.empty else 0.0
+    return round(float((values * weights).sum() / weight_sum), 2)
+
+
 async def _read_daily_rows(
     session: AsyncSession,
     *,
@@ -52,6 +64,7 @@ async def _read_daily_rows(
             FacebookPageInsights.reaction_sorry.label("reaction_sorry"),
             FacebookPageInsights.reaction_anger.label("reaction_anger"),
             FacebookPageInsights.page_video_views.label("video_views"),
+            FacebookPageInsights.page_video_view_time.label("video_view_time"),
             FacebookPageInsights.page_views_total.label("page_views"),
         )
         .where(FacebookPageInsights.date.between(start_date, end_date))
@@ -70,6 +83,7 @@ async def _read_daily_rows(
         "post_engagements",
         *DAILY_REACTION_COLUMNS,
         "video_views",
+        "video_view_time",
         "page_views",
     ]
     for column in metric_columns:
@@ -93,6 +107,7 @@ async def _read_media_rows(
         select(
             FacebookPageMediaInsights.date.label("date"),
             FacebookPageMediaInsights.post_id.label("post_id"),
+            FacebookPageMediaInsights.post_type.label("post_type"),
             FacebookPageMediaInsights.created_time.label("created_time"),
             FacebookPageMediaInsights.message.label("message"),
             FacebookPageMediaInsights.permalink_url.label("permalink_url"),
@@ -107,6 +122,9 @@ async def _read_media_rows(
             FacebookPageMediaInsights.post_clicks.label("post_clicks"),
             FacebookPageMediaInsights.post_media_view.label("post_media_view"),
             FacebookPageMediaInsights.post_video_views.label("post_video_views"),
+            FacebookPageMediaInsights.post_video_view_time.label("post_video_view_time"),
+            FacebookPageMediaInsights.post_video_avg_time_watched.label("post_video_avg_time_watched"),
+            FacebookPageMediaInsights.post_video_length.label("post_video_length"),
             FacebookPageMediaInsights.total_engagement.label("total_engagement"),
         )
         .where(FacebookPageMediaInsights.date.between(start_date, end_date))
@@ -125,12 +143,16 @@ async def _read_media_rows(
         "post_clicks",
         "post_media_view",
         "post_video_views",
+        "post_video_view_time",
+        "post_video_avg_time_watched",
+        "post_video_length",
         "total_engagement",
     ]
     for column in metric_columns:
         df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
-    for column in ["post_id", "message", "permalink_url"]:
+    for column in ["post_id", "post_type", "message", "permalink_url"]:
         df[column] = df[column].fillna("").astype(str)
+    df["post_type"] = df["post_type"].str.strip().str.upper().replace("", "UNKNOWN")
     df["total_reactions"] = df[DAILY_REACTION_COLUMNS].sum(axis=1)
     df["engagement_rate"] = df.apply(
         lambda row: _safe_percentage(float(row["total_engagement"]), float(row["post_media_view"])),
@@ -150,6 +172,7 @@ def _daily_summary(df: pd.DataFrame) -> dict[str, object]:
         "total_reactions",
         "engagement_rate",
         "video_views",
+        "video_view_time",
         "page_views",
     ]
     if df.empty:
@@ -165,6 +188,7 @@ def _daily_summary(df: pd.DataFrame) -> dict[str, object]:
         "post_engagements": int(df["post_engagements"].sum()),
         "total_reactions": int(df["total_reactions"].sum()),
         "video_views": int(df["video_views"].sum()),
+        "video_view_time": int(df["video_view_time"].sum()),
         "page_views": int(df["page_views"].sum()),
     }
     current["engagement_rate"] = _safe_percentage(
@@ -199,28 +223,73 @@ def _daily_summary(df: pd.DataFrame) -> dict[str, object]:
 
 def _media_summary(df: pd.DataFrame) -> dict[str, object]:
     if df.empty:
-        return {
+        empty_summary = {
             "post_count": 0,
             "total_engagement": 0,
             "total_reactions": 0,
             "post_clicks": 0,
             "post_media_view": 0,
             "post_video_views": 0,
+            "post_video_view_time": 0,
+            "post_video_avg_time_watched": 0,
+            "post_video_length": 0,
             "engagement_rate": 0.0,
             "avg_engagement_per_post": 0.0,
         }
+        empty_summary["by_type"] = []
+        return empty_summary
     post_count = int(df["post_id"].nunique())
     total_engagement = int(df["total_engagement"].sum())
-    return {
+    summary = {
         "post_count": post_count,
         "total_engagement": total_engagement,
         "total_reactions": int(df["total_reactions"].sum()),
         "post_clicks": int(df["post_clicks"].sum()),
         "post_media_view": int(df["post_media_view"].sum()),
         "post_video_views": int(df["post_video_views"].sum()),
+        "post_video_view_time": int(df["post_video_view_time"].sum()),
+        "post_video_avg_time_watched": _weighted_average(
+            df,
+            value_column="post_video_avg_time_watched",
+            weight_column="post_video_views",
+        ),
+        "post_video_length": _weighted_average(
+            df,
+            value_column="post_video_length",
+            weight_column="post_video_views",
+        ),
         "engagement_rate": _safe_percentage(float(total_engagement), float(df["post_media_view"].sum())),
         "avg_engagement_per_post": round(total_engagement / post_count, 2) if post_count else 0.0,
     }
+    grouped = (
+        df.groupby("post_type", as_index=False)
+        .agg(
+            post_count=("post_id", "nunique"),
+            total_engagement=("total_engagement", "sum"),
+            total_reactions=("total_reactions", "sum"),
+            comments=("comments", "sum"),
+            shares=("shares", "sum"),
+            post_clicks=("post_clicks", "sum"),
+            post_media_view=("post_media_view", "sum"),
+            post_video_views=("post_video_views", "sum"),
+            post_video_view_time=("post_video_view_time", "sum"),
+        )
+        .sort_values(["total_engagement", "post_media_view"], ascending=[False, False])
+    )
+    grouped["engagement_rate"] = grouped.apply(
+        lambda row: _safe_percentage(float(row["total_engagement"]), float(row["post_media_view"])),
+        axis=1,
+    )
+    grouped["post_video_avg_time_watched"] = grouped.apply(
+        lambda row: _weighted_average(
+            df[df["post_type"] == row["post_type"]],
+            value_column="post_video_avg_time_watched",
+            weight_column="post_video_views",
+        ),
+        axis=1,
+    )
+    summary["by_type"] = grouped.to_dict(orient="records")
+    return summary
 
 
 def _rows_payload(df: pd.DataFrame) -> list[dict[str, object]]:
@@ -235,7 +304,7 @@ def _media_daily_payload(df: pd.DataFrame) -> list[dict[str, object]]:
     if df.empty:
         return []
     grouped = (
-        df.groupby("date", as_index=False)
+        df.groupby(["date", "post_type"], as_index=False)
         .agg(
             post_count=("post_id", "nunique"),
             total_engagement=("total_engagement", "sum"),
@@ -245,11 +314,20 @@ def _media_daily_payload(df: pd.DataFrame) -> list[dict[str, object]]:
             post_clicks=("post_clicks", "sum"),
             post_media_view=("post_media_view", "sum"),
             post_video_views=("post_video_views", "sum"),
+            post_video_view_time=("post_video_view_time", "sum"),
         )
-        .sort_values("date")
+        .sort_values(["date", "post_type"])
     )
     grouped["engagement_rate"] = grouped.apply(
         lambda row: _safe_percentage(float(row["total_engagement"]), float(row["post_media_view"])),
+        axis=1,
+    )
+    grouped["post_video_avg_time_watched"] = grouped.apply(
+        lambda row: _weighted_average(
+            df[(df["date"] == row["date"]) & (df["post_type"] == row["post_type"])],
+            value_column="post_video_avg_time_watched",
+            weight_column="post_video_views",
+        ),
         axis=1,
     )
     grouped["date"] = grouped["date"].astype(str)

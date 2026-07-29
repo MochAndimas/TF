@@ -388,6 +388,8 @@ def validate_instagram_media_insights_dataframe(df: pd.DataFrame) -> None:
         "saves",
         "reach",
         "views",
+        "reels_watch_time",
+        "reels_avg_watch_time",
         "profile_visits",
         "follows",
         "total_engagement",
@@ -489,6 +491,9 @@ def validate_facebook_page_media_insights_dataframe(df: pd.DataFrame) -> None:
         "post_media_view",
         "post_clicks",
         "post_video_views",
+        "post_video_view_time",
+        "post_video_avg_time_watched",
+        "post_video_length",
         "total_engagement",
     ]
     negative_metric = (

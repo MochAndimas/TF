@@ -665,6 +665,8 @@ class InstagramMediaInsights(SqliteBase):
     saves = Column("saves", Integer, nullable=False, default=0)
     reach = Column("reach", Integer, nullable=False, default=0)
     views = Column("views", Integer, nullable=False, default=0)
+    reels_watch_time = Column("reels_watch_time", Integer, nullable=False, default=0)
+    reels_avg_watch_time = Column("reels_avg_watch_time", Integer, nullable=False, default=0)
     profile_visits = Column("profile_visits", Integer, nullable=False, default=0)
     follows = Column("follows", Integer, nullable=False, default=0)
     total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
@@ -704,6 +706,7 @@ class FacebookPageInsights(SqliteBase):
     reaction_sorry = Column("reaction_sorry", Integer, nullable=False, default=0)
     reaction_anger = Column("reaction_anger", Integer, nullable=False, default=0)
     page_video_views = Column("page_video_views", Integer, nullable=False, default=0)
+    page_video_view_time = Column("page_video_view_time", Integer, nullable=False, default=0)
     page_views_total = Column("page_views_total", Integer, nullable=False, default=0)
     pull_date = Column("pull_date", Date, nullable=False)
 
@@ -745,6 +748,9 @@ class FacebookPageMediaInsights(SqliteBase):
     post_media_view = Column("post_media_view", Integer, nullable=False, default=0)
     post_clicks = Column("post_clicks", Integer, nullable=False, default=0)
     post_video_views = Column("post_video_views", Integer, nullable=False, default=0)
+    post_video_view_time = Column("post_video_view_time", Integer, nullable=False, default=0)
+    post_video_avg_time_watched = Column("post_video_avg_time_watched", Integer, nullable=False, default=0)
+    post_video_length = Column("post_video_length", Integer, nullable=False, default=0)
     total_engagement = Column("total_engagement", Integer, nullable=False, default=0)
     pull_date = Column("pull_date", Date, nullable=False)
 

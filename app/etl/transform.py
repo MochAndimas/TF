@@ -466,6 +466,8 @@ def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFra
         "saves",
         "reach",
         "views",
+        "reels_watch_time",
+        "reels_avg_watch_time",
         "profile_visits",
         "follows",
         "total_engagement",
@@ -498,6 +500,8 @@ def parse_instagram_media_insights_dataframe(raw_rows: list[dict]) -> pd.DataFra
         "saves",
         "reach",
         "views",
+        "reels_watch_time",
+        "reels_avg_watch_time",
         "profile_visits",
         "follows",
         "total_engagement",
@@ -539,6 +543,7 @@ def parse_facebook_page_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame
         "reaction_sorry",
         "reaction_anger",
         "page_video_views",
+        "page_video_view_time",
         "page_views_total",
     ]
     missing_columns = [column for column in required_columns if column not in df.columns]
@@ -583,6 +588,9 @@ def parse_facebook_page_media_insights_dataframe(raw_rows: list[dict]) -> pd.Dat
         "post_media_view",
         "post_clicks",
         "post_video_views",
+        "post_video_view_time",
+        "post_video_avg_time_watched",
+        "post_video_length",
         "total_engagement",
     ]
     missing_columns = [column for column in required_columns if column not in df.columns]
@@ -619,6 +627,9 @@ def parse_facebook_page_media_insights_dataframe(raw_rows: list[dict]) -> pd.Dat
         "post_media_view",
         "post_clicks",
         "post_video_views",
+        "post_video_view_time",
+        "post_video_avg_time_watched",
+        "post_video_length",
         "total_engagement",
     ]
     for column in metric_columns:

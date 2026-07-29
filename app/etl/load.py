@@ -346,6 +346,8 @@ def build_instagram_media_insights_rows(df: pd.DataFrame, pull_date: date) -> li
             "saves": int(row["saves"]),
             "reach": int(row["reach"]),
             "views": int(row["views"]),
+            "reels_watch_time": int(row["reels_watch_time"]),
+            "reels_avg_watch_time": int(row["reels_avg_watch_time"]),
             "profile_visits": int(row["profile_visits"]),
             "follows": int(row["follows"]),
             "total_engagement": int(row["total_engagement"]),
@@ -373,6 +375,7 @@ def build_facebook_page_insights_rows(df: pd.DataFrame, pull_date: date) -> list
         "reaction_sorry",
         "reaction_anger",
         "page_video_views",
+        "page_video_view_time",
         "page_views_total",
     ]
     rows = []
@@ -403,6 +406,9 @@ def build_facebook_page_media_insights_rows(df: pd.DataFrame, pull_date: date) -
         "post_media_view",
         "post_clicks",
         "post_video_views",
+        "post_video_view_time",
+        "post_video_avg_time_watched",
+        "post_video_length",
         "total_engagement",
     ]
     rows = []
@@ -738,6 +744,8 @@ async def upsert_instagram_media_insights_rows(session: AsyncSession, rows: list
                 "saves": insert_stmt.excluded.saves,
                 "reach": insert_stmt.excluded.reach,
                 "views": insert_stmt.excluded.views,
+                "reels_watch_time": insert_stmt.excluded.reels_watch_time,
+                "reels_avg_watch_time": insert_stmt.excluded.reels_avg_watch_time,
                 "profile_visits": insert_stmt.excluded.profile_visits,
                 "follows": insert_stmt.excluded.follows,
                 "total_engagement": insert_stmt.excluded.total_engagement,
@@ -773,6 +781,7 @@ async def upsert_facebook_page_insights_rows(session: AsyncSession, rows: list[d
                 "reaction_sorry": insert_stmt.excluded.reaction_sorry,
                 "reaction_anger": insert_stmt.excluded.reaction_anger,
                 "page_video_views": insert_stmt.excluded.page_video_views,
+                "page_video_view_time": insert_stmt.excluded.page_video_view_time,
                 "page_views_total": insert_stmt.excluded.page_views_total,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
@@ -811,6 +820,9 @@ async def upsert_facebook_page_media_insights_rows(session: AsyncSession, rows: 
                 "post_media_view": insert_stmt.excluded.post_media_view,
                 "post_clicks": insert_stmt.excluded.post_clicks,
                 "post_video_views": insert_stmt.excluded.post_video_views,
+                "post_video_view_time": insert_stmt.excluded.post_video_view_time,
+                "post_video_avg_time_watched": insert_stmt.excluded.post_video_avg_time_watched,
+                "post_video_length": insert_stmt.excluded.post_video_length,
                 "total_engagement": insert_stmt.excluded.total_engagement,
                 "pull_date": insert_stmt.excluded.pull_date,
             },

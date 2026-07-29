@@ -57,6 +57,21 @@ def _fmt_pct(value) -> str:
     return f"{float(value or 0):,.2f}%"
 
 
+def _fmt_ms_hours(value) -> str:
+    return f"{float(value or 0) / 3_600_000:,.2f}h"
+
+
+def _fmt_ms_duration(value) -> str:
+    total_seconds = int(round(float(value or 0) / 1000))
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes >= 60:
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}h {minutes}m {seconds}s"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
 def _fmt_media_bucket(value) -> str:
     return str(value or "").replace("_", " ").title()
 
@@ -98,6 +113,9 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"]).dt.date
     if "engagement_rate" not in df.columns:
         df["engagement_rate"] = 0.0
+    for column in ("reels_watch_time", "reels_avg_watch_time"):
+        if column not in df.columns:
+            df[column] = 0
     for column in [
         "total_followers",
         "new_followers",
@@ -132,10 +150,12 @@ def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "saves",
         "reach",
         "views",
+        "reels_watch_time",
         "profile_visits",
         "follows",
     ]:
         df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df["reels_avg_watch_time"] = pd.to_numeric(df["reels_avg_watch_time"], errors="coerce").fillna(0.0).astype(float)
     df["engagement_rate"] = pd.to_numeric(df["engagement_rate"], errors="coerce").fillna(0.0).astype(float)
     return df.sort_values(["date", "media_bucket"])
 
@@ -147,6 +167,9 @@ def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"]).dt.date
     if "engagement_rate" not in df.columns:
         df["engagement_rate"] = 0.0
+    for column in ("reels_watch_time", "reels_avg_watch_time"):
+        if column not in df.columns:
+            df[column] = 0
     for column in [
         "likes",
         "comments",
@@ -154,11 +177,13 @@ def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "saves",
         "reach",
         "views",
+        "reels_watch_time",
         "profile_visits",
         "follows",
         "total_engagement",
     ]:
         df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df["reels_avg_watch_time"] = pd.to_numeric(df["reels_avg_watch_time"], errors="coerce").fillna(0.0).astype(float)
     df["engagement_rate"] = pd.to_numeric(df["engagement_rate"], errors="coerce").fillna(0.0).astype(float)
     for column in ["media_id", "media_type", "media_product_type", "caption", "permalink"]:
         df[column] = df[column].fillna("").astype(str)
@@ -355,6 +380,8 @@ def _render_media_metrics(media_summary: dict[str, object]) -> None:
         ("Engagement Rate", _fmt_pct(totals.get("engagement_rate"))),
         ("Media Reach", _fmt_int(totals.get("reach"))),
         ("Views", _fmt_int(totals.get("views"))),
+        ("Reels Watch Hours", _fmt_ms_hours(totals.get("reels_watch_time"))),
+        ("Avg Reels Watch Time", _fmt_ms_duration(totals.get("reels_avg_watch_time"))),
         ("Profile Visits", _fmt_int(totals.get("profile_visits"))),
         ("Followers Gained", _fmt_int(totals.get("follows"))),
         ("Avg Engagement", _fmt_float(totals.get("avg_engagement_per_media"))),
@@ -800,12 +827,16 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "saves",
             "reach",
             "views",
+            "reels_watch_time",
+            "reels_avg_watch_time",
             "profile_visits",
             "follows",
             "permalink",
         ]
     ].copy()
     display_df["caption"] = display_df["caption"].str.slice(0, 140)
+    display_df["reels_watch_time"] = display_df["reels_watch_time"] / 3_600_000
+    display_df["reels_avg_watch_time"] = display_df["reels_avg_watch_time"].map(_fmt_ms_duration)
     display_df = display_df.rename(
         columns={
             "date": "Date",
@@ -820,6 +851,8 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "saves": "Saves",
             "reach": "Reach",
             "views": "Views",
+            "reels_watch_time": "Reels Watch Hours (h)",
+            "reels_avg_watch_time": "Avg Reels Watch Time",
             "profile_visits": "Profile Visits",
             "follows": "Followers Gained",
             "permalink": "Permalink",
@@ -841,6 +874,8 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "Saves": st.column_config.NumberColumn("Saves", format="%d"),
             "Reach": st.column_config.NumberColumn("Reach", format="%d"),
             "Views": st.column_config.NumberColumn("Views", format="%d"),
+            "Reels Watch Hours (h)": st.column_config.NumberColumn("Reels Watch Hours (h)", format="%.2f h"),
+            "Avg Reels Watch Time": st.column_config.TextColumn("Avg Reels Watch Time"),
             "Profile Visits": st.column_config.NumberColumn("Profile Visits", format="%d"),
             "Followers Gained": st.column_config.NumberColumn("Followers Gained", format="%d"),
         },

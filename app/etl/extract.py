@@ -964,6 +964,7 @@ class ExternalApiExtractor:
             "page_impressions_organic_v2",
             "page_post_engagements",
             "page_video_views",
+            "page_video_view_time",
             "page_views_total",
         ]
         reaction_columns = [
@@ -992,6 +993,7 @@ class ExternalApiExtractor:
             "page_impressions_organic_v2": ("page_posts_impressions_organic", "page_impressions_organic_v2", "page_impressions_organic"),
             "page_post_engagements": ("page_post_engagements",),
             "page_video_views": ("page_video_views",),
+            "page_video_view_time": ("page_video_view_time",),
             "page_views_total": ("page_views_total",),
             "page_actions_post_reactions_total": ("page_actions_post_reactions_total",),
         }
@@ -1109,6 +1111,8 @@ class ExternalApiExtractor:
                             "saves": 0,
                             "reach": 0,
                             "views": 0,
+                            "reels_watch_time": 0,
+                            "reels_avg_watch_time": 0,
                             "profile_visits": 0,
                             "follows": 0,
                             "total_engagement": 0,
@@ -1131,11 +1135,23 @@ class ExternalApiExtractor:
                         access_token=access_token,
                     )
                     enriched = dict(row)
-                    for metric in ("shares", "saves", "reach", "views", "profile_visits", "follows"):
+                    for metric in (
+                        "shares",
+                        "saves",
+                        "reach",
+                        "views",
+                        "reels_watch_time",
+                        "reels_avg_watch_time",
+                        "profile_visits",
+                        "follows",
+                    ):
                         enriched[metric] = int(insights.get(metric) or 0)
                     if enriched["media_product_type"] != "FEED":
                         enriched["profile_visits"] = 0
                         enriched["follows"] = 0
+                    if enriched["media_product_type"] != "REELS":
+                        enriched["reels_watch_time"] = 0
+                        enriched["reels_avg_watch_time"] = 0
                     enriched["total_engagement"] = (
                         int(enriched["likes"])
                         + int(enriched["comments"])
@@ -1229,6 +1245,9 @@ class ExternalApiExtractor:
                             "post_media_view": 0,
                             "post_clicks": 0,
                             "post_video_views": 0,
+                            "post_video_view_time": 0,
+                            "post_video_avg_time_watched": 0,
+                            "post_video_length": 0,
                             "total_engagement": 0,
                         }
                     )
@@ -1267,6 +1286,9 @@ class ExternalApiExtractor:
                         "post_media_view",
                         "post_clicks",
                         "post_video_views",
+                        "post_video_view_time",
+                        "post_video_avg_time_watched",
+                        "post_video_length",
                     ):
                         enriched[metric] = int(insights.get(metric) or 0)
                     if not enriched["reaction_like"]:
@@ -1784,6 +1806,8 @@ class ExternalApiExtractor:
             "saves": ("saves", "saved"),
             "reach": ("reach",),
             "views": ("views",),
+            "reels_watch_time": ("ig_reels_video_view_total_time",),
+            "reels_avg_watch_time": ("ig_reels_avg_watch_time",),
             "profile_visits": ("profile_visits",),
             "follows": ("follows",),
         }
@@ -1825,6 +1849,9 @@ class ExternalApiExtractor:
             "post_media_view": ("post_media_view",),
             "post_clicks": ("post_clicks",),
             "post_video_views": ("post_video_views",),
+            "post_video_view_time": ("post_video_view_time",),
+            "post_video_avg_time_watched": ("post_video_avg_time_watched",),
+            "post_video_length": ("post_video_length",),
             "post_reactions_by_type_total": ("post_reactions_by_type_total",),
         }
         totals: dict[str, int] = {}

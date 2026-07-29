@@ -49,6 +49,8 @@ def _empty_instagram_media_frame() -> pd.DataFrame:
             "saves",
             "reach",
             "views",
+            "reels_watch_time",
+            "reels_avg_watch_time",
             "profile_visits",
             "follows",
             "engagement_rate",
@@ -121,6 +123,8 @@ async def _read_instagram_media_rows(
             InstagramMediaInsights.saves.label("saves"),
             InstagramMediaInsights.reach.label("reach"),
             InstagramMediaInsights.views.label("views"),
+            InstagramMediaInsights.reels_watch_time.label("reels_watch_time"),
+            InstagramMediaInsights.reels_avg_watch_time.label("reels_avg_watch_time"),
             InstagramMediaInsights.profile_visits.label("profile_visits"),
             InstagramMediaInsights.follows.label("follows"),
             InstagramMediaInsights.total_engagement.label("total_engagement"),
@@ -143,6 +147,8 @@ async def _read_instagram_media_rows(
         "saves",
         "reach",
         "views",
+        "reels_watch_time",
+        "reels_avg_watch_time",
         "profile_visits",
         "follows",
         "total_engagement",
@@ -161,6 +167,18 @@ def _growth_percentage(current_value: float, previous_value: float) -> float:
 
 def _safe_percentage(numerator: float, denominator: float) -> float:
     return round((numerator / denominator) * 100, 2) if denominator else 0.0
+
+
+def _weighted_average(df: pd.DataFrame, *, value_column: str, weight_column: str) -> float:
+    if df.empty or value_column not in df.columns or weight_column not in df.columns:
+        return 0.0
+    values = pd.to_numeric(df[value_column], errors="coerce").fillna(0.0)
+    weights = pd.to_numeric(df[weight_column], errors="coerce").fillna(0.0)
+    weight_sum = float(weights.sum())
+    if weight_sum <= 0:
+        non_zero_values = values[values > 0]
+        return round(float(non_zero_values.mean()), 2) if not non_zero_values.empty else 0.0
+    return round(float((values * weights).sum() / weight_sum), 2)
 
 
 def _latest_non_zero(series: pd.Series) -> int:
@@ -250,6 +268,8 @@ def _media_summary_payload(df: pd.DataFrame) -> dict[str, object]:
             "total_engagement": 0,
             "reach": 0,
             "views": 0,
+            "reels_watch_time": 0,
+            "reels_avg_watch_time": 0,
             "profile_visits": 0,
             "follows": 0,
             "engagement_rate": 0.0,
@@ -264,9 +284,15 @@ def _media_summary_payload(df: pd.DataFrame) -> dict[str, object]:
         "total_engagement": int(df["total_engagement"].sum()),
         "reach": int(df["reach"].sum()),
         "views": int(df["views"].sum()),
+        "reels_watch_time": int(df["reels_watch_time"].sum()),
         "profile_visits": int(df["profile_visits"].sum()),
         "follows": int(df["follows"].sum()),
     }
+    totals["reels_avg_watch_time"] = _weighted_average(
+        df.loc[df["media_product_type"] == "REELS"],
+        value_column="reels_avg_watch_time",
+        weight_column="views",
+    )
     totals["avg_engagement_per_media"] = round(totals["total_engagement"] / totals["media_count"], 2) if totals["media_count"] else 0.0
     totals["engagement_rate"] = _safe_percentage(float(totals["total_engagement"]), float(totals["reach"]))
 
@@ -288,6 +314,7 @@ def _media_summary_payload(df: pd.DataFrame) -> dict[str, object]:
             saves=("saves", "sum"),
             reach=("reach", "sum"),
             views=("views", "sum"),
+            reels_watch_time=("reels_watch_time", "sum"),
             profile_visits=("profile_visits", "sum"),
             follows=("follows", "sum"),
         )
@@ -300,6 +327,14 @@ def _media_summary_payload(df: pd.DataFrame) -> dict[str, object]:
     )
     grouped["engagement_rate"] = grouped.apply(
         lambda row: _safe_percentage(float(row["total_engagement"]), float(row["reach"])),
+        axis=1,
+    )
+    grouped["reels_avg_watch_time"] = grouped.apply(
+        lambda row: _weighted_average(
+            bucketed[bucketed["media_bucket"] == row["media_bucket"]],
+            value_column="reels_avg_watch_time",
+            weight_column="views",
+        ),
         axis=1,
     )
     return {"totals": totals, "by_type": grouped.to_dict(orient="records")}
@@ -326,6 +361,7 @@ def _media_daily_rows_payload(df: pd.DataFrame) -> list[dict[str, object]]:
             saves=("saves", "sum"),
             reach=("reach", "sum"),
             views=("views", "sum"),
+            reels_watch_time=("reels_watch_time", "sum"),
             profile_visits=("profile_visits", "sum"),
             follows=("follows", "sum"),
         )
@@ -333,6 +369,17 @@ def _media_daily_rows_payload(df: pd.DataFrame) -> list[dict[str, object]]:
     )
     grouped["engagement_rate"] = grouped.apply(
         lambda row: _safe_percentage(float(row["total_engagement"]), float(row["reach"])),
+        axis=1,
+    )
+    grouped["reels_avg_watch_time"] = grouped.apply(
+        lambda row: _weighted_average(
+            bucketed[
+                (bucketed["date"] == row["date"])
+                & (bucketed["media_bucket"] == row["media_bucket"])
+            ],
+            value_column="reels_avg_watch_time",
+            weight_column="views",
+        ),
         axis=1,
     )
     grouped["date"] = grouped["date"].astype(str)

@@ -55,8 +55,27 @@ def _fmt_pct(value) -> str:
     return f"{float(value or 0):,.2f}%"
 
 
+def _fmt_ms_hours(value) -> str:
+    return f"{float(value or 0) / 3_600_000:,.2f}h"
+
+
+def _fmt_ms_duration(value) -> str:
+    total_seconds = int(round(float(value or 0) / 1000))
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes >= 60:
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}h {minutes}m {seconds}s"
+    if minutes:
+        return f"{minutes}m {seconds}s"
+    return f"{seconds}s"
+
+
 def _date_labels(series: pd.Series) -> list[str]:
     return pd.to_datetime(series).dt.strftime("%b %d\n%Y").tolist()
+
+
+def _fmt_post_type(value) -> str:
+    return str(value or "Unknown").replace("_", " ").title()
 
 
 def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
@@ -64,8 +83,13 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    if "post_type" not in df.columns:
+        df["post_type"] = "UNKNOWN"
+    df["post_type"] = df["post_type"].fillna("UNKNOWN").astype(str).str.upper().replace("", "UNKNOWN")
     if "engagement_rate" not in df.columns:
         df["engagement_rate"] = 0.0
+    if "video_view_time" not in df.columns:
+        df["video_view_time"] = 0
     for column in [
         "page_fans",
         "page_fan_adds",
@@ -82,13 +106,14 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "reaction_anger",
         "total_reactions",
         "video_views",
+        "video_view_time",
         "page_views",
     ]:
         if column == "engagement_rate":
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
         else:
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
-    return df.sort_values("date")
+    return df.sort_values(["date", "post_type"])
 
 
 def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
@@ -96,8 +121,14 @@ def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"]).dt.date
+    if "post_type" not in df.columns:
+        df["post_type"] = "UNKNOWN"
+    df["post_type"] = df["post_type"].fillna("UNKNOWN").astype(str).str.upper().replace("", "UNKNOWN")
     if "engagement_rate" not in df.columns:
         df["engagement_rate"] = 0.0
+    for column in ("post_video_view_time", "post_video_avg_time_watched"):
+        if column not in df.columns:
+            df[column] = 0
     for column in [
         "post_count",
         "total_engagement",
@@ -107,12 +138,14 @@ def _media_daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "post_clicks",
         "post_media_view",
         "post_video_views",
+        "post_video_view_time",
         "engagement_rate",
     ]:
         if column == "engagement_rate":
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
         else:
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    df["post_video_avg_time_watched"] = pd.to_numeric(df["post_video_avg_time_watched"], errors="coerce").fillna(0.0).astype(float)
     return df.sort_values("date")
 
 
@@ -123,6 +156,9 @@ def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"]).dt.date
     if "engagement_rate" not in df.columns:
         df["engagement_rate"] = 0.0
+    for column in ("post_video_view_time", "post_video_avg_time_watched", "post_video_length"):
+        if column not in df.columns:
+            df[column] = 0
     for column in [
         "total_engagement",
         "total_reactions",
@@ -131,13 +167,16 @@ def _media_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "post_clicks",
         "post_media_view",
         "post_video_views",
+        "post_video_view_time",
+        "post_video_length",
         "engagement_rate",
     ]:
         if column == "engagement_rate":
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0.0).astype(float)
         else:
             df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
-    for column in ["post_id", "message", "permalink_url"]:
+    df["post_video_avg_time_watched"] = pd.to_numeric(df["post_video_avg_time_watched"], errors="coerce").fillna(0.0).astype(float)
+    for column in ["post_id", "post_type", "message", "permalink_url"]:
         df[column] = df[column].fillna("").astype(str)
     return df.sort_values(["total_engagement", "post_media_view", "date"], ascending=[False, False, False])
 
@@ -155,6 +194,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
         ("Engagement Rate", "engagement_rate"),
         ("Reactions", "total_reactions"),
         ("Video Views", "video_views"),
+        ("Video Watch Hours", "video_view_time"),
         ("Page Views", "page_views"),
     ]
     for row_start in range(0, len(specs), 5):
@@ -164,7 +204,12 @@ def _render_metrics(metrics: dict[str, object]) -> None:
             with column:
                 with st.container(border=True):
                     growth_value = growth.get(key, 0.0)
-                    value = _fmt_pct(current.get(key)) if key == "engagement_rate" else _fmt_int(current.get(key))
+                    if key == "engagement_rate":
+                        value = _fmt_pct(current.get(key))
+                    elif key == "video_view_time":
+                        value = _fmt_ms_hours(current.get(key))
+                    else:
+                        value = _fmt_int(current.get(key))
                     st.metric(
                         label,
                         value,
@@ -262,10 +307,11 @@ def _render_daily_table(df: pd.DataFrame) -> None:
         "engagement_rate": "Engagement Rate",
         "total_reactions": "Reactions",
         "video_views": "Video Views",
+        "video_view_time": "Video Watch Hours (h)",
         "page_views": "Page Views",
     }
     st.dataframe(
-        df[list(columns)].rename(columns=columns),
+        df.assign(video_view_time=df["video_view_time"] / 3_600_000)[list(columns)].rename(columns=columns),
         width="stretch",
         hide_index=True,
         column_config={
@@ -279,6 +325,7 @@ def _render_daily_table(df: pd.DataFrame) -> None:
             "Engagement Rate": st.column_config.NumberColumn("Engagement Rate", format="%.2f%%"),
             "Reactions": st.column_config.NumberColumn("Reactions", format="%d"),
             "Video Views": st.column_config.NumberColumn("Video Views", format="%d"),
+            "Video Watch Hours (h)": st.column_config.NumberColumn("Video Watch Hours (h)", format="%.2f h"),
             "Page Views": st.column_config.NumberColumn("Page Views", format="%d"),
         },
     )
@@ -293,6 +340,9 @@ def _render_media_metrics(summary: dict[str, object]) -> None:
         ("Post Clicks", _fmt_int(summary.get("post_clicks"))),
         ("Media Views", _fmt_int(summary.get("post_media_view"))),
         ("Video Views", _fmt_int(summary.get("post_video_views"))),
+        ("Video Watch Hours", _fmt_ms_hours(summary.get("post_video_view_time"))),
+        ("Avg Watch Time", _fmt_ms_duration(summary.get("post_video_avg_time_watched"))),
+        ("Avg Video Length", _fmt_ms_duration(summary.get("post_video_length"))),
         ("Avg Engagement", _fmt_float(summary.get("avg_engagement_per_post"))),
     ]
     for row_start in range(0, len(specs), 4):
@@ -306,21 +356,68 @@ def _render_media_metrics(summary: dict[str, object]) -> None:
 def _build_media_activity_figure(df: pd.DataFrame) -> go.Figure:
     figure = go.Figure()
     if df.empty:
-        figure.update_layout(title="Media Performance by Upload Date")
+        figure.update_layout(title="Media Engagement by Upload Date")
         return figure
-    labels = _date_labels(df["date"])
-    for column, label in [
-        ("post_media_view", "Media Views"),
-        ("post_video_views", "Video Views"),
-        ("post_clicks", "Post Clicks"),
-    ]:
-        figure.add_trace(go.Bar(x=labels, y=df[column], name=label, hovertemplate=f"<b>%{{x}}</b><br>{label}: %{{y:,}}<extra></extra>"))
+    for post_type in sorted(df["post_type"].dropna().unique()):
+        subset = df[df["post_type"] == post_type]
+        if subset.empty:
+            continue
+        label = _fmt_post_type(post_type)
+        figure.add_trace(
+            go.Bar(
+                x=_date_labels(subset["date"]),
+                y=subset["total_engagement"],
+                name=label,
+                customdata=subset[["post_count", "post_media_view", "post_video_views"]].values,
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    + label
+                    + " Engagement: %{y:,}<br>"
+                    + "Posts: %{customdata[0]:,}<br>"
+                    + "Media Views: %{customdata[1]:,}<br>"
+                    + "Video Views: %{customdata[2]:,}<extra></extra>"
+                ),
+            )
+        )
     figure.update_layout(
-        title="Media Performance by Upload Date",
+        title="Media Engagement by Upload Date",
         xaxis_title="Upload Date",
-        yaxis_title="Volume",
+        yaxis_title="Engagement",
         xaxis=dict(type="category"),
         barmode="group",
+        legend=dict(orientation="h", y=1.14, x=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
+def _build_media_type_figure(summary: dict[str, object]) -> go.Figure:
+    rows = summary.get("by_type", []) if isinstance(summary, dict) else []
+    df = pd.DataFrame(rows)
+    figure = go.Figure()
+    if df.empty:
+        figure.update_layout(title="Media Type Performance")
+        return figure
+    df["post_type_label"] = df["post_type"].map(_fmt_post_type)
+    for column, label in [
+        ("total_reactions", "Reactions"),
+        ("comments", "Comments"),
+        ("shares", "Shares"),
+    ]:
+        figure.add_trace(
+            go.Bar(
+                x=df["post_type_label"],
+                y=pd.to_numeric(df[column], errors="coerce").fillna(0),
+                name=label,
+                hovertemplate=f"<b>%{{x}}</b><br>{label}: %{{y:,}}<extra></extra>",
+            )
+        )
+    figure.update_layout(
+        title="Media Type Performance",
+        xaxis_title="Post Type",
+        yaxis_title="Engagement",
+        barmode="stack",
         legend=dict(orientation="h", y=1.14, x=0),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
@@ -331,16 +428,43 @@ def _build_media_activity_figure(df: pd.DataFrame) -> go.Figure:
 def _build_top_posts_figure(df: pd.DataFrame) -> go.Figure:
     figure = go.Figure()
     if df.empty:
-        figure.update_layout(title="Top 5 Facebook Posts")
+        figure.update_layout(title="Top 5 Facebook Media by Engagement")
         return figure
     top_df = df.head(5).sort_values("total_engagement", ascending=True).copy()
     messages = top_df["message"].str.replace(r"\s+", " ", regex=True).str.strip()
-    top_df["label"] = pd.to_datetime(top_df["date"]).dt.strftime("%b %d") + " | " + messages.str.slice(0, 54)
-    for column, label in [("total_reactions", "Reactions"), ("comments", "Comments"), ("shares", "Shares")]:
-        figure.add_trace(go.Bar(y=top_df["label"], x=top_df[column], name=label, orientation="h"))
+    messages = messages.where(messages != "", top_df["post_id"].astype(str))
+    top_df["label"] = (
+        top_df["post_type"].map(_fmt_post_type)
+        + " | "
+        + pd.to_datetime(top_df["date"]).dt.strftime("%b %d")
+        + " | "
+        + messages.str.slice(0, 58)
+    )
+    for column, label in [
+        ("total_reactions", "Reactions"),
+        ("comments", "Comments"),
+        ("shares", "Shares"),
+    ]:
+        figure.add_trace(
+            go.Bar(
+                y=top_df["label"],
+                x=top_df[column],
+                name=label,
+                orientation="h",
+                customdata=top_df[["total_engagement", "post_media_view", "post_type"]].values,
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    + f"{label}: %{{x:,}}<br>"
+                    + "Total Engagement: %{customdata[0]:,}<br>"
+                    + "Media Views: %{customdata[1]:,}<br>"
+                    + "Type: %{customdata[2]}<extra></extra>"
+                ),
+            )
+        )
     figure.update_layout(
-        title="Top 5 Facebook Posts by Engagement",
+        title="Top 5 Facebook Media by Engagement",
         xaxis_title="Engagement",
+        yaxis_title=None,
         barmode="stack",
         legend=dict(orientation="h", y=1.12, x=0),
         margin=dict(l=18, r=18, t=70, b=36),
@@ -358,6 +482,7 @@ def _render_media_table(df: pd.DataFrame) -> None:
     display_df = df[
         [
             "date",
+            "post_type",
             "message",
             "total_engagement",
             "engagement_rate",
@@ -367,13 +492,20 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "post_clicks",
             "post_media_view",
             "post_video_views",
+            "post_video_view_time",
+            "post_video_avg_time_watched",
+            "post_video_length",
             "permalink_url",
         ]
     ].copy()
     display_df["message"] = display_df["message"].str.slice(0, 160)
+    display_df["post_video_view_time"] = display_df["post_video_view_time"] / 3_600_000
+    display_df["post_video_avg_time_watched"] = display_df["post_video_avg_time_watched"].map(_fmt_ms_duration)
+    display_df["post_video_length"] = display_df["post_video_length"].map(_fmt_ms_duration)
     display_df = display_df.rename(
         columns={
             "date": "Date",
+            "post_type": "Post Type",
             "message": "Post",
             "total_engagement": "Engagement",
             "engagement_rate": "Engagement Rate",
@@ -383,6 +515,9 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "post_clicks": "Clicks",
             "post_media_view": "Media Views",
             "post_video_views": "Video Views",
+            "post_video_view_time": "Video Watch Hours (h)",
+            "post_video_avg_time_watched": "Avg Watch Time",
+            "post_video_length": "Video Length",
             "permalink_url": "Permalink",
         }
     )
@@ -392,6 +527,7 @@ def _render_media_table(df: pd.DataFrame) -> None:
         hide_index=True,
         column_config={
             "Date": st.column_config.DateColumn("Date"),
+            "Post Type": st.column_config.TextColumn("Post Type"),
             "Post": st.column_config.TextColumn("Post", width="large"),
             "Permalink": st.column_config.LinkColumn("Permalink"),
             "Engagement": st.column_config.NumberColumn("Engagement", format="%d"),
@@ -402,6 +538,9 @@ def _render_media_table(df: pd.DataFrame) -> None:
             "Clicks": st.column_config.NumberColumn("Clicks", format="%d"),
             "Media Views": st.column_config.NumberColumn("Media Views", format="%d"),
             "Video Views": st.column_config.NumberColumn("Video Views", format="%d"),
+            "Video Watch Hours (h)": st.column_config.NumberColumn("Video Watch Hours (h)", format="%.2f h"),
+            "Avg Watch Time": st.column_config.TextColumn("Avg Watch Time"),
+            "Video Length": st.column_config.TextColumn("Video Length"),
         },
     )
 
@@ -458,13 +597,18 @@ async def show_facebook_page(host: str) -> None:
         _render_daily_table(daily_df)
 
     st.markdown("## Media Insights")
-    _render_media_metrics(payload.get("media_summary", {}))
+    media_summary = payload.get("media_summary", {})
+    _render_media_metrics(media_summary)
     media_activity_figure = _build_media_activity_figure(media_daily_df)
-    top_posts_figure = _build_top_posts_figure(media_df)
-    for column, figure in zip(st.columns(2, gap="small"), [media_activity_figure, top_posts_figure]):
+    media_type_figure = _build_media_type_figure(media_summary)
+    for column, figure in zip(st.columns(2, gap="small"), [media_activity_figure, media_type_figure]):
         figure.update_layout(height=440)
         with column:
             with st.container(border=True):
                 st.plotly_chart(figure, width="stretch")
+    top_posts_figure = _build_top_posts_figure(media_df)
+    top_posts_figure.update_layout(height=430)
+    with st.container(border=True):
+        st.plotly_chart(top_posts_figure, width="stretch")
     with st.container(border=True):
         _render_media_table(media_df)

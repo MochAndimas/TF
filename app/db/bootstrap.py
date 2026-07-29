@@ -321,6 +321,38 @@ async def _migration_20260728_001_apple_install(connection) -> None:
     )
 
 
+async def _migration_20260729_001_social_watch_time(connection) -> None:
+    """Add organic social video watch-time metrics."""
+    additive_columns = {
+        "instagram_media_insights": {
+            "reels_watch_time": "INTEGER NOT NULL DEFAULT 0",
+            "reels_avg_watch_time": "INTEGER NOT NULL DEFAULT 0",
+        },
+        "facebook_page_insights": {
+            "page_video_view_time": "INTEGER NOT NULL DEFAULT 0",
+        },
+        "facebook_page_media_insights": {
+            "post_video_view_time": "INTEGER NOT NULL DEFAULT 0",
+            "post_video_avg_time_watched": "INTEGER NOT NULL DEFAULT 0",
+            "post_video_length": "INTEGER NOT NULL DEFAULT 0",
+        },
+    }
+    for table_name, columns in additive_columns.items():
+        existing_columns = {
+            row[1]
+            for row in (
+                await connection.execute(text(f"PRAGMA table_info('{table_name}')"))
+            ).fetchall()
+        }
+        if not existing_columns:
+            continue
+        for column_name, column_type in columns.items():
+            if column_name not in existing_columns:
+                await connection.execute(
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+                )
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -371,6 +403,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260728_001_apple_install",
         "Create App Store Connect install metric table.",
         _migration_20260728_001_apple_install,
+    ),
+    (
+        "20260729_001_social_watch_time",
+        "Add Instagram and Facebook organic video watch-time metrics.",
+        _migration_20260729_001_social_watch_time,
     ),
 )
 
