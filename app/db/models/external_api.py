@@ -500,9 +500,8 @@ class AppleInstall(SqliteBase):
     first_time_downloads = Column("first_time_downloads", Integer, nullable=False, default=0)
     redownloads = Column("redownloads", Integer, nullable=False, default=0)
     total_downloads = Column("total_downloads", Integer, nullable=False, default=0)
-    installations = Column("installations", Integer, nullable=False, default=0)
-    deletions = Column("deletions", Integer, nullable=False, default=0)
-    active_devices = Column("active_devices", Integer, nullable=False, default=0)
+    deletions = Column("deletions", Integer, nullable=True)
+    active_devices = Column("active_devices", Integer, nullable=True)
     pull_date = Column("pull_date", Date, nullable=False)
 
 

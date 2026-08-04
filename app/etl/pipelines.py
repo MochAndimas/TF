@@ -1419,6 +1419,18 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             access_type="ONE_TIME_SNAPSHOT",
         )
 
+    async def apple_report_request(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "manual",
+        run_id: str | None = None,
+    ) -> str:
+        """Ensure the one-time App Store Connect Analytics Report Request exists."""
+        request_id = await self.extractor.request_apple_analytics_report(access_type="ONE_TIME_SNAPSHOT")
+        return f"Apple one-time analytics report request is ready. Request ID: {request_id}"
+
     async def _run_apple_install_pipeline(
         self,
         *,

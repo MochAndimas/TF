@@ -35,7 +35,7 @@ def build_performance_dataframe(detail_rows: list[dict], level_column: str) -> p
 
 
 def format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFrame:
-    """Format aggregated dataframe values for UI readability."""
+    """Prepare aggregated dataframe values for UI readability."""
     if df.empty:
         return df
     formatted = df.copy()
@@ -43,16 +43,6 @@ def format_performance_display(df: pd.DataFrame, level_label: str) -> pd.DataFra
         formatted[level_label] = formatted[level_label].astype(str).apply(lambda value: textwrap.fill(value, width=46, break_long_words=False))
     if "Campaign Name" in formatted.columns:
         formatted["Campaign Name"] = formatted["Campaign Name"].astype(str).apply(lambda value: textwrap.fill(value, width=42, break_long_words=False))
-
-    for col in ("Cost", "CPC", "CPM", "Cost/Register", "Cost per Register"):
-        if col in formatted.columns:
-            formatted[col] = formatted[col].apply(lambda v: f"Rp {float(v):,.0f}")
-    for col in ("Impressions", "Clicks", "Register"):
-        if col in formatted.columns:
-            formatted[col] = formatted[col].apply(lambda v: f"{int(float(v)):,}")
-    for col in ("Click->Register %", "Avg. Click to Register", "Avg. CTR"):
-        if col in formatted.columns:
-            formatted[col] = formatted[col].apply(lambda v: f"{float(v):,.2f}%")
     return formatted
 
 
@@ -110,14 +100,14 @@ def render_performance_table(level_label: str, display_df: pd.DataFrame) -> None
                 "Ads Source": st.column_config.TextColumn("Ads Source", width="small"),
                 level_label: st.column_config.TextColumn(level_label, width="small" if level_label == "Campaign ID" else "large"),
                 "Campaign Name": st.column_config.TextColumn("Campaign Name", width="medium"),
-                "Cost": st.column_config.TextColumn("Cost", width="small"),
-                "Impressions": st.column_config.TextColumn("Impressions", width="small"),
-                "Clicks": st.column_config.TextColumn("Clicks", width="small"),
-                "Register": st.column_config.TextColumn("Register", width="small"),
-                "Click->Register %": st.column_config.TextColumn("Click->Register %", width="small"),
-                "Avg. CTR": st.column_config.TextColumn("Avg. CTR", width="small"),
-                "CPC": st.column_config.TextColumn("CPC", width="small"),
-                "CPM": st.column_config.TextColumn("CPM", width="small"),
-                "Cost/Register": st.column_config.TextColumn("Cost/Register", width="medium"),
+                "Cost": st.column_config.NumberColumn("Cost", width="small", format="Rp %.0f"),
+                "Impressions": st.column_config.NumberColumn("Impressions", width="small", format="localized"),
+                "Clicks": st.column_config.NumberColumn("Clicks", width="small", format="localized"),
+                "Register": st.column_config.NumberColumn("Register", width="small", format="localized"),
+                "Click->Register %": st.column_config.NumberColumn("Click->Register %", width="small", format="%.2f%%"),
+                "Avg. CTR": st.column_config.NumberColumn("Avg. CTR", width="small", format="%.2f%%"),
+                "CPC": st.column_config.NumberColumn("CPC", width="small", format="Rp %.0f"),
+                "CPM": st.column_config.NumberColumn("CPM", width="small", format="Rp %.0f"),
+                "Cost/Register": st.column_config.NumberColumn("Cost/Register", width="medium", format="Rp %.0f"),
             },
         )

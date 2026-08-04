@@ -415,6 +415,23 @@ async def _run_apple_install_snapshot(
     )
 
 
+async def _run_apple_report_request(
+    gsheet: GoogleSheetApi,
+    session,
+    types: str,
+    start_date,
+    end_date,
+    run_id: str,
+) -> str:
+    return await gsheet.apple_report_request(
+        types=types,
+        start_date=start_date,
+        end_date=end_date,
+        session=session,
+        run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -436,6 +453,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "play_console_install_metrics": _run_play_console_install_metrics,
     "apple_install": _run_apple_install,
     "apple_install_snapshot": _run_apple_install_snapshot,
+    "apple_report_request": _run_apple_report_request,
 }
 
 SOURCE_MODELS = {
@@ -498,6 +516,8 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
         ``(None, None)`` for sources that do not operate on date windows.
     """
     if data == "unique_campaign":
+        return None, None
+    if data == "apple_report_request":
         return None, None
     if data == "apple_install" and types == "auto":
         complete_date = datetime.now().date() - timedelta(days=5)

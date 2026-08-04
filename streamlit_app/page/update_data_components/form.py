@@ -30,6 +30,7 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
     "Google Play Console Install Metrics": "play_console_install_metrics",
+    "Apple App Store Request Report (ONE_TIME_SNAPSHOT)": "apple_report_request",
     "Apple App Store Install Metrics (ONGOING)": "apple_install",
 }
 
@@ -92,7 +93,7 @@ def resolve_date_input(mode: str, preset_key: str, presets: dict[str, tuple[dt.d
     selected_range = st.date_input(
         "Select Date Range",
         value=get_date_range(days=7, period="days"),
-        min_value=dt.date(2022, 1, 1),
+        min_value=dt.date(2020, 1, 1),
         max_value=get_date_range(days=2, period="days")[1],
         key="update_date_range",
     )
@@ -115,19 +116,32 @@ def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]
             source_label = st.selectbox("Data Source", options=list(source_options.keys()), index=None, placeholder="Select a data source", key="update_data_source")
             selected_source = source_options.get(source_label or "")
             snapshot_selected = selected_source == "apple_install_snapshot"
+            report_request_selected = selected_source == "apple_report_request"
             mode = st.radio(
                 "Update Mode",
-                options=["manual"] if snapshot_selected else ["manual", "auto"],
+                options=["manual"] if snapshot_selected or report_request_selected else ["manual", "auto"],
                 horizontal=True,
                 key=(
                     "update_mode_apple_snapshot"
                     if snapshot_selected
+                    else "update_mode_apple_report_request"
+                    if report_request_selected
                     else "update_mode"
                 ),
             )
         with right_col:
-            preset_key = st.selectbox("Date Preset", options=list(presets.keys()), index=0 if mode == "auto" else None, disabled=(mode == "auto"), placeholder="Select date range preset", key="update_period")
-            if mode == "auto":
+            preset_key = st.selectbox(
+                "Date Preset",
+                options=list(presets.keys()),
+                index=0 if mode == "auto" else None,
+                disabled=(mode == "auto" or report_request_selected),
+                placeholder="Select date range preset",
+                key="update_period",
+            )
+            if report_request_selected:
+                from_date = to_date = dt.date.today()
+                st.info("This only requests the Apple one-time analytics report. Reports usually need 24-48 hours before they can be loaded.")
+            elif mode == "auto":
                 lag_days = (
                     5
                     if source_label == "Apple App Store Install Metrics (ONGOING)"

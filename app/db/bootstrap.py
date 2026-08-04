@@ -307,9 +307,8 @@ async def _migration_20260728_001_apple_install(connection) -> None:
                 first_time_downloads INTEGER NOT NULL DEFAULT 0,
                 redownloads INTEGER NOT NULL DEFAULT 0,
                 total_downloads INTEGER NOT NULL DEFAULT 0,
-                installations INTEGER NOT NULL DEFAULT 0,
-                deletions INTEGER NOT NULL DEFAULT 0,
-                active_devices INTEGER NOT NULL DEFAULT 0,
+                deletions INTEGER,
+                active_devices INTEGER,
                 pull_date DATE NOT NULL,
                 CONSTRAINT uq_apple_install_date UNIQUE (date)
             )

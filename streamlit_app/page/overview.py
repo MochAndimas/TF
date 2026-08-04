@@ -124,21 +124,25 @@ def _raw_payload_or_error(result: ApiClientResult | None, fallback_message: str)
     return None
 
 
-def _render_install_metric_cards(summary_payload: dict[str, object]) -> None:
+def _render_install_metric_cards(install_payload: dict[str, object]) -> None:
+    summary_payload = install_payload.get("metrics", {})
+    all_time = install_payload.get("all_time", {})
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
     cards = [
-        ("Install", "installers"),
-        ("Uninstall", "uninstallers"),
-        ("Active Users", "active_devices"),
+        ("All-time Install", "all_time_installers", all_time.get("installers", 0), None),
+        ("Active Devices", "active_devices", current_metrics.get("active_devices", 0), growth_metrics.get("active_devices", 0.0)),
+        ("Install", "installers", current_metrics.get("installers", 0), growth_metrics.get("installers", 0.0)),
+        ("Uninstall", "uninstallers", current_metrics.get("uninstallers", 0), growth_metrics.get("uninstallers", 0.0)),
     ]
 
-    for column, (label, key) in zip(st.columns(3, gap="small"), cards):
+    for column, (label, key, raw_value, growth_value) in zip(st.columns(4, gap="small"), cards):
         with column:
             with st.container(border=True):
-                raw_value = current_metrics.get(key, 0)
-                growth_value = growth_metrics.get(key, 0.0)
                 delta_color = "inverse" if key == "uninstallers" else "normal"
+                if growth_value is None:
+                    st.metric(label=label, value=_campaign_format_number(raw_value))
+                    continue
                 if growth_value == 0:
                     delta_color = "off"
                 st.metric(
@@ -324,7 +328,7 @@ async def show_overview_page(host: str) -> None:
     if "install" in st.session_state.get("allowed_pages", []):
         st.markdown('<div class="metric-section-title">App Install</div>', unsafe_allow_html=True)
         install_data = st.session_state.get("overview_install_payload", {}).get("data", {})
-        _render_install_metric_cards(install_data.get("metrics", {}))
+        _render_install_metric_cards(install_data)
         install_daily_df = install_daily_dataframe(install_data.get("daily_rows", []))
         install_daily_figure = set_transparent_chart_background(build_install_daily_figure(install_daily_df))
         install_daily_figure.update_layout(height=440)

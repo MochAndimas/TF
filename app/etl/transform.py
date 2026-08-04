@@ -940,7 +940,6 @@ def parse_apple_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         "first_time_downloads",
         "redownloads",
         "total_downloads",
-        "installations",
         "deletions",
         "active_devices",
     ]
@@ -965,10 +964,19 @@ def parse_apple_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
 
     latest = df.groupby(["_apple_report", "date"])["_apple_processing_date"].transform("max")
     df = df[df["_apple_processing_date"] == latest].copy()
-    output: dict[date, dict[str, int]] = {}
+    output: dict[date, dict[str, int | None]] = {}
 
-    def daily_row(event_date: date) -> dict[str, int]:
-        return output.setdefault(event_date, {column: 0 for column in metric_columns})
+    def daily_row(event_date: date) -> dict[str, int | None]:
+        return output.setdefault(
+            event_date,
+            {
+                "first_time_downloads": 0,
+                "redownloads": 0,
+                "total_downloads": 0,
+                "deletions": None,
+                "active_devices": None,
+            },
+        )
 
     downloads = df[df["_apple_report"] == "downloads"].copy()
     if not downloads.empty:
@@ -997,10 +1005,8 @@ def parse_apple_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         for _, row in installs.iterrows():
             event = str(row["event"]).strip().lower()
             target = daily_row(row["date"])
-            if event == "install":
-                target["installations"] += int(row["counts"])
-            elif event == "delete":
-                target["deletions"] += int(row["counts"])
+            if event == "delete":
+                target["deletions"] = int(target["deletions"] or 0) + int(row["counts"])
 
     sessions = df[df["_apple_report"] == "sessions"].copy()
     if not sessions.empty:

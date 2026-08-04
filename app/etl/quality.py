@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+MIN_HISTORICAL_DATE = pd.Timestamp("2020-01-01").date()
+
 
 def _duplicate_ratio(df: pd.DataFrame, keys: list[str]) -> float:
     """Compute duplicate ratio for a dataframe business-key definition.
@@ -40,7 +42,7 @@ def validate_ads_dataframe(df: pd.DataFrame) -> None:
     if missing_key:
         raise ValueError(f"DQ failed: ads data has {int(missing_key)} rows with missing business keys.")
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(f"DQ failed: ads data has {int(invalid_dates)} rows with invalid metric dates.")
 
@@ -76,7 +78,7 @@ def validate_ga4_dataframe(df: pd.DataFrame) -> None:
     if missing_key:
         raise ValueError(f"DQ failed: ga4 data has {int(missing_key)} rows with missing business keys.")
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(f"DQ failed: ga4 data has {int(invalid_dates)} rows with invalid metric dates.")
 
@@ -108,7 +110,7 @@ def validate_daily_register_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: daily register data has {int(missing_key)} rows with missing business keys."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: daily register data has {int(invalid_dates)} rows with invalid dates."
@@ -136,7 +138,7 @@ def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: Instagram insights data has {int(missing_key)} rows with missing date."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: Instagram insights data has {int(invalid_dates)} rows with invalid dates."
@@ -179,7 +181,7 @@ def validate_tiktok_insights_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: TikTok insights data has {int(missing_key)} rows with missing date."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: TikTok insights data has {int(invalid_dates)} rows with invalid dates."
@@ -223,7 +225,7 @@ def validate_tiktok_media_insights_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: TikTok media insights data has {int(missing_key)} rows with missing keys."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: TikTok media insights data has {int(invalid_dates)} rows with invalid dates."
@@ -271,7 +273,7 @@ def validate_youtube_daily_insight_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: YouTube daily insight data has {int(missing_key)} rows with missing date."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: YouTube daily insight data has {int(invalid_dates)} rows with invalid dates."
@@ -369,7 +371,7 @@ def validate_instagram_media_insights_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: Instagram media insights data has {int(missing_key)} rows with missing keys."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: Instagram media insights data has {int(invalid_dates)} rows with invalid dates."
@@ -421,7 +423,7 @@ def validate_facebook_page_insights_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: Facebook Page insights data has {int(missing_key)} rows with missing keys."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: Facebook Page insights data has {int(invalid_dates)} rows with invalid dates."
@@ -472,7 +474,7 @@ def validate_facebook_page_media_insights_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: Facebook Page media insights data has {int(missing_key)} rows with missing keys."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: Facebook Page media insights data has {int(invalid_dates)} rows with invalid dates."
@@ -542,7 +544,7 @@ def validate_first_deposit_dataframe(df: pd.DataFrame) -> None:
         )
 
     invalid_dates = (
-        (df["tanggal_regis"].isna()) | (df["tanggal_regis"] < pd.Timestamp("2022-01-01").date())
+        (df["tanggal_regis"].isna()) | (df["tanggal_regis"] < MIN_HISTORICAL_DATE)
     ).sum()
     if invalid_dates:
         raise ValueError(
@@ -568,7 +570,7 @@ def validate_ms_deposit_dataframe(df: pd.DataFrame) -> None:
         )
 
     invalid_dates = (
-        (df["last_activity"].isna()) | (df["last_activity"] < pd.Timestamp("2022-01-01").date())
+        (df["last_activity"].isna()) | (df["last_activity"] < MIN_HISTORICAL_DATE)
     ).sum()
     if invalid_dates:
         raise ValueError(
@@ -593,7 +595,7 @@ def validate_play_console_install_dataframe(df: pd.DataFrame) -> None:
             f"DQ failed: Play Console install data has {int(missing_key)} rows with missing business keys."
         )
 
-    invalid_dates = ((df["date"].isna()) | (df["date"] < pd.Timestamp("2022-01-01").date())).sum()
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
     if invalid_dates:
         raise ValueError(
             f"DQ failed: Play Console install data has {int(invalid_dates)} rows with invalid dates."
@@ -622,23 +624,27 @@ def validate_apple_install_dataframe(df: pd.DataFrame) -> None:
 
     if df["date"].isna().any():
         raise ValueError("DQ failed: Apple install data has missing dates.")
-    invalid_dates = (df["date"] < pd.Timestamp("2024-01-01").date()).sum()
+    invalid_dates = (df["date"] < MIN_HISTORICAL_DATE).sum()
     if invalid_dates:
         raise ValueError(
-            f"DQ failed: Apple install data has {int(invalid_dates)} dates before API history."
+            f"DQ failed: Apple install data has {int(invalid_dates)} dates before historical range."
         )
 
-    metric_columns = [
+    required_metric_columns = [
         "first_time_downloads",
         "redownloads",
         "total_downloads",
-        "installations",
+    ]
+    nullable_metric_columns = [
         "deletions",
         "active_devices",
     ]
-    numeric = df[metric_columns].apply(pd.to_numeric, errors="coerce")
+    numeric = df[required_metric_columns].apply(pd.to_numeric, errors="coerce")
     if numeric.isna().any(axis=1).any() or (numeric < 0).any(axis=1).any():
         raise ValueError("DQ failed: Apple install data has invalid or negative metrics.")
+    nullable_numeric = df[nullable_metric_columns].apply(pd.to_numeric, errors="coerce")
+    if (nullable_numeric < 0).any(axis=1).any():
+        raise ValueError("DQ failed: Apple install data has negative optional metrics.")
     if (df["total_downloads"] != df["first_time_downloads"] + df["redownloads"]).any():
         raise ValueError("DQ failed: Apple total downloads does not match its components.")
     if _duplicate_ratio(df, ["date"]) > 0:

@@ -9,6 +9,7 @@ import io
 import json
 import time
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from decouple import config
@@ -69,6 +70,21 @@ def _play_console_month_tokens(start_date: date, end_date: date) -> set[str]:
         else:
             current = date(current.year, current.month + 1, 1)
     return tokens
+
+
+def _parse_iso_date_config(raw_value: str, default: date) -> date:
+    try:
+        return datetime.strptime(raw_value.strip(), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return default
+
+
+def _apple_report_request_secret_key(access_type: str) -> str:
+    normalized = access_type.lower()
+    return f"apple_analytics_report_request_id_{normalized}"
+
+
+APPLE_API_HISTORY_START_DATE = date(2024, 1, 1)
 
 
 class ExternalApiExtractor:
@@ -147,6 +163,12 @@ class ExternalApiExtractor:
         ]
         if play_console_prefix and play_console_prefix not in self.play_console_report_prefixes:
             self.play_console_report_prefixes.insert(0, play_console_prefix)
+        backfill_path = Path(config("PLAY_CONSOLE_INSTALL_BACKFILL_CSV", default="backfill_install.csv", cast=str).strip())
+        self.play_console_install_backfill_path = backfill_path if backfill_path.is_absolute() else Path.cwd() / backfill_path
+        self.play_console_install_backfill_end_date = _parse_iso_date_config(
+            config("PLAY_CONSOLE_INSTALL_BACKFILL_END_DATE", default="2024-09-30", cast=str),
+            date(2024, 9, 30),
+        )
         self.play_console_storage_service = None
         raw_play_console_sa = config("PLAY_CONSOLE_SA", default="", cast=str).strip()
         if raw_play_console_sa:
@@ -172,6 +194,8 @@ class ExternalApiExtractor:
             default="",
             cast=str,
         ).strip()
+        apple_backfill_path = Path(config("APPLE_INSTALL_BACKFILL_CSV", default="apple_backfill.csv", cast=str).strip())
+        self.apple_install_backfill_path = apple_backfill_path if apple_backfill_path.is_absolute() else Path.cwd() / apple_backfill_path
         self.google_ads_customer_id = normalize_customer_id(
             config("GOOGLE_ADS_CUSTOMER_ID", default="", cast=str)
         )
@@ -2388,7 +2412,18 @@ class ExternalApiExtractor:
         access_type: str,
     ) -> str:
         if access_type == "ONGOING" and self.apple_asc_report_request_id:
+            await self._store_managed_secret(
+                _apple_report_request_secret_key(access_type),
+                self.apple_asc_report_request_id,
+                f"App Store Connect {access_type} analytics report request ID.",
+            )
             return self.apple_asc_report_request_id
+
+        stored_request_id = await self._load_managed_secret(
+            _apple_report_request_secret_key(access_type)
+        )
+        if stored_request_id:
+            return stored_request_id
 
         payload = await self._apple_get_json(
             client,
@@ -2410,6 +2445,11 @@ class ExternalApiExtractor:
             )
             attributes = request_payload.get("data", {}).get("attributes", {})
             if attributes.get("accessType") == access_type:
+                await self._store_managed_secret(
+                    _apple_report_request_secret_key(access_type),
+                    request_id,
+                    f"App Store Connect {access_type} analytics report request ID.",
+                )
                 return request_id
 
         response = await client.post(
@@ -2447,6 +2487,26 @@ class ExternalApiExtractor:
             raise ValueError(
                 f"Apple created the {access_type} request without returning its identifier."
             )
+        await self._store_managed_secret(
+            _apple_report_request_secret_key(access_type),
+            request_id,
+            f"App Store Connect {access_type} analytics report request ID.",
+        )
+        return request_id
+
+    async def request_apple_analytics_report(self, *, access_type: str = "ONE_TIME_SNAPSHOT") -> str:
+        """Ensure an App Store Connect Analytics Report Request exists."""
+        if access_type not in {"ONGOING", "ONE_TIME_SNAPSHOT"}:
+            raise ValueError("access_type must be ONGOING or ONE_TIME_SNAPSHOT.")
+
+        token = self._build_apple_asc_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            request_id = await self._resolve_apple_report_request_id(
+                client,
+                headers=headers,
+                access_type=access_type,
+            )
         return request_id
 
     async def _apple_paginated_data(
@@ -2476,8 +2536,14 @@ class ExternalApiExtractor:
     def _select_apple_install_reports(reports: list[dict]) -> dict[str, dict]:
         """Select standard reports needed for the requested date-grain metrics."""
         targets = {
-            "downloads": ("app store downloads",),
-            "installs": ("app store installations", "deletions"),
+            "downloads": (
+                ("app downloads",),
+                ("app store downloads",),
+            ),
+            "installs": (
+                ("app store installation", "deletion"),
+                ("app store installations", "deletions"),
+            ),
             "sessions": ("app sessions",),
         }
         selected: dict[str, dict] = {}
@@ -2485,7 +2551,10 @@ class ExternalApiExtractor:
             candidates = []
             for report in reports:
                 name = str(report.get("attributes", {}).get("name", "")).strip().lower()
-                if all(term in name for term in required_terms):
+                term_options = required_terms
+                if key == "sessions":
+                    term_options = (required_terms,)
+                if any(all(term in name for term in terms) for terms in term_options):
                     candidates.append(report)
             if not candidates:
                 continue
@@ -2508,6 +2577,12 @@ class ExternalApiExtractor:
         """Download latest daily Apple download/install/session report partitions."""
         if access_type not in {"ONGOING", "ONE_TIME_SNAPSHOT"}:
             raise ValueError(f"Unsupported Apple analytics access type: {access_type}")
+
+        raw_rows = self._load_apple_install_backfill_rows(start_date, end_date)
+        api_start_date = max(start_date, APPLE_API_HISTORY_START_DATE)
+        if api_start_date > end_date:
+            return raw_rows
+
         token = self._build_apple_asc_token()
         headers = {"Authorization": f"Bearer {token}"}
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
@@ -2535,7 +2610,6 @@ class ExternalApiExtractor:
                     + ". New report requests usually need 24-48 hours to generate."
                 )
 
-            raw_rows: list[dict] = []
             today = datetime.now(timezone.utc).date()
             for report_key, report in selected.items():
                 report_id = report["id"]
@@ -2564,7 +2638,7 @@ class ExternalApiExtractor:
                     # date. Include the completeness window plus today's corrections.
                     if access_type == "ONE_TIME_SNAPSHOT":
                         relevant_instances.append(instance)
-                    elif start_date <= pd_date <= min(today, end_date + timedelta(days=5)):
+                    elif api_start_date <= pd_date <= min(today, end_date + timedelta(days=5)):
                         relevant_instances.append(instance)
                     elif pd_date == today:
                         relevant_instances.append(instance)
@@ -2596,6 +2670,68 @@ class ExternalApiExtractor:
                             raw_rows.append(row)
             return raw_rows
 
+    def _load_apple_install_backfill_rows(self, start_date: date, end_date: date) -> list[dict]:
+        if start_date >= APPLE_API_HISTORY_START_DATE:
+            return []
+        if not self.apple_install_backfill_path.exists():
+            return []
+
+        window_end = min(end_date, APPLE_API_HISTORY_START_DATE - timedelta(days=1))
+        rows: list[dict] = []
+        processing_date = datetime.now(timezone.utc).date().isoformat()
+        with self.apple_install_backfill_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            csv_rows = list(csv.reader(handle))
+        header_index = next(
+            (
+                index
+                for index, row in enumerate(csv_rows)
+                if row and str(row[0]).strip().lower() == "date"
+            ),
+            None,
+        )
+        if header_index is None:
+            return []
+
+        reader = csv.DictReader(io.StringIO("\n".join(",".join(row) for row in csv_rows[header_index:])))
+        for row in reader:
+            row_date = self._parse_apple_backfill_date(row.get("Date", ""))
+            if row_date is None or row_date < start_date or row_date > window_end:
+                continue
+            metric_values = {
+                "First-time download": row.get("First-Time Downloads", 0),
+                "Redownload": row.get("Redownloads", 0),
+            }
+            for download_type, raw_count in metric_values.items():
+                count = self._parse_apple_backfill_count(raw_count)
+                rows.append(
+                    {
+                        "Date": row_date.isoformat(),
+                        "Download Type": download_type,
+                        "Counts": count,
+                        "_apple_report": "downloads",
+                        "_apple_report_name": "Apple Downloads Backfill",
+                        "_apple_processing_date": processing_date,
+                    }
+                )
+        return rows
+
+    @staticmethod
+    def _parse_apple_backfill_date(raw_value: str) -> date | None:
+        normalized = str(raw_value).strip()
+        for date_format in ("%m/%d/%y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(normalized, date_format).date()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _parse_apple_backfill_count(raw_value) -> int:
+        normalized = str(raw_value or "0").replace(",", "").strip()
+        if not normalized:
+            return 0
+        return int(float(normalized))
+
     async def fetch_play_console_install_rows(self, start_date: date, end_date: date) -> list[dict]:
         """Fetch Google Play Console install/acquisition report rows from GCS exports."""
         if self.play_console_storage_service is None:
@@ -2618,17 +2754,18 @@ class ExternalApiExtractor:
         )
 
     def _fetch_play_console_install_rows_sync(self, start_date: date, end_date: date) -> list[dict]:
-        month_tokens = _play_console_month_tokens(start_date, end_date)
+        rows = self._load_play_console_install_backfill_rows(start_date, end_date)
+        gcs_start_date = max(start_date, self.play_console_install_backfill_end_date + timedelta(days=1))
+        if gcs_start_date > end_date:
+            return rows
+
+        month_tokens = _play_console_month_tokens(gcs_start_date, end_date)
         objects = [
             object_name
             for object_name in self._list_play_console_report_objects()
             if self._is_play_console_install_overview_object(object_name)
             and any(token in object_name for token in month_tokens)
         ]
-        if not objects:
-            return []
-
-        rows: list[dict] = []
         for object_name in objects:
             object_rows = self._download_play_console_csv(object_name)
             if not object_rows:
@@ -2637,6 +2774,48 @@ class ExternalApiExtractor:
                 row["source_object"] = object_name
                 rows.append(row)
         return rows
+
+    def _load_play_console_install_backfill_rows(self, start_date: date, end_date: date) -> list[dict]:
+        if start_date > self.play_console_install_backfill_end_date:
+            return []
+        if not self.play_console_install_backfill_path.exists():
+            return []
+
+        window_end = min(end_date, self.play_console_install_backfill_end_date)
+        rows: list[dict] = []
+        with self.play_console_install_backfill_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            if not reader.fieldnames or len(reader.fieldnames) < 2:
+                return []
+            date_column = reader.fieldnames[0]
+            installers_column = reader.fieldnames[1]
+            for row in reader:
+                row_date = self._parse_play_console_backfill_date(row.get(date_column, ""))
+                if row_date is None or row_date < start_date or row_date > window_end:
+                    continue
+                installers = str(row.get(installers_column, "0")).replace(",", "").strip() or "0"
+                rows.append(
+                    {
+                        "date": row_date.isoformat(),
+                        "package_name": self.play_console_package_name,
+                        "country": "all",
+                        "installers": installers,
+                        "uninstallers": 0,
+                        "active_devices": 0,
+                        "source_object": "stats/installs/backfill_install_overview.csv",
+                    }
+                )
+        return rows
+
+    @staticmethod
+    def _parse_play_console_backfill_date(raw_value: str) -> date | None:
+        try:
+            return datetime.strptime(str(raw_value).strip().strip('"'), "%b %d, %Y").date()
+        except ValueError:
+            try:
+                return datetime.strptime(str(raw_value).strip().strip('"'), "%Y-%m-%d").date()
+            except ValueError:
+                return None
 
     @staticmethod
     def _is_play_console_install_overview_object(object_name: str) -> bool:

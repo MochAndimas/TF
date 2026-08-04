@@ -1068,14 +1068,17 @@ def build_apple_install_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
         "first_time_downloads",
         "redownloads",
         "total_downloads",
-        "installations",
         "deletions",
         "active_devices",
     ]
     return [
         {
             "date": row["date"],
-            **{column: int(row[column]) for column in metric_columns},
+            "first_time_downloads": int(row["first_time_downloads"]),
+            "redownloads": int(row["redownloads"]),
+            "total_downloads": int(row["total_downloads"]),
+            "deletions": _optional_int(row.get("deletions")),
+            "active_devices": _optional_int(row.get("active_devices")),
             "pull_date": pull_date,
         }
         for _, row in df.iterrows()
@@ -1155,7 +1158,6 @@ async def upsert_apple_install_rows(session: AsyncSession, rows: list[dict]) -> 
                 "first_time_downloads": insert_stmt.excluded.first_time_downloads,
                 "redownloads": insert_stmt.excluded.redownloads,
                 "total_downloads": insert_stmt.excluded.total_downloads,
-                "installations": insert_stmt.excluded.installations,
                 "deletions": insert_stmt.excluded.deletions,
                 "active_devices": insert_stmt.excluded.active_devices,
                 "pull_date": insert_stmt.excluded.pull_date,

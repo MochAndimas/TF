@@ -96,6 +96,25 @@ async def _filter_options(
     return {"packages": packages, "countries": countries}
 
 
+async def _all_time_installers(
+    session: AsyncSession,
+    *,
+    package_name: str | None = None,
+    country: str | None = None,
+) -> int:
+    filters = []
+    if package_name:
+        filters.append(PlayConsoleInstallMetrics.package_name == package_name)
+    if country:
+        filters.append(PlayConsoleInstallMetrics.country == country)
+
+    query = select(func.coalesce(func.sum(PlayConsoleInstallMetrics.installers), 0))
+    if filters:
+        query = query.where(*filters)
+    value = (await session.execute(query)).scalar_one()
+    return int(value or 0)
+
+
 def _metric_summary(
     current_df: pd.DataFrame,
     previous_df: pd.DataFrame,
@@ -242,6 +261,13 @@ async def fetch_install_analytics_payload(
             previous_start=previous_start,
             previous_end=previous_end,
         ),
+        "all_time": {
+            "installers": await _all_time_installers(
+                session=session,
+                package_name=selected_package,
+                country=selected_country,
+            )
+        },
         "daily_rows": _daily_rows(current_df),
         "package_rows": _dimension_rows(current_df, "package_name"),
         "country_rows": _dimension_rows(current_df, "country"),
