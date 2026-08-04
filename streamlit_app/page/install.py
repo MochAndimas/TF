@@ -1,4 +1,4 @@
-"""Streamlit page for Google Play Console install analytics."""
+"""Streamlit page for Google Play Console and Apple App Store analytics."""
 
 from __future__ import annotations
 
@@ -99,29 +99,6 @@ def _render_period_filter() -> tuple[dt.date | None, dt.date | None]:
         return start_date, end_date
 
 
-def _render_dimension_filters(filter_options: dict[str, object]) -> tuple[str, str]:
-    packages = ["All Packages", *filter_options.get("packages", [])]
-    countries = ["All Countries", *filter_options.get("countries", [])]
-
-    selected_package = st.session_state.get("install_package_label", "All Packages")
-    selected_country = st.session_state.get("install_country_label", "All Countries")
-    if selected_package not in packages:
-        st.session_state["install_package_label"] = "All Packages"
-    if selected_country not in countries:
-        st.session_state["install_country_label"] = "All Countries"
-
-    with st.container(border=True):
-        package_col, country_col = st.columns([2, 2], gap="small")
-        with package_col:
-            selected_package = st.selectbox("Package", options=packages, key="install_package_label")
-        with country_col:
-            selected_country = st.selectbox("Country", options=countries, key="install_country_label")
-
-    package_key = "all" if selected_package == "All Packages" else selected_package
-    country_key = "all" if selected_country == "All Countries" else selected_country
-    return package_key, country_key
-
-
 def _render_metric_card(
     *,
     label: str,
@@ -205,17 +182,6 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     return df.sort_values("date")
 
 
-def _dimension_dataframe(rows: list[dict[str, object]], label_column: str) -> pd.DataFrame:
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    for column in ("installers", "uninstallers", "net_installs", "active_devices"):
-        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
-    df["share_pct"] = pd.to_numeric(df.get("share_pct", 0), errors="coerce").fillna(0.0).astype(float)
-    df[label_column] = df[label_column].fillna("").astype(str)
-    return df.sort_values("installers", ascending=False)
-
-
 def _details_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
@@ -239,6 +205,273 @@ def _details_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
         "Churn Rate",
     ]
     return df[[column for column in columns if column in df.columns]]
+
+
+def _growth_percentage(current: float, previous: float) -> float:
+    if previous == 0:
+        return 100.0 if current else 0.0
+    return round(((current - previous) / previous) * 100, 2)
+
+
+def _install_values(installers: int, uninstallers: int, active_devices: int) -> dict[str, float]:
+    return {
+        "installers": installers,
+        "uninstallers": uninstallers,
+        "net_installs": installers - uninstallers,
+        "active_devices": active_devices,
+        "churn_rate": round((uninstallers / installers) * 100, 2) if installers else 0.0,
+    }
+
+
+def _normalize_apple_data(apple: dict[str, object]) -> dict[str, object]:
+    source_metrics = apple.get("metrics", {})
+
+    def normalize_period(period: dict[str, object]) -> dict[str, object]:
+        values = period.get("metrics", {})
+        normalized = _install_values(
+            int(values.get("total_downloads", 0)),
+            int(values.get("deletions", 0)),
+            int(values.get("active_devices", 0)),
+        )
+        return {**period, "metrics": normalized}
+
+    current = normalize_period(source_metrics.get("current_period", {}))
+    previous = normalize_period(source_metrics.get("previous_period", {}))
+    growth = {
+        key: _growth_percentage(float(current["metrics"][key]), float(previous["metrics"][key]))
+        for key in current["metrics"]
+    }
+    daily = pd.DataFrame(apple.get("daily_rows", []))
+    if not daily.empty:
+        daily = daily.rename(columns={"total_downloads": "installers", "deletions": "uninstallers"})
+        daily["net_installs"] = daily["installers"] - daily["uninstallers"]
+        daily["churn_rate"] = daily.apply(
+            lambda row: round((row["uninstallers"] / row["installers"]) * 100, 2) if row["installers"] else 0.0,
+            axis=1,
+        )
+    rows = daily.to_dict(orient="records")
+    return {
+        "metrics": {"current_period": current, "previous_period": previous, "growth_percentage": growth},
+        "all_time": {"installers": apple.get("all_time", {}).get("total_downloads", 0)},
+        "daily_rows": rows,
+        "details": rows,
+    }
+
+
+def _combine_install_data(play: dict[str, object], apple: dict[str, object]) -> dict[str, object]:
+    normalized_apple = _normalize_apple_data(apple)
+
+    def combined_period(period_key: str) -> dict[str, object]:
+        play_period = play.get("metrics", {}).get(period_key, {})
+        apple_period = normalized_apple.get("metrics", {}).get(period_key, {})
+        play_values = play_period.get("metrics", {})
+        apple_values = apple_period.get("metrics", {})
+        metrics = _install_values(
+            int(play_values.get("installers", 0)) + int(apple_values.get("installers", 0)),
+            int(play_values.get("uninstallers", 0)) + int(apple_values.get("uninstallers", 0)),
+            int(play_values.get("active_devices", 0)) + int(apple_values.get("active_devices", 0)),
+        )
+        return {**play_period, "metrics": metrics}
+
+    current = combined_period("current_period")
+    previous = combined_period("previous_period")
+    growth = {
+        key: _growth_percentage(float(current["metrics"][key]), float(previous["metrics"][key]))
+        for key in current["metrics"]
+    }
+    frames = []
+    for rows in (play.get("daily_rows", []), normalized_apple.get("daily_rows", [])):
+        if rows:
+            frames.append(pd.DataFrame(rows))
+    if frames:
+        daily = pd.concat(frames, ignore_index=True)
+        daily = daily.groupby("date", as_index=False).agg(
+            installers=("installers", "sum"),
+            uninstallers=("uninstallers", "sum"),
+            active_devices=("active_devices", "sum"),
+        )
+        daily["net_installs"] = daily["installers"] - daily["uninstallers"]
+        daily["churn_rate"] = daily.apply(
+            lambda row: round((row["uninstallers"] / row["installers"]) * 100, 2) if row["installers"] else 0.0,
+            axis=1,
+        )
+        rows = daily.sort_values("date").to_dict(orient="records")
+    else:
+        rows = []
+    return {
+        "metrics": {"current_period": current, "previous_period": previous, "growth_percentage": growth},
+        "all_time": {
+            "installers": int(play.get("all_time", {}).get("installers", 0))
+            + int(normalized_apple.get("all_time", {}).get("installers", 0))
+        },
+        "daily_rows": rows,
+        "details": rows,
+    }
+
+
+def _overview_platform_frame(play: dict[str, object], apple: dict[str, object]) -> pd.DataFrame:
+    frames = []
+    for platform, rows in (
+        ("Google Play", play.get("daily_rows", [])),
+        ("Apple App Store", _normalize_apple_data(apple).get("daily_rows", [])),
+    ):
+        if not rows:
+            continue
+        frame = pd.DataFrame(rows)
+        frame["platform"] = platform
+        frames.append(frame)
+    if not frames:
+        return pd.DataFrame(
+            columns=["date", "platform", "installers", "uninstallers", "net_installs", "active_devices", "churn_rate"]
+        )
+    frame = pd.concat(frames, ignore_index=True)
+    frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    for column in ("installers", "uninstallers", "net_installs", "active_devices"):
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0).astype(int)
+    frame["churn_rate"] = pd.to_numeric(frame["churn_rate"], errors="coerce").fillna(0.0)
+    return frame.sort_values(["date", "platform"])
+
+
+def _build_overview_figure(df: pd.DataFrame) -> go.Figure:
+    figure = go.Figure()
+    if df.empty:
+        figure.update_layout(
+            title="Daily Installs - All Platforms",
+            annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
+        )
+        return figure
+
+    colors = {"Google Play": "#4C78FF", "Apple App Store": "#FF4B4B"}
+    for platform in ("Google Play", "Apple App Store"):
+        subset = df[df["platform"] == platform]
+        if subset.empty:
+            continue
+        labels = _date_labels(subset["date"])
+        figure.add_trace(
+            go.Bar(
+                x=labels,
+                y=subset["installers"],
+                name=f"{platform} Installers",
+                marker_color=colors[platform],
+                offsetgroup="installers",
+                legendgroup=platform,
+            )
+        )
+        figure.add_trace(
+            go.Bar(
+                x=labels,
+                y=subset["uninstallers"],
+                name=f"{platform} Uninstallers",
+                marker_color=colors[platform],
+                marker_pattern_shape="/",
+                offsetgroup="uninstallers",
+                legendgroup=platform,
+            )
+        )
+    figure.update_layout(
+        title="Daily Installers & Uninstallers - All Platforms",
+        barmode="relative",
+        xaxis=dict(title="Date", type="category"),
+        yaxis=dict(title="Installs"),
+        legend=dict(orientation="h", y=1.18, x=0),
+    )
+    return figure
+
+
+def _build_active_device_trend_figure(df: pd.DataFrame) -> go.Figure:
+    figure = go.Figure()
+    if df.empty:
+        figure.update_layout(
+            title="Active Devices Trend (First Available Day = 100)",
+            annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
+        )
+        return figure
+
+    colors = {"Google Play": "#4C78FF", "Apple App Store": "#FF4B4B"}
+    for platform in ("Google Play", "Apple App Store"):
+        subset = df[df["platform"] == platform].sort_values("date").copy()
+        if subset.empty:
+            continue
+        non_zero = subset.loc[subset["active_devices"] > 0, "active_devices"]
+        baseline = float(non_zero.iloc[0]) if not non_zero.empty else 0.0
+        subset["active_device_index"] = (
+            subset["active_devices"].astype(float).div(baseline).mul(100)
+            if baseline
+            else 0.0
+        )
+        figure.add_trace(
+            go.Scatter(
+                x=_date_labels(subset["date"]),
+                y=subset["active_device_index"],
+                customdata=subset[["active_devices"]].values,
+                name=platform,
+                mode="lines+markers",
+                line=dict(color=colors[platform], width=3),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    + "Trend Index: %{y:.2f}<br>"
+                    + "Active Devices: %{customdata[0]:,}<extra></extra>"
+                ),
+            )
+        )
+    figure.add_hline(y=100, line_dash="dot", line_color="rgba(255,255,255,0.35)")
+    figure.update_layout(
+        title="Active Devices Trend (First Available Day = 100)",
+        xaxis=dict(title="Date", type="category"),
+        yaxis=dict(title="Trend Index"),
+        legend=dict(orientation="h", y=1.15, x=0),
+    )
+    return figure
+
+
+def _render_overview(play: dict[str, object], apple: dict[str, object]) -> None:
+    normalized_apple = _normalize_apple_data(apple)
+    st.markdown("### Google Play")
+    _render_metrics(play.get("metrics", {}), play.get("all_time", {}))
+    st.markdown("### Apple App Store")
+    _render_metrics(normalized_apple.get("metrics", {}), normalized_apple.get("all_time", {}))
+
+    overview_df = _overview_platform_frame(play, apple)
+    figure = set_transparent_chart_background(_build_overview_figure(overview_df))
+    figure.update_layout(height=460)
+    with st.container(border=True):
+        st.plotly_chart(figure, width="stretch")
+
+    trend_figure = set_transparent_chart_background(_build_active_device_trend_figure(overview_df))
+    trend_figure.update_layout(height=420)
+    with st.container(border=True):
+        st.plotly_chart(trend_figure, width="stretch")
+
+    st.markdown("### Install Details - All Platforms")
+    if overview_df.empty:
+        st.info("No install data for selected date range.")
+        return
+    details = overview_df.rename(
+        columns={
+            "date": "Date",
+            "platform": "Platform",
+            "installers": "Installers",
+            "uninstallers": "Uninstallers",
+            "net_installs": "Net Installs",
+            "active_devices": "Active Devices",
+            "churn_rate": "Churn Rate",
+        }
+    )
+    details = details[["Date", "Platform", "Installers", "Uninstallers", "Net Installs", "Active Devices", "Churn Rate"]]
+    st.dataframe(
+        details,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Date": st.column_config.DateColumn("Date"),
+            "Platform": st.column_config.TextColumn("Platform"),
+            "Installers": st.column_config.NumberColumn("Installers", format="%d"),
+            "Uninstallers": st.column_config.NumberColumn("Uninstallers", format="%d"),
+            "Net Installs": st.column_config.NumberColumn("Net Installs", format="%d"),
+            "Active Devices": st.column_config.NumberColumn("Active Devices", format="%d"),
+            "Churn Rate": st.column_config.NumberColumn("Churn Rate", format="%.2f%%"),
+        },
+    )
 
 
 def _date_labels(series: pd.Series) -> list[str]:
@@ -286,34 +519,32 @@ def _build_daily_figure(df: pd.DataFrame) -> go.Figure:
     return figure
 
 
-def _build_dimension_figure(df: pd.DataFrame, *, label_column: str, title: str) -> go.Figure:
-    figure = go.Figure()
-    if df.empty:
-        figure.update_layout(
-            title=title,
-            annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}],
-        )
-        return figure
+def _render_install_analytics(data: dict[str, object], *, title: str) -> None:
+    _render_metrics(data.get("metrics", {}), data.get("all_time", {}))
+    daily_df = _daily_dataframe(data.get("daily_rows", []))
+    daily_figure = set_transparent_chart_background(_build_daily_figure(daily_df))
+    daily_figure.update_layout(title=f"Daily Installs - {title}", height=440)
+    with st.container(border=True):
+        st.plotly_chart(daily_figure, width="stretch")
 
-    top_df = df.head(12).sort_values("installers", ascending=True)
-    figure.add_trace(
-        go.Bar(
-            y=top_df[label_column],
-            x=top_df["installers"],
-            name="Installers",
-            orientation="h",
-            customdata=top_df[["uninstallers", "net_installs", "share_pct"]].values,
-            hovertemplate=(
-                "<b>%{y}</b><br>"
-                + "Installers: %{x:,}<br>"
-                + "Uninstallers: %{customdata[0]:,}<br>"
-                + "Net Installs: %{customdata[1]:,}<br>"
-                + "Share: %{customdata[2]:.2f}%<extra></extra>"
-            ),
-        )
+    st.markdown(f"### Install Details - {title}")
+    details_df = _details_dataframe(data.get("details", []))
+    if details_df.empty:
+        st.info("No install data for selected date range.")
+        return
+    st.dataframe(
+        details_df,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "Date": st.column_config.DateColumn("Date"),
+            "Installers": st.column_config.NumberColumn("Installers", format="%d"),
+            "Uninstallers": st.column_config.NumberColumn("Uninstallers", format="%d"),
+            "Net Installs": st.column_config.NumberColumn("Net Installs", format="%d"),
+            "Active Devices": st.column_config.NumberColumn("Active Devices", format="%d"),
+            "Churn Rate": st.column_config.NumberColumn("Churn Rate", format="%.2f%%"),
+        },
     )
-    figure.update_layout(title=title, xaxis_title="Installers", yaxis_title=None, margin=dict(l=18, r=18, t=70, b=36))
-    return figure
 
 
 async def _fetch_install_payload(host: str, start_date: dt.date, end_date: dt.date, package_name: str, country: str) -> dict[str, object] | None:
@@ -343,9 +574,14 @@ async def show_install_page(host: str) -> None:
         st.warning("Start date cannot be after end date.")
         return
 
-    last_payload = st.session_state.get("install_payload", {})
-    filter_options = last_payload.get("data", {}).get("filters", {}) if isinstance(last_payload, dict) else {}
-    package_name, country = _render_dimension_filters(filter_options)
+    platform = st.segmented_control(
+        "Platform view",
+        options=["Overview", "Google Play", "Apple App Store"],
+        default="Overview",
+        key="install_platform_view",
+    ) or "Overview"
+
+    package_name, country = "all", "all"
 
     selected_range = (start_date, end_date, package_name, country)
     should_fetch = "install_payload" not in st.session_state or st.session_state.get("install_range") != selected_range
@@ -361,45 +597,9 @@ async def show_install_page(host: str) -> None:
         st.session_state["install_range"] = selected_range
 
     data = st.session_state.get("install_payload", {}).get("data", {})
-    _render_metrics(data.get("metrics", {}), data.get("all_time", {}))
-
-    daily_df = _daily_dataframe(data.get("daily_rows", []))
-    package_df = _dimension_dataframe(data.get("package_rows", []), "package_name")
-    country_df = _dimension_dataframe(data.get("country_rows", []), "country")
-
-    daily_figure = set_transparent_chart_background(_build_daily_figure(daily_df))
-    daily_figure.update_layout(height=440)
-    with st.container(border=True):
-        st.plotly_chart(daily_figure, width="stretch")
-
-    package_figure = set_transparent_chart_background(
-        _build_dimension_figure(package_df, label_column="package_name", title="Installers by Package")
-    )
-    country_figure = set_transparent_chart_background(
-        _build_dimension_figure(country_df, label_column="country", title="Installers by Country")
-    )
-    package_figure.update_layout(height=460)
-    country_figure.update_layout(height=460)
-    for column, figure in zip(st.columns(2, gap="small"), [package_figure, country_figure]):
-        with column:
-            with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
-
-    st.markdown("### Install Details")
-    details_df = _details_dataframe(data.get("details", []))
-    if details_df.empty:
-        st.info("No install data for selected date range.")
-        return
-    st.dataframe(
-        details_df,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "Date": st.column_config.DateColumn("Date"),
-            "Installers": st.column_config.NumberColumn("Installers", format="%d"),
-            "Uninstallers": st.column_config.NumberColumn("Uninstallers", format="%d"),
-            "Net Installs": st.column_config.NumberColumn("Net Installs", format="%d"),
-            "Active Devices": st.column_config.NumberColumn("Active Devices", format="%d"),
-            "Churn Rate": st.column_config.NumberColumn("Churn Rate", format="%.2f%%"),
-        },
-    )
+    if platform == "Apple App Store":
+        _render_install_analytics(_normalize_apple_data(data.get("apple", {})), title="Apple App Store")
+    elif platform == "Overview":
+        _render_overview(data, data.get("apple", {}))
+    else:
+        _render_install_analytics(data, title="Google Play")

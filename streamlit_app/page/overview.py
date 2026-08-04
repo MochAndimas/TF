@@ -20,6 +20,7 @@ from streamlit_app.functions.metrics import (
 )
 from streamlit_app.page.install import _build_daily_figure as build_install_daily_figure
 from streamlit_app.page.install import _daily_dataframe as install_daily_dataframe
+from streamlit_app.page.install import _normalize_apple_data as normalize_apple_install_data
 from streamlit_app.page.overview_components.charts import (
     build_cost_to_deposit_ratio_figure,
     build_cost_vs_deposit_figure,
@@ -327,11 +328,26 @@ async def show_overview_page(host: str) -> None:
 
     if "install" in st.session_state.get("allowed_pages", []):
         st.markdown('<div class="metric-section-title">App Install</div>', unsafe_allow_html=True)
-        install_data = st.session_state.get("overview_install_payload", {}).get("data", {})
+        install_payload = st.session_state.get("overview_install_payload", {}).get("data", {})
+        install_platform_options = {
+            "Google Play Console": "google_play",
+            "Apple App Store": "apple_app_store",
+        }
+        platform_column, _ = st.columns([1, 3], gap="small")
+        with platform_column:
+            selected_install_platform = st.selectbox(
+                "Platform",
+                options=list(install_platform_options.keys()),
+                key="overview_install_platform",
+            )
+        if install_platform_options[selected_install_platform] == "apple_app_store":
+            install_data = normalize_apple_install_data(install_payload.get("apple", {}))
+        else:
+            install_data = install_payload
         _render_install_metric_cards(install_data)
         install_daily_df = install_daily_dataframe(install_data.get("daily_rows", []))
         install_daily_figure = set_transparent_chart_background(build_install_daily_figure(install_daily_df))
-        install_daily_figure.update_layout(height=440)
+        install_daily_figure.update_layout(title=f"Daily Installs - {selected_install_platform}", height=440)
         with st.container(border=True):
             st.plotly_chart(install_daily_figure, width="stretch")
 

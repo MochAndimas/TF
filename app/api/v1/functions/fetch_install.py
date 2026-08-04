@@ -8,7 +8,7 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import PlayConsoleInstallMetrics
+from app.db.models.external_api import AppleInstall, PlayConsoleInstallMetrics
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:
@@ -113,6 +113,81 @@ async def _all_time_installers(
         query = query.where(*filters)
     value = (await session.execute(query)).scalar_one()
     return int(value or 0)
+
+
+async def _read_apple_rows(
+    session: AsyncSession,
+    *,
+    start_date: date,
+    end_date: date,
+) -> pd.DataFrame:
+    query = (
+        select(
+            AppleInstall.date.label("date"),
+            AppleInstall.total_downloads.label("total_downloads"),
+            AppleInstall.deletions.label("deletions"),
+            AppleInstall.active_devices.label("active_devices"),
+        )
+        .where(AppleInstall.date.between(start_date, end_date))
+        .order_by(AppleInstall.date)
+    )
+    rows = (await session.execute(query)).fetchall()
+    if not rows:
+        return pd.DataFrame(columns=["date", "total_downloads", "deletions", "active_devices"])
+
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"]).dt.date
+    for column in ("total_downloads", "deletions", "active_devices"):
+        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+    return df
+
+
+async def _all_time_apple_downloads(session: AsyncSession) -> int:
+    query = select(func.coalesce(func.sum(AppleInstall.total_downloads), 0))
+    value = (await session.execute(query)).scalar_one()
+    return int(value or 0)
+
+
+def _apple_metric_values(df: pd.DataFrame) -> dict[str, int]:
+    if df.empty:
+        return {"total_downloads": 0, "deletions": 0, "active_devices": 0}
+    ordered = df.sort_values("date")
+    return {
+        "total_downloads": int(ordered["total_downloads"].sum()),
+        "deletions": int(ordered["deletions"].sum()),
+        "active_devices": int(ordered.iloc[-1]["active_devices"]),
+    }
+
+
+def _apple_payload(
+    current_df: pd.DataFrame,
+    previous_df: pd.DataFrame,
+    *,
+    start_date: date,
+    end_date: date,
+    previous_start: date,
+    previous_end: date,
+    all_time_downloads: int,
+) -> dict[str, object]:
+    current = _apple_metric_values(current_df)
+    previous = _apple_metric_values(previous_df)
+    growth = {
+        key: _growth_percentage(float(current[key]), float(previous[key]))
+        for key in current
+    }
+    daily = current_df.copy()
+    if not daily.empty:
+        daily["date"] = daily["date"].astype(str)
+    return {
+        "metrics": {
+            "current_period": {"from_date": start_date.isoformat(), "to_date": end_date.isoformat(), "metrics": current},
+            "previous_period": {"from_date": previous_start.isoformat(), "to_date": previous_end.isoformat(), "metrics": previous},
+            "growth_percentage": growth,
+        },
+        "daily_rows": daily.to_dict(orient="records"),
+        "details": daily.to_dict(orient="records"),
+        "all_time": {"total_downloads": all_time_downloads},
+    }
 
 
 def _metric_summary(
@@ -245,6 +320,16 @@ async def fetch_install_analytics_payload(
         package_name=selected_package,
         country=selected_country,
     )
+    apple_current_df = await _read_apple_rows(
+        session=session,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    apple_previous_df = await _read_apple_rows(
+        session=session,
+        start_date=previous_start,
+        end_date=previous_end,
+    )
     return {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
@@ -272,4 +357,13 @@ async def fetch_install_analytics_payload(
         "package_rows": _dimension_rows(current_df, "package_name"),
         "country_rows": _dimension_rows(current_df, "country"),
         "details": _detail_rows(current_df),
+        "apple": _apple_payload(
+            apple_current_df,
+            apple_previous_df,
+            start_date=start_date,
+            end_date=end_date,
+            previous_start=previous_start,
+            previous_end=previous_end,
+            all_time_downloads=await _all_time_apple_downloads(session),
+        ),
     }

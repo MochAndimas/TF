@@ -40,7 +40,7 @@ async def install_analytics(
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(require_install_analytics_role),  # noqa: ARG001
 ):
-    """Generate Google Play Console install analytics payload."""
+    """Generate Google Play Console and Apple App Store install analytics payload."""
     validate_date_range(start_date, end_date)
     return await build_analytics_response(
         loader=lambda: fetch_install_analytics_payload(
