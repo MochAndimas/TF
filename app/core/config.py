@@ -110,7 +110,7 @@ class Settings(BaseModel):
     REQUEST_LOG_QUEUE_MAX_SIZE: int = 1000
     REQUEST_LOG_FLUSH_BATCH_SIZE: int = 50
     REQUEST_LOG_FLUSH_INTERVAL_SECONDS: float = 1.0
-    STG_ADS_RAW_RETENTION_DAYS: int = 14
+    STG_ADS_RAW_RETENTION_DAYS: int = 7
     ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = True
     ANALYTICS_DATAFRAME_CACHE_TTL_SECONDS: int = 300
     ANALYTICS_DATAFRAME_CACHE_MAX_ENTRIES: int = 64
@@ -301,7 +301,7 @@ class DevelopmentSettings(Settings):
         default=1.0,
         cast=float,
     )
-    STG_ADS_RAW_RETENTION_DAYS: int = env("STG_ADS_RAW_RETENTION_DAYS", default=14, cast=int)
+    STG_ADS_RAW_RETENTION_DAYS: int = env("STG_ADS_RAW_RETENTION_DAYS", default=7, cast=int)
     ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = env(
         "ANALYTICS_DATAFRAME_CACHE_ENABLED",
         default=True,
@@ -367,7 +367,7 @@ class ProductionSettings(Settings):
         default=1.0,
         cast=float,
     )
-    STG_ADS_RAW_RETENTION_DAYS: int = env("STG_ADS_RAW_RETENTION_DAYS", default=14, cast=int)
+    STG_ADS_RAW_RETENTION_DAYS: int = env("STG_ADS_RAW_RETENTION_DAYS", default=7, cast=int)
     ANALYTICS_DATAFRAME_CACHE_ENABLED: bool = env(
         "ANALYTICS_DATAFRAME_CACHE_ENABLED",
         default=True,

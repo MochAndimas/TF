@@ -58,12 +58,11 @@ ALL_DATA_SOURCE_VALUES = [
 
 
 def data_source_options(*, snapshot_completed: bool = False) -> dict[str, str]:
-    """Build source options, hiding the one-time snapshot after success."""
+    """Build source options for the update form."""
     options = dict(DATA_SOURCE_OPTIONS)
-    if not snapshot_completed:
-        options["Apple App Store Install Metrics (ONE_TIME_SNAPSHOT)"] = (
-            "apple_install_snapshot"
-        )
+    options["Apple App Store Install Metrics (ONE_TIME_SNAPSHOT)"] = (
+        "apple_install_snapshot"
+    )
     return options
 
 

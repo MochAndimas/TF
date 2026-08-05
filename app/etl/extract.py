@@ -2567,6 +2567,17 @@ class ExternalApiExtractor:
             selected[key] = candidates[0]
         return selected
 
+    @staticmethod
+    def _parse_apple_report_row_date(row: dict) -> date | None:
+        """Parse the event date from an App Store Connect report row."""
+        raw_value = str(row.get("Date") or row.get("date") or "").strip()
+        if not raw_value:
+            return None
+        try:
+            return date.fromisoformat(raw_value[:10])
+        except ValueError:
+            return None
+
     async def fetch_apple_install_rows(
         self,
         start_date: date,
@@ -2608,9 +2619,10 @@ class ExternalApiExtractor:
                     "Required App Store Connect reports are not available yet: "
                     + ", ".join(missing)
                     + ". New report requests usually need 24-48 hours to generate."
-                )
+            )
 
             today = datetime.now(timezone.utc).date()
+            summarized_rows: dict[tuple[str, str, date, str], dict] = {}
             for report_key, report in selected.items():
                 report_id = report["id"]
                 report_name = report.get("attributes", {}).get("name", report_key)
@@ -2664,10 +2676,72 @@ class ExternalApiExtractor:
                         response.raise_for_status()
                         content = gzip.decompress(response.content).decode("utf-8-sig")
                         for row in csv.DictReader(io.StringIO(content), delimiter="\t"):
-                            row["_apple_report"] = report_key
-                            row["_apple_report_name"] = report_name
-                            row["_apple_processing_date"] = processing_date
-                            raw_rows.append(row)
+                            row_date = self._parse_apple_report_row_date(row)
+                            if (
+                                row_date is None
+                                or row_date < api_start_date
+                                or row_date > end_date
+                            ):
+                                continue
+                            if report_key == "downloads":
+                                download_type = str(row.get("Download Type", "")).strip()
+                                normalized_type = download_type.lower().replace("-", " ")
+                                if normalized_type == "first time download":
+                                    download_type = "First-time download"
+                                elif normalized_type == "redownload":
+                                    download_type = "Redownload"
+                                else:
+                                    continue
+                                key = (report_key, str(processing_date), row_date, download_type)
+                                target = summarized_rows.setdefault(
+                                    key,
+                                    {
+                                        "Date": row_date.isoformat(),
+                                        "Download Type": download_type,
+                                        "Counts": 0,
+                                        "_apple_report": report_key,
+                                        "_apple_report_name": report_name,
+                                        "_apple_processing_date": processing_date,
+                                    },
+                                )
+                                target["Counts"] += self._parse_apple_backfill_count(
+                                    row.get("Counts", 0)
+                                )
+                            elif report_key == "installs":
+                                event = str(row.get("Event", "")).strip()
+                                if event.lower() != "delete":
+                                    continue
+                                key = (report_key, str(processing_date), row_date, event.lower())
+                                target = summarized_rows.setdefault(
+                                    key,
+                                    {
+                                        "Date": row_date.isoformat(),
+                                        "Event": "Delete",
+                                        "Counts": 0,
+                                        "_apple_report": report_key,
+                                        "_apple_report_name": report_name,
+                                        "_apple_processing_date": processing_date,
+                                    },
+                                )
+                                target["Counts"] += self._parse_apple_backfill_count(
+                                    row.get("Counts", 0)
+                                )
+                            elif report_key == "sessions":
+                                key = (report_key, str(processing_date), row_date, "unique_devices")
+                                target = summarized_rows.setdefault(
+                                    key,
+                                    {
+                                        "Date": row_date.isoformat(),
+                                        "Unique Devices": 0,
+                                        "_apple_report": report_key,
+                                        "_apple_report_name": report_name,
+                                        "_apple_processing_date": processing_date,
+                                    },
+                                )
+                                target["Unique Devices"] += self._parse_apple_backfill_count(
+                                    row.get("Unique Devices", 0)
+                                )
+            raw_rows.extend(summarized_rows.values())
             return raw_rows
 
     def _load_apple_install_backfill_rows(self, start_date: date, end_date: date) -> list[dict]:

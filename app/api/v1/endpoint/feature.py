@@ -84,19 +84,6 @@ async def update_data(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Apple one-time snapshot can only run in manual mode.",
                 )
-            completed_snapshot = await session.scalar(
-                select(EtlRun.id)
-                .where(
-                    EtlRun.source == "apple_install_snapshot",
-                    EtlRun.status == "success",
-                )
-                .limit(1)
-            )
-            if completed_snapshot is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Apple one-time snapshot has already completed successfully.",
-                )
         cleaned_runs = await cleanup_stale_runs(session=session)
         window_start, window_end = resolve_run_window(
             data=response.data,
