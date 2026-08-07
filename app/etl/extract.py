@@ -9,7 +9,6 @@ import io
 import json
 import time
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from decouple import config
@@ -70,13 +69,6 @@ def _play_console_month_tokens(start_date: date, end_date: date) -> set[str]:
         else:
             current = date(current.year, current.month + 1, 1)
     return tokens
-
-
-def _parse_iso_date_config(raw_value: str, default: date) -> date:
-    try:
-        return datetime.strptime(raw_value.strip(), "%Y-%m-%d").date()
-    except (TypeError, ValueError):
-        return default
 
 
 def _apple_report_request_secret_key(access_type: str) -> str:
@@ -163,12 +155,6 @@ class ExternalApiExtractor:
         ]
         if play_console_prefix and play_console_prefix not in self.play_console_report_prefixes:
             self.play_console_report_prefixes.insert(0, play_console_prefix)
-        backfill_path = Path(config("PLAY_CONSOLE_INSTALL_BACKFILL_CSV", default="backfill_install.csv", cast=str).strip())
-        self.play_console_install_backfill_path = backfill_path if backfill_path.is_absolute() else Path.cwd() / backfill_path
-        self.play_console_install_backfill_end_date = _parse_iso_date_config(
-            config("PLAY_CONSOLE_INSTALL_BACKFILL_END_DATE", default="2024-09-30", cast=str),
-            date(2024, 9, 30),
-        )
         self.play_console_storage_service = None
         raw_play_console_sa = config("PLAY_CONSOLE_SA", default="", cast=str).strip()
         if raw_play_console_sa:
@@ -194,8 +180,6 @@ class ExternalApiExtractor:
             default="",
             cast=str,
         ).strip()
-        apple_backfill_path = Path(config("APPLE_INSTALL_BACKFILL_CSV", default="apple_backfill.csv", cast=str).strip())
-        self.apple_install_backfill_path = apple_backfill_path if apple_backfill_path.is_absolute() else Path.cwd() / apple_backfill_path
         self.google_ads_customer_id = normalize_customer_id(
             config("GOOGLE_ADS_CUSTOMER_ID", default="", cast=str)
         )
@@ -2589,7 +2573,7 @@ class ExternalApiExtractor:
         if access_type not in {"ONGOING", "ONE_TIME_SNAPSHOT"}:
             raise ValueError(f"Unsupported Apple analytics access type: {access_type}")
 
-        raw_rows = self._load_apple_install_backfill_rows(start_date, end_date)
+        raw_rows: list[dict] = []
         api_start_date = max(start_date, APPLE_API_HISTORY_START_DATE)
         if api_start_date > end_date:
             return raw_rows
@@ -2744,61 +2728,6 @@ class ExternalApiExtractor:
             raw_rows.extend(summarized_rows.values())
             return raw_rows
 
-    def _load_apple_install_backfill_rows(self, start_date: date, end_date: date) -> list[dict]:
-        if start_date >= APPLE_API_HISTORY_START_DATE:
-            return []
-        if not self.apple_install_backfill_path.exists():
-            return []
-
-        window_end = min(end_date, APPLE_API_HISTORY_START_DATE - timedelta(days=1))
-        rows: list[dict] = []
-        processing_date = datetime.now(timezone.utc).date().isoformat()
-        with self.apple_install_backfill_path.open("r", encoding="utf-8-sig", newline="") as handle:
-            csv_rows = list(csv.reader(handle))
-        header_index = next(
-            (
-                index
-                for index, row in enumerate(csv_rows)
-                if row and str(row[0]).strip().lower() == "date"
-            ),
-            None,
-        )
-        if header_index is None:
-            return []
-
-        reader = csv.DictReader(io.StringIO("\n".join(",".join(row) for row in csv_rows[header_index:])))
-        for row in reader:
-            row_date = self._parse_apple_backfill_date(row.get("Date", ""))
-            if row_date is None or row_date < start_date or row_date > window_end:
-                continue
-            metric_values = {
-                "First-time download": row.get("First-Time Downloads", 0),
-                "Redownload": row.get("Redownloads", 0),
-            }
-            for download_type, raw_count in metric_values.items():
-                count = self._parse_apple_backfill_count(raw_count)
-                rows.append(
-                    {
-                        "Date": row_date.isoformat(),
-                        "Download Type": download_type,
-                        "Counts": count,
-                        "_apple_report": "downloads",
-                        "_apple_report_name": "Apple Downloads Backfill",
-                        "_apple_processing_date": processing_date,
-                    }
-                )
-        return rows
-
-    @staticmethod
-    def _parse_apple_backfill_date(raw_value: str) -> date | None:
-        normalized = str(raw_value).strip()
-        for date_format in ("%m/%d/%y", "%Y-%m-%d"):
-            try:
-                return datetime.strptime(normalized, date_format).date()
-            except ValueError:
-                continue
-        return None
-
     @staticmethod
     def _parse_apple_backfill_count(raw_value) -> int:
         normalized = str(raw_value or "0").replace(",", "").strip()
@@ -2828,18 +2757,14 @@ class ExternalApiExtractor:
         )
 
     def _fetch_play_console_install_rows_sync(self, start_date: date, end_date: date) -> list[dict]:
-        rows = self._load_play_console_install_backfill_rows(start_date, end_date)
-        gcs_start_date = max(start_date, self.play_console_install_backfill_end_date + timedelta(days=1))
-        if gcs_start_date > end_date:
-            return rows
-
-        month_tokens = _play_console_month_tokens(gcs_start_date, end_date)
+        month_tokens = _play_console_month_tokens(start_date, end_date)
         objects = [
             object_name
             for object_name in self._list_play_console_report_objects()
             if self._is_play_console_install_overview_object(object_name)
             and any(token in object_name for token in month_tokens)
         ]
+        rows: list[dict] = []
         for object_name in objects:
             object_rows = self._download_play_console_csv(object_name)
             if not object_rows:
@@ -2848,48 +2773,6 @@ class ExternalApiExtractor:
                 row["source_object"] = object_name
                 rows.append(row)
         return rows
-
-    def _load_play_console_install_backfill_rows(self, start_date: date, end_date: date) -> list[dict]:
-        if start_date > self.play_console_install_backfill_end_date:
-            return []
-        if not self.play_console_install_backfill_path.exists():
-            return []
-
-        window_end = min(end_date, self.play_console_install_backfill_end_date)
-        rows: list[dict] = []
-        with self.play_console_install_backfill_path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            if not reader.fieldnames or len(reader.fieldnames) < 2:
-                return []
-            date_column = reader.fieldnames[0]
-            installers_column = reader.fieldnames[1]
-            for row in reader:
-                row_date = self._parse_play_console_backfill_date(row.get(date_column, ""))
-                if row_date is None or row_date < start_date or row_date > window_end:
-                    continue
-                installers = str(row.get(installers_column, "0")).replace(",", "").strip() or "0"
-                rows.append(
-                    {
-                        "date": row_date.isoformat(),
-                        "package_name": self.play_console_package_name,
-                        "country": "all",
-                        "installers": installers,
-                        "uninstallers": 0,
-                        "active_devices": 0,
-                        "source_object": "stats/installs/backfill_install_overview.csv",
-                    }
-                )
-        return rows
-
-    @staticmethod
-    def _parse_play_console_backfill_date(raw_value: str) -> date | None:
-        try:
-            return datetime.strptime(str(raw_value).strip().strip('"'), "%b %d, %Y").date()
-        except ValueError:
-            try:
-                return datetime.strptime(str(raw_value).strip().strip('"'), "%Y-%m-%d").date()
-            except ValueError:
-                return None
 
     @staticmethod
     def _is_play_console_install_overview_object(object_name: str) -> bool:

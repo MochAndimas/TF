@@ -10,11 +10,13 @@ import logging
 
 from app.core.config import settings
 from app.db.bootstrap import initialize_database_schema, verify_database_ready
+from app.etl.install_backfill import run_install_backfills
 
 
 async def _run() -> None:
     settings.validate_runtime_constraints()
     await initialize_database_schema()
+    await run_install_backfills()
     await verify_database_ready()
 
 
