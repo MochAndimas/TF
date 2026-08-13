@@ -19,6 +19,7 @@ from streamlit_app.functions.metrics import (
     render_overview_metric_cards,
 )
 from streamlit_app.page.install import _build_daily_figure as build_install_daily_figure
+from streamlit_app.page.install import _combine_install_data as combine_install_data
 from streamlit_app.page.install import _daily_dataframe as install_daily_dataframe
 from streamlit_app.page.install import _normalize_apple_data as normalize_apple_install_data
 from streamlit_app.page.overview_components.charts import (
@@ -330,6 +331,7 @@ async def show_overview_page(host: str) -> None:
         st.markdown('<div class="metric-section-title">App Install</div>', unsafe_allow_html=True)
         install_payload = st.session_state.get("overview_install_payload", {}).get("data", {})
         install_platform_options = {
+            "Overall": "overall",
             "Google Play Console": "google_play",
             "Apple App Store": "apple_app_store",
         }
@@ -338,9 +340,16 @@ async def show_overview_page(host: str) -> None:
             selected_install_platform = st.selectbox(
                 "Platform",
                 options=list(install_platform_options.keys()),
+                index=0,
                 key="overview_install_platform",
             )
-        if install_platform_options[selected_install_platform] == "apple_app_store":
+        selected_install_platform_key = install_platform_options[selected_install_platform]
+        if selected_install_platform_key == "overall":
+            install_data = combine_install_data(
+                install_payload,
+                install_payload.get("apple", {}),
+            )
+        elif selected_install_platform_key == "apple_app_store":
             install_data = normalize_apple_install_data(install_payload.get("apple", {}))
         else:
             install_data = install_payload
