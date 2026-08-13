@@ -519,6 +519,9 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
         return None, None
     if data == "apple_report_request":
         return None, None
+    if data == "tiktok_insights" and types == "auto":
+        snapshot_date = datetime.now().date()
+        return snapshot_date, snapshot_date
     if data == "apple_install" and types == "auto":
         complete_date = datetime.now().date() - timedelta(days=5)
         return complete_date, complete_date

@@ -42,6 +42,8 @@ def resolve_date_window(types: str, start_date, end_date) -> tuple[date, date]:
 
     Returns:
         tuple[date, date]: Inclusive target date window used by ETL pipeline.
+            Automatic updates refresh the seven most recently completed days
+            (H-7 through H-1) so late-arriving source data is reconciled.
 
     Raises:
         fastapi.HTTPException: Raised when mode is invalid or date window is invalid.
@@ -51,7 +53,7 @@ def resolve_date_window(types: str, start_date, end_date) -> tuple[date, date]:
 
     if types == "auto":
         yesterday = datetime.now().date() - timedelta(1)
-        return yesterday, yesterday
+        return yesterday - timedelta(days=6), yesterday
 
     target_start = normalize_date(start_date)
     target_end = normalize_date(end_date)

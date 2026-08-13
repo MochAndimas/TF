@@ -11,7 +11,6 @@ from time import perf_counter
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.etl.transform import dedupe_ads_dataframe, resolve_date_window
@@ -81,25 +80,6 @@ class DateWindowPipelineRunner:
         )
 
         try:
-            if types == "auto":
-                existing_rows = await session.execute(
-                    select(spec.auto_skip_model.id).where(
-                        getattr(spec.auto_skip_model, spec.date_column).between(
-                            target_start,
-                            target_end,
-                        )
-                    )
-                )
-                if existing_rows.first():
-                    self._log_event(
-                        f"etl_{spec.label}_skipped",
-                        run_id=run_id,
-                        source=spec.source,
-                        reason="already_updated",
-                        duration_sec=round(perf_counter() - started_at, 3),
-                    )
-                    return spec.user_already_updated_message
-
             raw_rows = await spec.extract(target_start, target_end)
             staged_count = await spec.stage(session, raw_rows, run_id)
             await session.commit()
