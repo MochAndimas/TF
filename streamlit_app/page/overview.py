@@ -360,10 +360,11 @@ async def show_overview_page(host: str) -> None:
         set_transparent_chart_background(campaign_figure_from_payload(cost_charts.get("cost_by_campaign_type", {}).get("figure"), "Cost by Campaign Type")),
         set_transparent_chart_background(campaign_figure_from_payload(cost_charts.get("ua_cost_by_platform", {}).get("figure"), "User Acquisition Cost by Platform")),
         set_transparent_chart_background(campaign_figure_from_payload(cost_charts.get("ba_cost_by_platform", {}).get("figure"), "Brand Awareness Cost by Platform")),
+        set_transparent_chart_background(campaign_figure_from_payload(cost_charts.get("remarketing_cost_by_platform", {}).get("figure"), "Remarketing Cost by Platform")),
     ]
     for figure in pie_figures:
         figure.update_layout(height=420)
-    for column, figure in zip(st.columns(3, gap="small"), pie_figures):
+    for column, figure in zip(st.columns(4, gap="small"), pie_figures):
         with column:
             with st.container(border=True):
                 st.plotly_chart(figure, width="stretch")

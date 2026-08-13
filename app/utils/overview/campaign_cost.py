@@ -14,6 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import Campaign, FacebookAds, GoogleAds, TikTokAds
 
+PLATFORM_PIE_COLORS = {
+    "google": "#EA4335",
+    "facebook": "#0082FB",
+    "meta": "#0082FB",
+}
+
 
 class OverviewCampaignCostData:
     def __init__(self, session: AsyncSession, from_date: date, to_date: date) -> None:
@@ -82,13 +88,35 @@ class OverviewCampaignCostData:
         return await self._read_ads_cost_db_with_range(from_date=from_date, to_date=to_date)
 
     @staticmethod
-    async def _pie_payload(title: str, labels: list[str], values: list[float]) -> dict[str, object]:
+    async def _pie_payload(
+        title: str,
+        labels: list[str],
+        values: list[float],
+        *,
+        platform_colors: bool = False,
+    ) -> dict[str, object]:
         if not labels or not values or not any(float(v) > 0 for v in values):
             figure = go.Figure()
             figure.update_layout(title=title, showlegend=False, margin=dict(l=24, r=24, t=56, b=24), annotations=[{"text": "No data available", "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5, "showarrow": False}])
             rows = []
         else:
-            figure = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.38, textinfo="label+percent", hovertemplate="<b>%{label}</b><br>Cost: Rp. %{value:,.0f}<extra></extra>")])
+            pie_kwargs = {}
+            if platform_colors:
+                pie_kwargs["marker"] = {
+                    "colors": [PLATFORM_PIE_COLORS.get(str(label).strip().lower()) for label in labels]
+                }
+            figure = go.Figure(
+                data=[
+                    go.Pie(
+                        labels=labels,
+                        values=values,
+                        hole=0.38,
+                        textinfo="label+percent",
+                        hovertemplate="<b>%{label}</b><br>Cost: Rp. %{value:,.0f}<extra></extra>",
+                        **pie_kwargs,
+                    )
+                ]
+            )
             figure.update_layout(title=title, showlegend=False, margin=dict(l=24, r=24, t=56, b=24))
             rows = [{"label": label, "cost": float(value)} for label, value in zip(labels, values)]
         chart_json = await asyncio.to_thread(json.dumps, figure, cls=plotly.utils.PlotlyJSONEncoder)
@@ -112,13 +140,17 @@ class OverviewCampaignCostData:
                 "cost_by_campaign_type": await self._pie_payload("Cost by Campaign Type", labels=[], values=[]),
                 "ua_cost_by_platform": await self._pie_payload("User Acquisition Cost by Platform", labels=[], values=[]),
                 "ba_cost_by_platform": await self._pie_payload("Brand Awareness Cost by Platform", labels=[], values=[]),
+                "remarketing_cost_by_platform": await self._pie_payload("Remarketing Cost by Platform", labels=[], values=[]),
             }
         by_type = cost_df.groupby("campaign_type", as_index=False)["cost"].sum().sort_values("cost", ascending=False)
         cost_by_type = await self._pie_payload("Cost by Campaign Type", labels=[str(value).replace("_", " ").title() for value in by_type["campaign_type"].tolist()], values=[float(value) for value in by_type["cost"].tolist()])
         ua_df = cost_df.loc[cost_df["campaign_type"] == "user_acquisition"].copy()
         ua_by_platform = ua_df.groupby("source", as_index=False)["cost"].sum().sort_values("cost", ascending=False) if not ua_df.empty else pd.DataFrame(columns=["source", "cost"])
-        ua_cost = await self._pie_payload("User Acquisition Cost by Platform", labels=[str(value).title() for value in ua_by_platform["source"].tolist()], values=[float(value) for value in ua_by_platform["cost"].tolist()])
+        ua_cost = await self._pie_payload("User Acquisition Cost by Platform", labels=[str(value).title() for value in ua_by_platform["source"].tolist()], values=[float(value) for value in ua_by_platform["cost"].tolist()], platform_colors=True)
         ba_df = cost_df.loc[cost_df["campaign_type"] == "brand_awareness"].copy()
         ba_by_platform = ba_df.groupby("source", as_index=False)["cost"].sum().sort_values("cost", ascending=False) if not ba_df.empty else pd.DataFrame(columns=["source", "cost"])
-        ba_cost = await self._pie_payload("Brand Awareness Cost by Platform", labels=[str(value).title() for value in ba_by_platform["source"].tolist()], values=[float(value) for value in ba_by_platform["cost"].tolist()])
-        return {"cost_by_campaign_type": cost_by_type, "ua_cost_by_platform": ua_cost, "ba_cost_by_platform": ba_cost}
+        ba_cost = await self._pie_payload("Brand Awareness Cost by Platform", labels=[str(value).title() for value in ba_by_platform["source"].tolist()], values=[float(value) for value in ba_by_platform["cost"].tolist()], platform_colors=True)
+        remarketing_df = cost_df.loc[cost_df["campaign_type"] == "remarketing"].copy()
+        remarketing_by_platform = remarketing_df.groupby("source", as_index=False)["cost"].sum().sort_values("cost", ascending=False) if not remarketing_df.empty else pd.DataFrame(columns=["source", "cost"])
+        remarketing_cost = await self._pie_payload("Remarketing Cost by Platform", labels=[str(value).title() for value in remarketing_by_platform["source"].tolist()], values=[float(value) for value in remarketing_by_platform["cost"].tolist()], platform_colors=True)
+        return {"cost_by_campaign_type": cost_by_type, "ua_cost_by_platform": ua_cost, "ba_cost_by_platform": ba_cost, "remarketing_cost_by_platform": remarketing_cost}
