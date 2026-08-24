@@ -187,7 +187,35 @@ def edit_account_modal(host, user, token):
             except Exception as error:
                 st.error(f"Error updating account: {error}")
 
-    if st.button("Delete User", type="primary"):
+    confirm_delete_key = f"confirm_delete_user_{user.user_id}"
+    if not st.session_state.get(confirm_delete_key):
+        if st.button("Delete User", type="primary", key=f"delete_user_{user.user_id}"):
+            st.session_state[confirm_delete_key] = True
+            st.rerun(scope="fragment")
+        return
+
+    st.warning(
+        f"Hapus akun {user.email}? Aksi ini tidak dapat dibatalkan.",
+        icon="⚠️",
+    )
+    confirm_column, cancel_column = st.columns(2)
+    with confirm_column:
+        confirm_delete = st.button(
+            "Yes, Delete User",
+            type="primary",
+            key=f"confirm_delete_user_button_{user.user_id}",
+            width="stretch",
+        )
+    with cancel_column:
+        if st.button(
+            "Cancel",
+            key=f"cancel_delete_user_{user.user_id}",
+            width="stretch",
+        ):
+            st.session_state.pop(confirm_delete_key, None)
+            st.rerun(scope="fragment")
+
+    if confirm_delete:
         try:
             with httpx.Client(timeout=120) as client:
                 response = client.delete(
@@ -195,6 +223,7 @@ def edit_account_modal(host, user, token):
                     headers=_auth_headers(token),
                 )
                 response.raise_for_status()
+            st.session_state.pop(confirm_delete_key, None)
             st.success("Account deleted successfully!")
             st.rerun()
         except httpx.HTTPStatusError as error:

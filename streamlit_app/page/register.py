@@ -8,6 +8,7 @@ import streamlit as st
 
 from streamlit_app.functions.account_modals import add_account_modal, edit_account_modal
 from streamlit_app.functions.accounts import ROLE_OPTIONS, format_role_label, get_accounts
+from streamlit_app.functions.api import fetch_api_result
 
 
 TABLE_STYLE = """
@@ -180,6 +181,54 @@ def _render_account_rows(host: str, token, users) -> None:
         st.markdown('<div class="table-divider"></div>', unsafe_allow_html=True)
 
 
+async def _render_deleted_accounts(host: str, users) -> None:
+    """Render recoverable accounts and require a second click to restore one."""
+    expander_key = "deleted_accounts_expanded"
+    with st.expander(
+        f"Deleted Accounts ({len(users)})",
+        expanded=st.session_state.get(expander_key, False),
+    ):
+        if users.empty:
+            st.caption("Recycle bin is empty.")
+            return
+
+        st.caption("Restoring an account keeps its previous role. The user must log in again.")
+        for user in users.itertuples():
+            restored_key = f"confirm_restore_user_{user.user_id}"
+            email_col, role_col, deleted_col, action_col = st.columns([3, 2, 2, 2], vertical_alignment="center")
+            email_col.write(user.email)
+            role_col.write(format_role_label(user.role))
+            deleted_col.caption(f"Deleted: {user.deleted_at}")
+            with action_col:
+                if not st.session_state.get(restored_key):
+                    if st.button("Restore", key=f"restore_user_{user.user_id}"):
+                        st.session_state[restored_key] = True
+                        st.session_state[expander_key] = True
+                        st.rerun()
+                else:
+                    confirm_col, cancel_col = st.columns(2)
+                    with confirm_col:
+                        confirm = st.button("Confirm", key=f"confirm_restore_{user.user_id}", type="primary")
+                    with cancel_col:
+                        if st.button("Cancel", key=f"cancel_restore_{user.user_id}"):
+                            st.session_state.pop(restored_key, None)
+                            st.session_state[expander_key] = True
+                            st.rerun()
+                    if confirm:
+                        result = await fetch_api_result(
+                            st=st,
+                            host=host,
+                            uri=f"accounts/{user.user_id}/restore",
+                            method="POST",
+                        )
+                        if result.ok:
+                            st.session_state.pop(restored_key, None)
+                            st.session_state[expander_key] = True
+                            st.success("Account restored.")
+                            st.rerun()
+                        st.error(result.message or "Unable to restore account.")
+
+
 async def create_account(host):
     """Render account management page for create/update/delete operations.
 
@@ -195,12 +244,14 @@ async def create_account(host):
         return
 
     users = await get_accounts(host)
+    deleted_users = await get_accounts(host, deleted=True)
     if users.empty:
         st.info("No account records found yet, or the account list could not be loaded.")
     st.markdown(TABLE_STYLE, unsafe_allow_html=True)
     _render_page_header(host=host, token=access_token)
 
     _render_stats(users)
+    await _render_deleted_accounts(host=host, users=deleted_users)
     filtered_users = _filter_users(users)
     _render_table_header()
     _render_account_rows(host=host, token=access_token, users=filtered_users)

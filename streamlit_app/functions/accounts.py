@@ -30,15 +30,16 @@ ROLE_OPTIONS: dict[str, str] = {
 }
 
 
-async def get_accounts(host: str) -> pd.DataFrame:
+async def get_accounts(host: str, *, deleted: bool = False) -> pd.DataFrame:
     """Retrieve account records from the backend API for admin pages."""
-    result = await fetch_api_result(st=None, host=host, uri="accounts", method="GET")
+    uri = "accounts/deleted" if deleted else "accounts"
+    result = await fetch_api_result(st=None, host=host, uri=uri, method="GET")
     if not result.ok:
-        return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at"])
+        return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at", "deleted_at"])
 
     rows = result.data if isinstance(result.data, list) else []
     if not rows:
-        return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at"])
+        return pd.DataFrame(columns=["user_id", "fullname", "email", "role", "created_at", "updated_at", "deleted_at"])
 
     return pd.DataFrame(rows)
 

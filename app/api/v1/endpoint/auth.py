@@ -31,6 +31,8 @@ from app.utils.user_utils import (
     get_current_token_data,
     get_current_user,
     list_accounts,
+    list_deleted_accounts,
+    restore_account,
     update_account,
     validate_role_assignment,
 )
@@ -122,6 +124,20 @@ async def get_accounts(
     return AccountListResponse(
         success=True,
         message="Accounts loaded successfully.",
+        data=[serialize_account(user) for user in users],
+    )
+
+
+@router.get("/api/accounts/deleted", response_model=AccountListResponse)
+async def get_deleted_accounts(
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),
+):
+    """Return soft-deleted accounts available for recovery."""
+    users = await list_deleted_accounts(session=session)
+    return AccountListResponse(
+        success=True,
+        message="Deleted accounts loaded successfully.",
         data=[serialize_account(user) for user in users],
     )
 
@@ -332,3 +348,24 @@ async def delete_user(
         )
     except ValueError as e:
         raise_bad_request(e)
+
+
+@router.post("/api/accounts/{user_id}/restore", response_model=AccountUpdateResponse)
+async def restore_deleted_account(
+    user_id: str,
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),
+):
+    """Restore a soft-deleted account; the user must log in again."""
+    user = await restore_account(
+        session=session,
+        user_id=user_id,
+        current_user=current_user,
+    )
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted user not found!")
+    return AccountUpdateResponse(
+        success=True,
+        message="Account restored. The user must log in again.",
+        data=serialize_account(user),
+    )

@@ -297,6 +297,16 @@ async def list_accounts(session: AsyncSession) -> list[TfUser]:
     return result.scalars().all()
 
 
+async def list_deleted_accounts(session: AsyncSession) -> list[TfUser]:
+    """Return soft-deleted accounts ordered by most recently deleted."""
+    result = await session.execute(
+        select(TfUser)
+        .where(TfUser.deleted_at.is_not(None))
+        .order_by(TfUser.deleted_at.desc(), TfUser.email.asc())
+    )
+    return result.scalars().all()
+
+
 async def update_account(
     session: AsyncSession,
     *,
@@ -398,4 +408,36 @@ async def delete_account(
     user.updated_at = now()
     await session.commit()
 
+    return user
+
+
+async def restore_account(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    current_user: TfUser,
+) -> TfUser | None:
+    """Restore a soft-deleted account and invalidate any previous sessions."""
+    require_roles(current_user, "superadmin")
+    user = (
+        await session.execute(
+            select(TfUser).where(
+                TfUser.user_id == user_id,
+                TfUser.deleted_at.is_not(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        return None
+
+    user.deleted_at = None
+    user.updated_at = now()
+    await logout_all_sessions(
+        session=session,
+        actor=current_user,
+        target_user_id=user_id,
+        auto_commit=False,
+    )
+    await session.commit()
+    await session.refresh(user)
     return user
