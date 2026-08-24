@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from html import escape
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -21,57 +20,6 @@ def _fmt_int(value) -> str:
 
 def _fmt_float(value) -> str:
     return f"{float(value or 0):,.2f}"
-
-
-INSTALL_METRIC_CARD_STYLE = """
-<style>
-.install-metric-card {
-    border: 1px solid rgba(250, 250, 250, 0.20);
-    border-radius: 8px;
-    padding: 17px 16px 16px;
-    min-height: 108px;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    background: rgba(0, 0, 0, 0);
-}
-.install-metric-card .metric-label {
-    font-size: 14px;
-    line-height: 1.25;
-    color: rgba(250, 250, 250, 0.95);
-    margin-bottom: 8px;
-}
-.install-metric-card .metric-value {
-    font-size: 34px;
-    line-height: 1.1;
-    color: rgb(250, 250, 250);
-    margin-bottom: 10px;
-}
-.install-metric-card .metric-delta {
-    width: fit-content;
-    min-height: 22px;
-    border-radius: 999px;
-    padding: 3px 9px;
-    font-size: 14px;
-    line-height: 16px;
-}
-.install-metric-card .metric-delta.positive {
-    color: rgb(72, 207, 121);
-    background: rgba(35, 134, 73, 0.38);
-}
-.install-metric-card .metric-delta.negative {
-    color: rgb(255, 112, 112);
-    background: rgba(248, 81, 73, 0.28);
-}
-.install-metric-card .metric-delta.neutral {
-    color: rgba(250, 250, 250, 0.55);
-    background: rgba(250, 250, 250, 0.10);
-}
-.install-metric-card .metric-delta.placeholder {
-    visibility: hidden;
-}
-</style>
-"""
 
 
 def _render_period_filter() -> tuple[dt.date | None, dt.date | None]:
@@ -107,28 +55,18 @@ def _render_metric_card(
     delta_color: str = "normal",
 ) -> None:
     if growth_value is None:
-        delta_class = "placeholder"
-        delta_text = "&nbsp;"
-    else:
-        display_growth = -growth_value if delta_color == "inverse" else growth_value
-        delta_class = "positive" if display_growth > 0 else "negative" if display_growth < 0 else "neutral"
-        arrow = "&uarr;" if display_growth > 0 else "&darr;" if display_growth < 0 else "&rarr;"
-        delta_text = f"{arrow} {escape(_campaign_format_growth(growth_value))}"
+        st.metric(label=label, value=value)
+        return
 
-    st.markdown(
-        f"""
-        <div class="install-metric-card">
-            <div class="metric-label">{escape(label)}</div>
-            <div class="metric-value">{escape(value)}</div>
-            <div class="metric-delta {delta_class}">{delta_text}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.metric(
+        label=label,
+        value=value,
+        delta=_campaign_format_growth(growth_value),
+        delta_color="off" if growth_value == 0 else delta_color,
     )
 
 
 def _render_metrics(metrics: dict[str, object], all_time: dict[str, object] | None = None) -> None:
-    st.markdown(INSTALL_METRIC_CARD_STYLE, unsafe_allow_html=True)
     current = metrics.get("current_period", {}).get("metrics", {})
     growth = metrics.get("growth_percentage", {})
     all_time = all_time or {}
@@ -155,21 +93,23 @@ def _render_metrics(metrics: dict[str, object], all_time: dict[str, object] | No
 
     for column, (label, value, growth_value, delta_color) in zip(st.columns(2, gap="small"), top_specs):
         with column:
-            _render_metric_card(
-                label=label,
-                value=value,
-                growth_value=growth_value,
-                delta_color=delta_color,
-            )
+            with st.container(border=True):
+                _render_metric_card(
+                    label=label,
+                    value=value,
+                    growth_value=growth_value,
+                    delta_color=delta_color,
+                )
 
     for column, (label, key, value) in zip(st.columns(4, gap="small"), bottom_specs):
         with column:
-            _render_metric_card(
-                label=label,
-                value=value,
-                growth_value=growth.get(key, 0.0),
-                delta_color="inverse" if key in {"uninstallers", "churn_rate"} else "normal",
-            )
+            with st.container(border=True):
+                _render_metric_card(
+                    label=label,
+                    value=value,
+                    growth_value=growth.get(key, 0.0),
+                    delta_color="inverse" if key in {"uninstallers", "churn_rate"} else "normal",
+                )
 
 
 def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
