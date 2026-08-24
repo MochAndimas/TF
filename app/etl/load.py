@@ -24,6 +24,7 @@ from app.db.models.external_api import (
     InstagramInsights,
     InstagramMediaInsights,
     PlayConsoleInstallMetrics,
+    RegisUtmDaily,
     TikTokAds,
     TikTokInsights,
     TikTokMediaInsights,
@@ -199,6 +200,19 @@ def build_daily_register_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
             }
         )
     return rows
+
+
+def build_regis_utm_daily_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Convert All Regis daily source totals into SQLite upsert rows."""
+    return [
+        {
+            "date": row["date"],
+            "source": row["source"],
+            "value": int(row["value"]),
+            "pull_date": pull_date,
+        }
+        for _, row in df.iterrows()
+    ]
 
 
 def build_instagram_insights_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
@@ -577,6 +591,23 @@ async def upsert_daily_register_rows(session: AsyncSession, rows: list[dict]) ->
             index_elements=["date", "campaign_id", "tag_name"],
             set_={
                 "total_regis": insert_stmt.excluded.total_regis,
+                "pull_date": insert_stmt.excluded.pull_date,
+            },
+        )
+        await session.execute(upsert_stmt)
+
+
+async def upsert_regis_utm_daily_rows(session: AsyncSession, rows: list[dict]) -> None:
+    """Upsert All Regis totals using the date/source business key."""
+    if not rows:
+        return
+    columns_per_row = len(rows[0])
+    for chunk in _iter_row_chunks(rows, columns_per_row):
+        insert_stmt = sqlite_insert(RegisUtmDaily).values(chunk)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["date", "source"],
+            set_={
+                "value": insert_stmt.excluded.value,
                 "pull_date": insert_stmt.excluded.pull_date,
             },
         )

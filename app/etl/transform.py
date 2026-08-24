@@ -252,6 +252,58 @@ def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
     return parsed
 
 
+def parse_regis_utm_daily_dataframe(raw_rows: list) -> pd.DataFrame:
+    """Unpivot All Regis source-by-date rows into date/source/value totals."""
+    columns = ["date", "source", "value"]
+    if len(raw_rows) < 2:
+        return pd.DataFrame(columns=columns)
+
+    headers = normalize_columns(raw_rows[0])
+    source_column = "sources" if "sources" in headers else "source" if "source" in headers else None
+    if source_column is None:
+        raise ValueError("Missing source column in Regis UTM sheet. Expected 'Sources'.")
+
+    date_columns: dict[str, object] = {}
+    for header in headers:
+        parsed_date = pd.to_datetime(header, format="%d-%b-%Y", errors="coerce")
+        if not pd.isna(parsed_date):
+            date_columns[header] = parsed_date.date()
+    if not date_columns:
+        raise ValueError("No daily date columns found in Regis UTM sheet.")
+
+    # Sheets Values API trims trailing blank cells per row. Pad each source row
+    # back to the header width so sparse late-date values remain valid input.
+    normalized_rows = [
+        list(row[: len(headers)]) + [""] * max(0, len(headers) - len(row))
+        for row in raw_rows[1:]
+    ]
+    df = pd.DataFrame(normalized_rows, columns=headers)
+    long_df = df.melt(
+        id_vars=[source_column],
+        value_vars=list(date_columns),
+        var_name="date_label",
+        value_name="value",
+    )
+    parsed = pd.DataFrame(
+        {
+            "date": long_df["date_label"].map(date_columns),
+            "source": (
+                long_df[source_column].fillna("").astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
+            ),
+            "value": pd.to_numeric(
+                long_df["value"].fillna("").astype(str).str.replace(",", "", regex=False),
+                errors="coerce",
+            ),
+        }
+    )
+    parsed = parsed[(parsed["date"].notna()) & (parsed["source"] != "") & (parsed["value"].notna())].copy()
+    if parsed.empty:
+        return pd.DataFrame(columns=columns)
+
+    parsed["value"] = parsed["value"].astype(int)
+    return parsed.groupby(["date", "source"], as_index=False)["value"].sum().sort_values(["date", "source"])
+
+
 def parse_instagram_insights_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse Instagram insight rows into normalized daily metrics."""
     if not raw_rows:

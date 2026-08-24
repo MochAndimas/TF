@@ -28,6 +28,7 @@ from app.db.models.external_api import (
     InstagramInsights,
     InstagramMediaInsights,
     PlayConsoleInstallMetrics,
+    RegisUtmDaily,
     TikTokAds,
     TikTokInsights,
     TikTokMediaInsights,
@@ -65,6 +66,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "facebook_page_insights",
     "facebook_page_media_insights",
     "daily_register",
+    "regis_utm_daily",
     "first_deposit",
     "first_deposit_ba",
     "ms_deposit",
@@ -174,6 +176,15 @@ async def _run_daily_register(
         end_date=end_date,
         session=session,
         run_id=run_id,
+    )
+
+
+async def _run_regis_utm_daily(
+    gsheet: GoogleSheetApi, session, types: str, start_date, end_date, run_id: str,
+) -> str:
+    """Run All Regis daily source ETL."""
+    return await gsheet.regis_utm_daily(
+        types=types, start_date=start_date, end_date=end_date, session=session, run_id=run_id,
     )
 
 
@@ -447,6 +458,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "facebook_page_insights": _run_facebook_page_insights,
     "facebook_page_media_insights": _run_facebook_page_media_insights,
     "daily_register": _run_daily_register,
+    "regis_utm_daily": _run_regis_utm_daily,
     "first_deposit": _run_first_deposit,
     "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
@@ -471,6 +483,7 @@ SOURCE_MODELS = {
     "facebook_page_insights": FacebookPageInsights,
     "facebook_page_media_insights": FacebookPageMediaInsights,
     "daily_register": DailyRegister,
+    "regis_utm_daily": RegisUtmDaily,
     "first_deposit": DataDepo,
     "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
@@ -493,6 +506,7 @@ SOURCE_DATE_COLUMNS = {
     "facebook_page_insights": "date",
     "facebook_page_media_insights": "date",
     "daily_register": "date",
+    "regis_utm_daily": "date",
     "first_deposit": "tanggal_regis",
     "first_deposit_ba": "tanggal_regis",
     "ms_deposit": "last_activity",
@@ -652,6 +666,7 @@ async def execute_update_job(
                 "facebook_ads",
                 "tiktok_ads",
                 "daily_register",
+                "regis_utm_daily",
                 "first_deposit",
                 "first_deposit_ba",
                 "ms_deposit",

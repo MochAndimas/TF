@@ -538,6 +538,24 @@ class DailyRegister(SqliteBase):
     )
 
 
+class RegisUtmDaily(SqliteBase):
+    """Store daily registration totals by attribution source from All Regis."""
+
+    __tablename__ = "regis_utm_daily"
+    __table_args__ = (
+        UniqueConstraint("date", "source", name="uq_regis_utm_daily_date_source"),
+        Index("ix_regis_utm_daily_date", "date"),
+        Index("ix_regis_utm_daily_source", "source"),
+        {"schema": None},
+    )
+
+    id = Column("id", Integer, primary_key=True, autoincrement=True)
+    date = Column("date", Date, nullable=False)
+    source = Column("source", String, nullable=False)
+    value = Column("value", Integer, nullable=False, default=0)
+    pull_date = Column("pull_date", Date, nullable=False)
+
+
 class InstagramInsights(SqliteBase):
     """Store daily Instagram account/content insight metrics."""
 

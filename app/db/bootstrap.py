@@ -352,6 +352,22 @@ async def _migration_20260729_001_social_watch_time(connection) -> None:
                 )
 
 
+async def _migration_20260824_001_regis_utm_daily(connection) -> None:
+    """Create storage for All Regis daily source totals."""
+    await connection.execute(text("""
+        CREATE TABLE IF NOT EXISTS regis_utm_daily (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            date DATE NOT NULL,
+            source VARCHAR NOT NULL,
+            value INTEGER NOT NULL DEFAULT 0,
+            pull_date DATE NOT NULL,
+            CONSTRAINT uq_regis_utm_daily_date_source UNIQUE (date, source)
+        )
+    """))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_regis_utm_daily_date ON regis_utm_daily(date)"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_regis_utm_daily_source ON regis_utm_daily(source)"))
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -407,6 +423,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260729_001_social_watch_time",
         "Add Instagram and Facebook organic video watch-time metrics.",
         _migration_20260729_001_social_watch_time,
+    ),
+    (
+        "20260824_001_regis_utm_daily",
+        "Create All Regis daily source totals table.",
+        _migration_20260824_001_regis_utm_daily,
     ),
 )
 

@@ -127,6 +127,23 @@ def validate_daily_register_dataframe(df: pd.DataFrame) -> None:
         raise ValueError(f"DQ failed: daily register duplicate key ratio {dup_ratio:.2%}.")
 
 
+def validate_regis_utm_daily_dataframe(df: pd.DataFrame) -> None:
+    """Validate normalized All Regis daily source totals."""
+    if df.empty:
+        return
+    missing_key = df[["date", "source"]].isna().any(axis=1).sum()
+    if missing_key or (df["source"].astype(str).str.strip() == "").any():
+        raise ValueError("DQ failed: Regis UTM data has missing business keys.")
+    invalid_dates = ((df["date"].isna()) | (df["date"] < MIN_HISTORICAL_DATE)).sum()
+    if invalid_dates:
+        raise ValueError(f"DQ failed: Regis UTM data has {int(invalid_dates)} rows with invalid dates.")
+    values = pd.to_numeric(df["value"], errors="coerce")
+    if values.isna().any() or (values < 0).any():
+        raise ValueError("DQ failed: Regis UTM data has invalid values.")
+    if _duplicate_ratio(df, ["date", "source"]) > 0:
+        raise ValueError("DQ failed: Regis UTM data contains duplicate date/source keys.")
+
+
 def validate_instagram_insights_dataframe(df: pd.DataFrame) -> None:
     """Validate transformed Instagram insights data before load."""
     if df.empty:

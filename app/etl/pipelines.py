@@ -19,6 +19,7 @@ from app.db.models.external_api import (
     InstagramInsights,
     InstagramMediaInsights,
     PlayConsoleInstallMetrics,
+    RegisUtmDaily,
     TikTokInsights,
     TikTokMediaInsights,
     YouTubeDailyInsight,
@@ -34,6 +35,7 @@ from app.etl.load import (
     build_first_deposit_rows,
     build_ms_deposit_rows,
     build_play_console_install_rows,
+    build_regis_utm_daily_rows,
     build_ga4_rows,
     build_instagram_insights_rows,
     build_instagram_media_insights_rows,
@@ -56,6 +58,7 @@ from app.etl.load import (
     upsert_first_deposit_rows,
     upsert_ms_deposit_rows,
     upsert_play_console_install_rows,
+    upsert_regis_utm_daily_rows,
     upsert_ga4_rows,
     upsert_instagram_insights_rows,
     upsert_instagram_media_insights_rows,
@@ -73,6 +76,7 @@ from app.etl.quality import (
     validate_first_deposit_dataframe,
     validate_ms_deposit_dataframe,
     validate_play_console_install_dataframe,
+    validate_regis_utm_daily_dataframe,
     validate_ga4_dataframe,
     validate_instagram_insights_dataframe,
     validate_instagram_media_insights_dataframe,
@@ -108,6 +112,7 @@ from app.etl.transform import (
     parse_first_deposit_ba_dataframe,
     parse_ms_deposit_dataframe,
     parse_play_console_install_dataframe,
+    parse_regis_utm_daily_dataframe,
     parse_ga4_dataframe,
     parse_instagram_insights_dataframe,
     parse_instagram_media_insights_dataframe,
@@ -252,6 +257,10 @@ class GoogleSheetApi(DateWindowPipelineRunner):
         """Fetch raw daily registration rows from the configured Google Sheet."""
         return await self.extractor.fetch_daily_register_rows()
 
+    async def _fetch_regis_utm_daily_rows(self) -> list:
+        """Fetch raw All Regis daily source totals from the configured Google Sheet."""
+        return await self.extractor.fetch_regis_utm_daily_rows()
+
     @staticmethod
     def _parse_ads_dataframe(raw_rows: list):
         """Parse raw ads payload rows into a normalized dataframe.
@@ -303,6 +312,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _parse_daily_register_dataframe(raw_rows: list):
         """Parse raw daily register rows into a normalized dataframe."""
         return parse_daily_register_dataframe(raw_rows)
+
+    @staticmethod
+    def _parse_regis_utm_daily_dataframe(raw_rows: list):
+        """Parse All Regis rows into normalized date/source/value totals."""
+        return parse_regis_utm_daily_dataframe(raw_rows)
 
     @staticmethod
     def _parse_play_console_install_dataframe(raw_rows: list[dict]):
@@ -409,6 +423,11 @@ class GoogleSheetApi(DateWindowPipelineRunner):
     def _build_daily_register_models(df, pull_date):
         """Convert validated daily register dataframe into load payload rows."""
         return build_daily_register_rows(df=df, pull_date=pull_date)
+
+    @staticmethod
+    def _build_regis_utm_daily_models(df, pull_date):
+        """Convert validated All Regis dataframe into load payload rows."""
+        return build_regis_utm_daily_rows(df=df, pull_date=pull_date)
 
     @staticmethod
     def _build_play_console_install_models(df, pull_date):
@@ -661,6 +680,43 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             end_date=end_date,
             types=types,
             run_id=run_id,
+        )
+
+    async def regis_utm_daily(
+        self,
+        session: AsyncSession,
+        start_date=None,
+        end_date=None,
+        types: str = "auto",
+        run_id: str | None = None,
+    ) -> str:
+        """Run All Regis ETL into ``regis_utm_daily`` at date/source grain."""
+        async def extract(_target_start, _target_end):
+            return await self._fetch_regis_utm_daily_rows()
+
+        async def stage(session_: AsyncSession, raw_rows: list, run_id_: str | None) -> int:
+            return await stage_ads_raw(
+                session=session_, raw_rows=raw_rows, run_id=run_id_,
+                source="regis_utm_daily", range_name=self.extractor.regis_utm_sheet_range,
+            )
+
+        async def delete_window(session_: AsyncSession, target_start, target_end) -> int:
+            return await delete_rows_in_date_window(
+                session=session_, model_cls=RegisUtmDaily,
+                window_start=target_start, window_end=target_end,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="regis_utm_daily", source="regis_utm_daily", empty_metric_name="Regis UTM",
+            date_column="date", auto_skip_model=RegisUtmDaily, extract=extract, stage=stage,
+            parse=self._parse_regis_utm_daily_dataframe,
+            validate=validate_regis_utm_daily_dataframe,
+            build_rows=self._build_regis_utm_daily_models,
+            delete_window=delete_window, load_rows=upsert_regis_utm_daily_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec, session=session, start_date=start_date, end_date=end_date,
+            types=types, run_id=run_id,
         )
 
     async def instagram_insights(

@@ -124,6 +124,16 @@ class ExternalApiExtractor:
             default="'RAW Regis'!A:G",
             cast=str,
         ).strip()
+        self.regis_utm_gsheet_sheet_id = config(
+            "REGIS_UTM_GHSEET_SHEET_ID",
+            default="",
+            cast=str,
+        ).strip()
+        self.regis_utm_sheet_range = config(
+            "REGIS_UTM_SHEET_RANGE",
+            default="'All Regis'!A:C",
+            cast=str,
+        ).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
         raw_ga4_sa_creds = config("GA4_SA_CREDS", default="", cast=str).strip()
         self.ga4_service = None
@@ -2333,6 +2343,23 @@ class ExternalApiExtractor:
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.daily_regis_sheet_id,
                 range=self.daily_regis_sheet_range,
+            ).execute()
+            return result.get("values", [])
+
+        return await asyncio.to_thread(_request)
+
+    async def fetch_regis_utm_daily_rows(self) -> list:
+        """Fetch date, source, and value rows from the configured All Regis sheet."""
+        if self.service is None or not self.regis_utm_gsheet_sheet_id:
+            raise ValueError(
+                "Regis UTM Google Sheet credentials are not fully configured. "
+                "Required env vars: GSHEET_SA_CREDS and REGIS_UTM_GHSEET_SHEET_ID."
+            )
+
+        def _request():
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=self.regis_utm_gsheet_sheet_id,
+                range=self.regis_utm_sheet_range,
             ).execute()
             return result.get("values", [])
 

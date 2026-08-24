@@ -21,6 +21,7 @@ from app.api.v1.functions.fetch_campaign import (
     fetch_user_acquisition_overview_payload,
 )
 from app.api.v1.functions.fetch_internal_register import fetch_internal_register_payload
+from app.api.v1.functions.fetch_regis_utm import fetch_regis_utm_daily_payload
 from app.api.v1.functions.fetch_login_activity import fetch_login_activity_payload
 from app.db.models.user import TfUser
 from app.db.session import get_db
@@ -193,6 +194,23 @@ async def internal_register_overview(
         logger=logger,
         failure_log_message="Failed to generate internal register overview payload",
         failure_detail_message="An internal error occurred while generating internal register overview.",
+    )
+
+
+@router.get("/api/campaign/all-source-register", response_model=AnalyticsResponse)
+async def all_source_register_overview(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES)),  # noqa: ARG001
+):
+    """Generate All Regis source analytics from ``regis_utm_daily``."""
+    return await build_analytics_response(
+        loader=lambda: fetch_regis_utm_daily_payload(session, start_date=start_date, end_date=end_date),
+        success_message="All source register overview generated.",
+        logger=logger,
+        failure_log_message="Failed to generate all source register payload",
+        failure_detail_message="An internal error occurred while generating all source register overview.",
     )
 
 
