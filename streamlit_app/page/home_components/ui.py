@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from html import escape
+
 import streamlit as st
 
 PAGE_STYLE = """
@@ -9,78 +11,120 @@ PAGE_STYLE = """
 .tf-home-shell {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.35rem;
+    max-width: 1320px;
+    margin: 0 auto;
 }
 .tf-home-hero {
     position: relative;
     overflow: hidden;
-    border-radius: 24px;
-    padding: 1.5rem 1.5rem 1.35rem 1.5rem;
+    border-radius: 26px;
+    padding: 2rem 2rem 1.8rem;
     background:
-        radial-gradient(circle at top right, rgba(255,255,255,0.18), transparent 30%),
-        linear-gradient(135deg, #0f172a 0%, #1d4ed8 55%, #0891b2 100%);
+        radial-gradient(circle at 87% 15%, rgba(125, 211, 252, 0.34), transparent 22%),
+        radial-gradient(circle at 72% 110%, rgba(59, 130, 246, 0.42), transparent 35%),
+        linear-gradient(120deg, #0b1224 0%, #172554 58%, #0c4a6e 100%);
     color: #f8fafc;
     border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.24);
+}
+.tf-home-hero::after {
+    content: "";
+    position: absolute;
+    width: 250px;
+    height: 250px;
+    right: -82px;
+    top: -118px;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 50%;
+    box-shadow: 0 0 0 26px rgba(255,255,255,0.04), 0 0 0 54px rgba(255,255,255,0.025);
+}
+.tf-home-hero-content {
+    position: relative;
+    z-index: 1;
+    max-width: 760px;
 }
 .tf-home-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.42rem;
+    padding: 0.32rem 0.65rem;
+    border: 1px solid rgba(255,255,255,0.22);
+    border-radius: 999px;
     text-transform: uppercase;
     letter-spacing: 0.14em;
-    font-size: 0.78rem;
-    opacity: 0.8;
-    margin-bottom: 0.45rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: rgba(255,255,255,0.09);
+    margin-bottom: 0.8rem;
 }
 .tf-home-title {
-    font-size: 2.4rem;
+    font-size: clamp(2rem, 4vw, 3.25rem);
     font-weight: 800;
-    line-height: 1.05;
+    letter-spacing: -0.045em;
+    line-height: 1.02;
     margin: 0;
 }
 .tf-home-subtitle {
-    margin-top: 0.6rem;
-    font-size: 1rem;
+    margin-top: 0.85rem;
+    font-size: 1.02rem;
+    line-height: 1.55;
     max-width: 760px;
-    opacity: 0.88;
+    opacity: 0.84;
+}
+.tf-home-hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+.tf-home-hero-meta span {
+    padding: 0.38rem 0.65rem;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.32);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.88);
+    font-size: 0.82rem;
 }
 .tf-home-section-title {
-    font-size: 0.9rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    opacity: 0.72;
-    margin-top: 0.35rem;
-    margin-bottom: 0.35rem;
+    font-size: 1.12rem;
+    font-weight: 750;
+    letter-spacing: -0.02em;
+    opacity: 0.95;
+    margin: 0.15rem 0 0.2rem;
 }
-.tf-home-shortcut {
-    border: 1px solid rgba(148, 163, 184, 0.24);
-    border-radius: 20px;
-    padding: 1rem 1rem 0.85rem 1rem;
-    min-height: 182px;
-    background:
-        linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+.tf-home-section-note {
+    color: rgba(148, 163, 184, 0.94);
+    font-size: 0.88rem;
+    margin: 0 0 0.55rem;
 }
-.tf-home-shortcut-kicker {
-    font-size: 0.75rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    opacity: 0.64;
+.tf-home-launcher {
+    padding: 1.25rem 0 1.1rem;
+    border-top: 1px solid rgba(96, 165, 250, 0.45);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
 }
-.tf-home-shortcut-title {
-    font-size: 1.2rem;
-    font-weight: 700;
-    margin-top: 0.35rem;
-    margin-bottom: 0.45rem;
+.tf-home-launcher-title {
+    font-size: 1.45rem;
+    font-weight: 760;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.25rem;
 }
-.tf-home-shortcut-copy {
+.tf-home-launcher-copy {
+    color: rgba(203, 213, 225, 0.82);
     font-size: 0.94rem;
-    line-height: 1.45;
-    opacity: 0.82;
-    min-height: 58px;
+    margin-bottom: 0.85rem;
 }
-.tf-home-status-card {
-    border-radius: 18px;
-    border: 1px solid rgba(148, 163, 184, 0.22);
-    padding: 1rem;
-    background: rgba(15, 23, 42, 0.03);
-    min-height: 136px;
+.tf-home-status-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid rgba(148, 163, 184, 0.22);
+    border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+}
+.tf-home-status-item {
+    padding: 0.85rem 1rem;
+}
+.tf-home-status-item + .tf-home-status-item {
+    border-left: 1px solid rgba(148, 163, 184, 0.22);
 }
 .tf-home-status-label {
     font-size: 0.78rem;
@@ -89,7 +133,7 @@ PAGE_STYLE = """
     opacity: 0.62;
 }
 .tf-home-status-value {
-    font-size: 1.2rem;
+    font-size: 1rem;
     font-weight: 700;
     margin-top: 0.45rem;
     margin-bottom: 0.35rem;
@@ -120,7 +164,6 @@ SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
     "register": {"kicker": "Settings", "title": "Create Account", "description": "Manage new user onboarding and assign dashboard access roles."},
 }
 
-
 def go_to(page_key: str) -> None:
     """Navigate to another Streamlit page by updating shared session state."""
     st.session_state["page_override_once"] = page_key
@@ -133,11 +176,17 @@ def render_hero(fullname: str) -> None:
     st.markdown(
         f"""
         <div class="tf-home-hero">
-            <div class="tf-home-eyebrow">Internal Dashboard</div>
-            <div class="tf-home-title">Welcome back, {fullname}</div>
-            <div class="tf-home-subtitle">
-                This dashboard includes active users, ad cost, register acquisition,
-                brand awareness, and first deposit.
+            <div class="tf-home-hero-content">
+                <div class="tf-home-eyebrow">● Internal Intelligence</div>
+                <div class="tf-home-title">Good to see you, {escape(fullname)}</div>
+                <div class="tf-home-subtitle">
+                    One place to follow campaign efficiency, audience growth, and revenue signals across every active channel.
+                </div>
+                <div class="tf-home-hero-meta">
+                    <span>Campaign performance</span>
+                    <span>Audience insights</span>
+                    <span>Revenue reporting</span>
+                </div>
             </div>
         </div>
         """,
@@ -146,8 +195,7 @@ def render_hero(fullname: str) -> None:
 
 
 def render_quick_access() -> None:
-    """Render quick access cards for allowed pages."""
-    st.markdown('<div class="tf-home-section-title">Quick Access</div>', unsafe_allow_html=True)
+    """Render a single workspace launcher without duplicating sidebar navigation."""
     available_pages = [
         page_key
         for page_key in (
@@ -171,79 +219,55 @@ def render_quick_access() -> None:
     ]
     if not available_pages:
         return
-    shortcut_columns = st.columns(min(len(available_pages), 3), gap="small")
-    for index, page_key in enumerate(available_pages):
-        content = SHORTCUT_CONTENT[page_key]
-        column = shortcut_columns[index % len(shortcut_columns)]
-        with column:
-            with st.container(border=False):
-                st.markdown(
-                    f"""
-                    <div class="tf-home-shortcut">
-                        <div class="tf-home-shortcut-kicker">{content["kicker"]}</div>
-                        <div class="tf-home-shortcut-title">{content["title"]}</div>
-                        <div class="tf-home-shortcut-copy">{content["description"]}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                if st.button(f"Open {content['title']}", key=f"home_nav_{page_key}", type="secondary", width="stretch"):
-                    go_to(page_key)
+    st.markdown(
+        '<div class="tf-home-launcher">'
+        '<div class="tf-home-launcher-title">Where do you want to work?</div>'
+        '<div class="tf-home-launcher-copy">Choose a workspace, then continue. Your full navigation stays in the sidebar.</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    default_page = "overview" if "overview" in available_pages else available_pages[0]
+    selected_page = st.selectbox(
+        "Workspace",
+        options=available_pages,
+        index=available_pages.index(default_page),
+        format_func=lambda page_key: f"{SHORTCUT_CONTENT[page_key]['kicker']} · {SHORTCUT_CONTENT[page_key]['title']}",
+        key="home_workspace_launcher",
+    )
+    selected_content = SHORTCUT_CONTENT[selected_page]
+    action_column, description_column = st.columns([1, 2.3], gap="medium")
+    with action_column:
+        if st.button(f"Open {selected_content['title']} →", key="home_workspace_open", type="primary", width="stretch"):
+            go_to(selected_page)
+    with description_column:
+        st.caption(selected_content["description"])
 
 
 def render_status_cards(*, account, latest_run, role_label: str) -> None:
-    """Render session and workspace status cards."""
+    """Render session and workspace status in a single compact strip."""
     st.markdown('<div class="tf-home-section-title">Workspace Status</div>', unsafe_allow_html=True)
-    is_superadmin = st.session_state.get("role") == "superadmin"
-    status_columns = st.columns(3 if is_superadmin else 2, gap="small")
-
-    with status_columns[0]:
-        session_status_copy = f"Signed in as {account.get('email', '-')}"
-        st.markdown(
-            f"""
-            <div class="tf-home-status-card">
-                <div class="tf-home-status-label">Session</div>
-                <div class="tf-home-status-value">{role_label}</div>
-                <div class="tf-home-status-copy">{session_status_copy}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
+    latest_window = "-"
+    if latest_run and latest_run.get("window_start") and latest_run.get("window_end"):
+        latest_window = f"{latest_run['window_start']} to {latest_run['window_end']}"
+    status_items = [
+        ("Session", role_label, f"Signed in as {account.get('email', '-')}"),
+        (
+            "Last ETL Run",
+            latest_run.get("status") if latest_run else "No recent run",
+            f"{latest_run.get('source', '-')} · {latest_run.get('formatted_started_at', '-')}" if latest_run else "No ETL activity recorded yet.",
+        ),
+        ("Data Window", latest_window, f"Pipeline: {latest_run.get('pipeline', '-') if latest_run else '-'}"),
+    ]
+    st.markdown(
+        '<div class="tf-home-status-strip">'
+        + "".join(
+            f'''<div class="tf-home-status-item">
+                <div class="tf-home-status-label">{escape(str(label))}</div>
+                <div class="tf-home-status-value">{escape(str(value or '-'))}</div>
+                <div class="tf-home-status-copy">{escape(str(copy))}</div>
+            </div>'''
+            for label, value, copy in status_items
         )
-
-    if is_superadmin:
-        with status_columns[1]:
-            latest_status = latest_run.get("status") if latest_run else None
-            latest_source = latest_run.get("source") if latest_run else None
-            latest_started = latest_run.get("formatted_started_at") if latest_run else None
-            st.markdown(
-                f"""
-                <div class="tf-home-status-card">
-                    <div class="tf-home-status-label">Last ETL Run</div>
-                    <div class="tf-home-status-value">{latest_status}</div>
-                    <div class="tf-home-status-copy">
-                        Source: {latest_source}<br/>
-                        Started at: {latest_started}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    data_window_column = status_columns[2] if is_superadmin else status_columns[1]
-    with data_window_column:
-        latest_window = "-"
-        if latest_run and latest_run.get("window_start") and latest_run.get("window_end"):
-            latest_window = f"{latest_run['window_start']} to {latest_run['window_end']}"
-        st.markdown(
-            f"""
-            <div class="tf-home-status-card">
-                <div class="tf-home-status-label">Data Window</div>
-                <div class="tf-home-status-value">{latest_window}</div>
-                <div class="tf-home-status-copy">
-                    Pipeline: {latest_run.get("pipeline", "-") if latest_run else "-"}<br/>
-                    Message: {(latest_run.get("message") if latest_run else None) or "No ETL activity recorded yet."}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        + "</div>",
+        unsafe_allow_html=True,
+    )
