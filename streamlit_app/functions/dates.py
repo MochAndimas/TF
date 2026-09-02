@@ -31,7 +31,9 @@ def campaign_preset_ranges(today: date) -> dict[str, tuple[date, date] | None]:
     return {
         "Last 7 Day": (today - timedelta(days=7), yesterday),
         "Last 30 Day": (today - timedelta(days=30), yesterday),
-        "This Month": (this_month_start, yesterday),
+        # Include today so the range remains valid on the first day of a month.
+        # Using yesterday here would produce e.g. Sep 1 – Aug 31.
+        "This Month": (this_month_start, today),
         "Last Month": (last_month_start, last_month_end),
         "Custom Range": None,
     }

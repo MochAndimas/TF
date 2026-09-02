@@ -77,7 +77,8 @@ def date_presets(today: dt.date) -> dict[str, tuple[dt.date, dt.date]]:
     return {
         "Yesterday": (yesterday, yesterday),
         "Last 7 Days": (today - dt.timedelta(days=7), yesterday),
-        "This Month": (this_month_start, yesterday),
+        # Include today so the range remains valid on the first day of a month.
+        "This Month": (this_month_start, today),
         "Last Month": (last_month_start, last_month_end),
         "Custom Range": None,
     }
