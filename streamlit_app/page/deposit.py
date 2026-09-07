@@ -65,21 +65,28 @@ div[data-testid="stMetricDelta"] > div {
 
 
 async def show_deposit_page(host: str) -> None:
+    await render_deposit_page(host)
+
+
+async def render_deposit_page(
+    host: str, *, title: str = "First Deposit", uri: str = "deposit/daily-report",
+    state_prefix: str = "deposit",
+) -> None:
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
-    st.markdown('<div class="deposit-title">First Deposit Report</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="deposit-title">{title} Report</div>', unsafe_allow_html=True)
 
     presets = campaign_preset_ranges(dt.date.today())
     type_options = {"All": "all", "User Acquisition": "user_acquisition", "Brand Awareness": "brand_awareness"}
-    date_range_key = "deposit_date_range"
+    date_range_key = f"{state_prefix}_date_range"
     if date_range_key not in st.session_state:
         st.session_state[date_range_key] = presets["This Month"]
-    if "deposit_period" not in st.session_state:
-        st.session_state["deposit_period"] = "This Month"
+    if f"{state_prefix}_period" not in st.session_state:
+        st.session_state[f"{state_prefix}_period"] = "This Month"
 
     with st.container(border=True):
         left_col, right_col = st.columns([2, 2], gap="small")
         with left_col:
-            period_key = st.selectbox("Periods", options=list(presets.keys()), key="deposit_period")
+            period_key = st.selectbox("Periods", options=list(presets.keys()), key=f"{state_prefix}_period")
             if period_key == "Custom Range":
                 selected = st.date_input("Select Date Range", key=date_range_key)
                 if not isinstance(selected, tuple) or len(selected) != 2:
@@ -91,7 +98,7 @@ async def show_deposit_page(host: str) -> None:
                 if st.session_state.get(date_range_key) != (start_date, end_date):
                     st.session_state[date_range_key] = (start_date, end_date)
         with right_col:
-            selected_type_label = st.selectbox("Campaign Type", options=list(type_options.keys()), index=0, key="deposit_campaign_type")
+            selected_type_label = st.selectbox("Campaign Type", options=list(type_options.keys()), index=0, key=f"{state_prefix}_campaign_type")
 
     if start_date > end_date:
         st.warning("Start date cannot be after end date.")
@@ -99,35 +106,35 @@ async def show_deposit_page(host: str) -> None:
 
     selected_type = type_options[selected_type_label]
     selected_range = (start_date, end_date, selected_type)
-    should_fetch = "deposit_daily_payload" not in st.session_state or st.session_state.get("deposit_daily_range") != selected_range
+    should_fetch = f"{state_prefix}_daily_payload" not in st.session_state or st.session_state.get(f"{state_prefix}_daily_range") != selected_range
 
     if should_fetch:
         if not st.session_state.get("access_token"):
             st.error("Session invalid. Please log in again.")
             return
-        with st.spinner("Fetching first deposit report..."):
+        with st.spinner(f"Fetching {title.lower()} report..."):
             response = await fetch_legacy_deposit_payload(
                 host=host,
-                uri="deposit/daily-report",
+                uri=uri,
                 start_date=start_date,
                 end_date=end_date,
                 campaign_type=selected_type,
-                fallback_message="Failed to fetch first deposit report.",
+                fallback_message=f"Failed to fetch {title.lower()} report.",
             )
         if response is None:
             return
-        st.session_state["deposit_daily_payload"] = response
-        st.session_state["deposit_daily_range"] = selected_range
+        st.session_state[f"{state_prefix}_daily_payload"] = response
+        st.session_state[f"{state_prefix}_daily_range"] = selected_range
 
-    report = st.session_state.get("deposit_daily_payload", {}).get("data", {}).get("report", {})
-    st.markdown('<div class="metric-section-title">First Deposit Summary</div>', unsafe_allow_html=True)
+    report = st.session_state.get(f"{state_prefix}_daily_payload", {}).get("data", {}).get("report", {})
+    st.markdown(f'<div class="metric-section-title">{title} Summary</div>', unsafe_allow_html=True)
     currency_wrap_left, currency_wrap_mid, currency_wrap_right = st.columns([2.2, 2.6, 2.2], gap="small")
     with currency_wrap_mid:
         label_col, control_col = st.columns([1.1, 2.2], gap="small")
         with label_col:
             st.markdown('<div class="currency-inline-label">Currency</div>', unsafe_allow_html=True)
         with control_col:
-            currency_unit = st.radio("Currency", options=["USD", "IDR"], horizontal=True, key="deposit_currency_unit", label_visibility="collapsed")
+            currency_unit = st.radio("Currency", options=["USD", "IDR"], horizontal=True, key=f"{state_prefix}_currency_unit", label_visibility="collapsed")
 
     render_metric_cards(report, currency_unit=currency_unit)
     daily_amount_figure = build_daily_deposit_amount_figure(report, currency_unit=currency_unit)
@@ -153,6 +160,6 @@ async def show_deposit_page(host: str) -> None:
         st.plotly_chart(top_campaign_figure, width="stretch")
     with st.container(border=True):
         st.plotly_chart(campaign_heatmap_figure, width="stretch")
-    st.markdown('<div class="metric-section-title">First Deposit by Campaign</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-section-title">{title} by Campaign</div>', unsafe_allow_html=True)
     with st.container(border=True):
         render_campaign_deposit_table(report, currency_unit=currency_unit, height=420)

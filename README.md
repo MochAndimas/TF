@@ -58,6 +58,7 @@ Endpoint penting:
 - `GET /api/tiktok/analytics`
 - `GET /api/youtube/analytics`
 - `GET /api/deposit/daily-report`
+- `GET /api/deposit/ba-report`
 - `GET /api/deposit/remarketing-report`
 - `GET /api/sqlite-maintenance/status`
 - `POST /api/sqlite-maintenance/vacuum`
@@ -209,7 +210,8 @@ insert baru. Quality report merangkum hasil job dan exception validasi.
 
 - overview analytics
 - campaign analytics untuk user acquisition, brand awareness, dan remarketing
-- first deposit dan remarketing deposit report
+- first deposit, first deposit BA, dan remarketing deposit report
+  - First Deposit BA berada di Revenue (`?page=first-deposit-ba`) dan membaca `data_depo_ba`, dengan filter, metrik, serta izin akses yang sama seperti First Deposit.
 - register, login activity, serta install Android/iOS
 - Instagram, Facebook, TikTok, dan YouTube analytics
 - account management untuk `superadmin`

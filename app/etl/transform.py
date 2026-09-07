@@ -221,13 +221,12 @@ def parse_daily_register_dataframe(raw_rows: list) -> pd.DataFrame:
     if missing_columns:
         raise ValueError(f"Missing columns in daily register sheet: {missing_columns}")
 
+    allowed_tags = ("NUUAAON1", "NUBAAON1", "CP1")
     tag_values = df["tag"].fillna("").astype(str)
-    df = df[tag_values.str.contains("CP1|NUUAAON1", case=False, na=False)].copy()
+    df = df[tag_values.str.contains("|".join(allowed_tags), case=False, na=False)].copy()
     if df.empty:
         return pd.DataFrame(columns=["date", "campaign_id", "tag_name", "total_regis"])
-    df["tag_name"] = df["tag"].fillna("").astype(str).str.upper().apply(
-        lambda value: "NUUAAON1" if "NUUAAON1" in value else "CP1"
-    )
+    df["tag_name"] = df["tag"].astype(str).str.strip()
 
     parsed = pd.DataFrame(
         {

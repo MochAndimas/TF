@@ -20,7 +20,7 @@ from app.api.v1.functions.fetch_deposit import fetch_deposit_daily_overview_payl
 from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
-from app.utils.deposit_utils import DepositData
+from app.utils.deposit_utils import DepositData, BrandAwarenessDepositData
 from app.utils.rbac import FINANCE_ANALYTICS_ROLES
 from app.utils.remarketing_deposit_utils import RemarketingDepositData
 
@@ -128,4 +128,31 @@ async def remarketing_deposit_report(
         logger=logger,
         failure_log_message="Failed to generate remarketing deposit report payload",
         failure_detail_message="An internal error occurred while generating remarketing deposit report.",
+    )
+
+
+@router.get("/api/deposit/ba-report", response_model=AnalyticsResponse)
+async def ba_deposit_report(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    campaign_type: Literal["all", "user_acquisition", "brand_awareness"] = Query(default="all"),
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),
+):
+    """Generate the first-deposit report from data_depo_ba."""
+    validate_date_range(start_date, end_date)
+
+    async def load_payload():
+        data = await BrandAwarenessDepositData.load_data(session, start_date, end_date)
+        return await fetch_deposit_daily_overview_payload(
+            data, start_date, end_date,
+            campaign_type=None if campaign_type == "all" else campaign_type,
+        )
+
+    return await build_analytics_response(
+        loader=load_payload,
+        success_message="First deposit BA report generated.",
+        logger=logger,
+        failure_log_message="Failed to generate first deposit BA report",
+        failure_detail_message="An internal error occurred while generating first deposit BA report.",
     )

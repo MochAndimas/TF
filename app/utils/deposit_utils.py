@@ -13,7 +13,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.external_api import Campaign, DataDepo
+from app.db.models.external_api import Campaign, DataDepo, DataDepoBa
 
 
 class DepositData:
@@ -31,6 +31,8 @@ class DepositData:
         to_date (date): Inclusive end date for current report window.
         df_depo (pd.DataFrame): Cached deposit rows in current window.
     """
+
+    model = DataDepo
 
     def __init__(self, session: AsyncSession, from_date: date, to_date: date) -> None:
         """Initialize deposit data container.
@@ -82,18 +84,18 @@ class DepositData:
         """
         query = (
             select(
-                DataDepo.tanggal_regis.label("tanggal_regis"),
-                DataDepo.user_id.label("user_id"),
-                DataDepo.campaign_id.label("campaign_id"),
+                self.model.tanggal_regis.label("tanggal_regis"),
+                self.model.user_id.label("user_id"),
+                self.model.campaign_id.label("campaign_id"),
                 Campaign.campaign_name.label("campaign_name"),
                 Campaign.ad_type.label("campaign_type"),
-                DataDepo.user_status.label("user_status"),
-                DataDepo.email.label("email"),
-                DataDepo.first_depo.label("first_depo"),
-                DataDepo.time_to_closing.label("time_to_closing"),
+                self.model.user_status.label("user_status"),
+                self.model.email.label("email"),
+                self.model.first_depo.label("first_depo"),
+                self.model.time_to_closing.label("time_to_closing"),
             )
-            .join(DataDepo.campaign)
-            .filter(DataDepo.tanggal_regis.between(from_date, to_date))
+            .join(self.model.campaign)
+            .filter(self.model.tanggal_regis.between(from_date, to_date))
         )
         result = await self.session.execute(query)
         rows = result.fetchall()
@@ -475,3 +477,9 @@ class DepositData:
             base[method]["deposit_amount"] = round(amount, 2)
             base[method]["average_deposit"] = round(amount / qty, 2) if qty else 0.0
         return [base[method] for method in method_order]
+
+
+class BrandAwarenessDepositData(DepositData):
+    """First-deposit report using the BA table for both reporting periods."""
+
+    model = DataDepoBa
