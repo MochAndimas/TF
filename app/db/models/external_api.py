@@ -804,3 +804,24 @@ class ManagedSecret(SqliteBase):
     description = Column("description", String, nullable=True)
     created_at = Column("created_at", DateTime, nullable=False)
     updated_at = Column("updated_at", DateTime, nullable=False)
+
+
+class AllDepo(SqliteBase):
+    """Daily aggregate deposit metrics imported from the ALL DEPO sheet."""
+
+    __tablename__ = "all_depo"
+    date = Column(Date, primary_key=True)
+    register_qty = Column(Integer, nullable=False)
+    total_deposit_qty = Column(Integer, nullable=False)
+    total_deposit_amount = Column(Float, nullable=False)
+    total_deposit_auto_closing_qty = Column(Integer, nullable=False)
+    total_deposit_auto_closing_amount = Column(Float, nullable=False)
+    total_deposit_consultant_qty = Column(Integer, nullable=False)
+    total_deposit_consultant_amount = Column(Float, nullable=False)
+    first_deposit_qty = Column(Integer, nullable=False)
+    first_deposit_amount = Column(Float, nullable=False)
+    first_deposit_auto_closing_qty = Column(Integer, nullable=False)
+    first_deposit_auto_closing_amount = Column(Float, nullable=False)
+    first_deposit_consultant_qty = Column(Integer, nullable=False)
+    first_deposit_consultant_amount = Column(Float, nullable=False)
+    pull_date = Column(Date, nullable=False)

@@ -368,6 +368,13 @@ async def _migration_20260824_001_regis_utm_daily(connection) -> None:
     await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_regis_utm_daily_source ON regis_utm_daily(source)"))
 
 
+async def _migration_20260907_001_all_depo(connection) -> None:
+    """Create storage for ALL DEPO daily aggregates."""
+    from app.db.models.external_api import AllDepo
+
+    await connection.run_sync(lambda sync_connection: AllDepo.__table__.create(sync_connection, checkfirst=True))
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -428,6 +435,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260824_001_regis_utm_daily",
         "Create All Regis daily source totals table.",
         _migration_20260824_001_regis_utm_daily,
+    ),
+    (
+        "20260907_001_all_depo",
+        "Create ALL DEPO daily aggregate table.",
+        _migration_20260907_001_all_depo,
     ),
 )
 

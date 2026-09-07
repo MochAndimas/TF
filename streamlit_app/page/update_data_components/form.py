@@ -30,6 +30,7 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit (GSheet)": "first_deposit",
     "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
+    "All Depo (GSheet)": "all_depo",
     "Google Play Console Install Metrics": "play_console_install_metrics",
     "Apple App Store Request Report (ONE_TIME_SNAPSHOT)": "apple_report_request",
     "Apple App Store Install Metrics (ONGOING)": "apple_install",
@@ -54,6 +55,7 @@ ALL_DATA_SOURCE_VALUES = [
     "first_deposit",
     "first_deposit_ba",
     "ms_deposit",
+    "all_depo",
     "play_console_install_metrics",
     "apple_install",
 ]

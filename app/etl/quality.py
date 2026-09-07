@@ -666,3 +666,22 @@ def validate_apple_install_dataframe(df: pd.DataFrame) -> None:
         raise ValueError("DQ failed: Apple total downloads does not match its components.")
     if _duplicate_ratio(df, ["date"]) > 0:
         raise ValueError("DQ failed: Apple install data contains duplicate dates.")
+
+
+
+def validate_all_depo_dataframe(df: pd.DataFrame) -> None:
+    """Reject duplicate dates, invalid counts and non-finite or negative amounts."""
+    import numpy as np
+
+    if df.empty:
+        return
+    if df["date"].isna().any() or (df["date"] < MIN_HISTORICAL_DATE).any():
+        raise ValueError("DQ failed: All Depo contains invalid dates.")
+    if df["date"].duplicated().any():
+        raise ValueError("DQ failed: All Depo contains duplicate dates.")
+    for column in df.columns.drop("date"):
+        values = pd.to_numeric(df[column], errors="coerce")
+        if not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError(f"DQ failed: All Depo has invalid values in {column}.")
+        if column.endswith("_qty") and (values % 1 != 0).any():
+            raise ValueError(f"DQ failed: All Depo requires whole counts in {column}.")

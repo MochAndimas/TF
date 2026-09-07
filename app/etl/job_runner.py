@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.db.models.external_api import (
+    AllDepo,
     AppleInstall,
     Campaign,
     DailyRegister,
@@ -70,6 +71,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "first_deposit",
     "first_deposit_ba",
     "ms_deposit",
+    "all_depo",
     "play_console_install_metrics",
     "apple_install",
 )
@@ -443,6 +445,12 @@ async def _run_apple_report_request(
     )
 
 
+async def _run_all_depo(gsheet, session, types, start_date, end_date, run_id) -> str:
+    return await gsheet.all_depo(
+        session=session, types=types, start_date=start_date, end_date=end_date, run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -462,6 +470,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "first_deposit": _run_first_deposit,
     "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
+    "all_depo": _run_all_depo,
     "play_console_install_metrics": _run_play_console_install_metrics,
     "apple_install": _run_apple_install,
     "apple_install_snapshot": _run_apple_install_snapshot,
@@ -487,6 +496,7 @@ SOURCE_MODELS = {
     "first_deposit": DataDepo,
     "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
+    "all_depo": AllDepo,
     "play_console_install_metrics": PlayConsoleInstallMetrics,
     "apple_install": AppleInstall,
     "apple_install_snapshot": AppleInstall,
@@ -510,6 +520,7 @@ SOURCE_DATE_COLUMNS = {
     "first_deposit": "tanggal_regis",
     "first_deposit_ba": "tanggal_regis",
     "ms_deposit": "last_activity",
+    "all_depo": "date",
     "play_console_install_metrics": "date",
     "apple_install": "date",
     "apple_install_snapshot": "date",

@@ -134,6 +134,8 @@ class ExternalApiExtractor:
             default="'All Regis'!A:C",
             cast=str,
         ).strip()
+        self.all_depo_sheet_id = config("ALL_DEPO_GSHEET_ID", default="", cast=str).strip()
+        self.all_depo_sheet_range = config("ALL_DEPO_GSHEET_RANGE", default="", cast=str).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
         raw_ga4_sa_creds = config("GA4_SA_CREDS", default="", cast=str).strip()
         self.ga4_service = None
@@ -2847,3 +2849,19 @@ class ExternalApiExtractor:
             payload = gzip.decompress(payload)
         text = _decode_play_console_csv_payload(payload)
         return list(csv.DictReader(io.StringIO(text)))
+
+
+    async def fetch_all_depo_rows(self) -> list:
+        """Read daily aggregates using the shared Sheets service account."""
+        if self.service is None or not self.all_depo_sheet_id or not self.all_depo_sheet_range:
+            raise ValueError("All Depo requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and ALL_DEPO_GSHEET_RANGE.")
+
+        def request():
+            return self.service.spreadsheets().values().get(
+                spreadsheetId=self.all_depo_sheet_id,
+                range=self.all_depo_sheet_range,
+                valueRenderOption="UNFORMATTED_VALUE",
+                dateTimeRenderOption="FORMATTED_STRING",
+            ).execute().get("values", [])
+
+        return await asyncio.to_thread(request)

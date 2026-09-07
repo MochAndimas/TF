@@ -1079,3 +1079,53 @@ def parse_apple_install_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
         )
         rows.append({"date": event_date, **metrics})
     return pd.DataFrame(rows, columns=["date", *metric_columns])
+
+
+ALL_DEPO_COLUMNS = {
+    'Tanggal': 'date',
+    'Register (Qty)': 'register_qty',
+    'Total Deposit (Qty)': 'total_deposit_qty',
+    'Total Deposit (amount)': 'total_deposit_amount',
+    'Total Deposit Auto Closing (Qty)': 'total_deposit_auto_closing_qty',
+    'Total Deposit Auto Closing (Amount)': 'total_deposit_auto_closing_amount',
+    'Total Deposit Closing with Consulant (Qty)': 'total_deposit_consultant_qty',
+    'Total Deposit Closing with Consulant (Amount)': 'total_deposit_consultant_amount',
+    'First Deposit (Qty)': 'first_deposit_qty',
+    'First Deposit (amount)': 'first_deposit_amount',
+    'First Deposit Auto Closing (Qty)': 'first_deposit_auto_closing_qty',
+    'First Deposit Auto Closing (Amount)': 'first_deposit_auto_closing_amount',
+    'First Deposit Closing with Consulant (Qty)': 'first_deposit_consultant_qty',
+    'First Deposit Closing with Consulant (Amount)': 'first_deposit_consultant_amount',
+}
+
+
+def parse_all_depo_dataframe(raw_rows: list) -> pd.DataFrame:
+    """Map sheet headers to daily metrics without tag filtering or aggregation."""
+    columns = list(ALL_DEPO_COLUMNS.values())
+    if not raw_rows:
+        return pd.DataFrame(columns=columns)
+
+    def normalize(header):
+        return " ".join(str(header).lower().replace("consultant", "consulant").split())
+
+    mapping = {normalize(header): column for header, column in ALL_DEPO_COLUMNS.items()}
+    headers = [mapping.get(normalize(header), normalize(header)) for header in raw_rows[0]]
+    if len(headers) != len(set(headers)):
+        raise ValueError("DQ failed: All Depo has duplicate headers.")
+    missing = set(columns) - set(headers)
+    if missing:
+        raise ValueError(f"Missing columns in All Depo sheet: {sorted(missing)}")
+    rows = []
+    for row in raw_rows[1:]:
+        if not any(str(value).strip() for value in row):
+            continue
+        if len(row) > len(headers):
+            raise ValueError("DQ failed: All Depo row exceeds header width.")
+        rows.append(list(row) + [None] * (len(headers) - len(row)))
+    df = pd.DataFrame(rows, columns=headers)[columns].copy()
+    df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d", errors="coerce").dt.date
+    if df["date"].isna().any():
+        raise ValueError("DQ failed: All Depo contains invalid dates.")
+    for column in columns[1:]:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df.sort_values("date")

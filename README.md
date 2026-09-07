@@ -136,6 +136,7 @@ Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
 - `first_deposit`
 - `first_deposit_ba`
 - `ms_deposit`
+- `all_depo` — daily ALL DEPO aggregates; one row per date, register quantity and total/first-deposit quantities and amounts, split by auto closing and consultant. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Values retain the source sheet units.
 - `play_console_install_metrics`
 - `apple_install`
 
@@ -333,6 +334,8 @@ Contoh:
 - `FIRST_DEPOSIT_SHEET_ID`
 - `FIRST_DEPOSIT_SHEET_RANGE`
 - `MS_DEPOSIT_SHEET_RANGE`
+- `ALL_DEPO_GSHEET_ID`
+- `ALL_DEPO_GSHEET_RANGE` (for example `'ALL DEPO'!A:N`; uses `GSHEET_SA_CREDS`)
 - `DAILY_REGIS_SHEET_ID`
 - `DAILY_REGIS_SHEET_RANGE`
 - `REGIS_UTM_GHSEET_SHEET_ID`

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import (
+    AllDepo,
     AppleInstall,
     DailyRegister,
     DataDepo,
@@ -27,6 +28,7 @@ from app.db.models.external_api import (
 )
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
+    build_all_depo_rows, upsert_all_depo_rows,
     build_apple_install_rows,
     build_ads_rows,
     build_daily_register_rows,
@@ -68,6 +70,7 @@ from app.etl.load import (
     upsert_youtube_media_insight_rows,
 )
 from app.etl.quality import (
+    validate_all_depo_dataframe,
     validate_apple_install_dataframe,
     validate_ads_dataframe,
     validate_daily_register_dataframe,
@@ -103,6 +106,7 @@ from app.etl.staging import (
     stage_play_console_install_raw,
 )
 from app.etl.transform import (
+    parse_all_depo_dataframe,
     parse_apple_install_dataframe,
     parse_ads_dataframe,
     parse_daily_register_dataframe,
@@ -1547,4 +1551,33 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             end_date=end_date,
             types=types,
             run_id=run_id,
+        )
+
+
+    async def all_depo(self, session: AsyncSession, start_date=None, end_date=None,
+                       types: str = "auto", run_id: str | None = None) -> str:
+        """Replace the selected daily aggregate window from ALL DEPO."""
+        async def extract(_start, _end):
+            return await self.extractor.fetch_all_depo_rows()
+
+        async def stage(session_, raw_rows, run_id_):
+            return await stage_ads_raw(
+                session_, raw_rows, run_id=run_id_, source="all_depo",
+                range_name=self.extractor.all_depo_sheet_range,
+            )
+
+        async def delete_window(session_, target_start, target_end):
+            return await delete_rows_in_date_window(
+                session_, AllDepo, window_start=target_start, window_end=target_end,
+            )
+
+        return await self._run_date_window_pipeline(
+            spec=DateWindowPipelineSpec(
+                label="all_depo", source="all_depo", empty_metric_name="All Depo",
+                date_column="date", auto_skip_model=AllDepo,
+                extract=extract, stage=stage, parse=parse_all_depo_dataframe,
+                validate=validate_all_depo_dataframe, build_rows=build_all_depo_rows,
+                delete_window=delete_window, load_rows=upsert_all_depo_rows,
+            ),
+            session=session, start_date=start_date, end_date=end_date, types=types, run_id=run_id,
         )
