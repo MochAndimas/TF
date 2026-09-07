@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.clock import now
+from app.core.config import settings
 from app.core.security import fingerprint_session_id, fingerprint_token
 from app.db.models.user import TfUser, UserToken
 
@@ -27,7 +28,7 @@ async def user_token(
     """Create or update token/session row for a user login."""
     today = now()
     session_id = session_id or str(uuid.uuid4())
-    expiry = today + timedelta(days=7)
+    expiry = today + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
     session_fingerprint = fingerprint_session_id(session_id)
     result = await session.execute(

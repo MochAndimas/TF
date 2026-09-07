@@ -1,6 +1,6 @@
 # Traders Family Dashboard
 
-Dashboard internal untuk memantau performa campaign, overview acquisition, active users, dan first deposit. Repo ini menggabungkan FastAPI sebagai backend API, Streamlit sebagai dashboard UI, ETL pipeline untuk sinkronisasi data, serta scheduler berbasis cron untuk update harian.
+Dashboard internal untuk memantau performa campaign, acquisition, active users, registrasi, install aplikasi, deposit, dan media sosial organik. Repo ini menggabungkan FastAPI sebagai backend API, Streamlit sebagai dashboard UI, ETL pipeline untuk sinkronisasi data, serta scheduler berbasis cron untuk update harian.
 
 ## Ringkasan Arsitektur
 
@@ -8,7 +8,7 @@ Project ini berjalan sebagai single-node application dengan SQLite file-based st
 
 - `FastAPI` untuk authentication, authorization, analytics API, ETL trigger, OAuth callback, dan endpoint operational.
 - `Streamlit` untuk login, session restore, role-based navigation, visualisasi analytics, account management, dan manual ETL trigger.
-- `ETL layer` untuk ingest data campaign, GA4, dan first deposit dari external source.
+- `ETL layer` untuk ingest data iklan, GA4, register/deposit, media sosial, Play Console, dan App Store Connect.
 - `Cron scheduler` untuk menjalankan ETL harian secara serial.
 - `SQLite` sebagai primary datastore untuk user, token/session, ETL run, request log, managed secret, dan data analytics.
 
@@ -30,11 +30,11 @@ Tanggung jawab utamanya:
 
 - login, logout, refresh token, session restore
 - account CRUD untuk `superadmin`
-- endpoint analytics untuk `overview`, `campaign`, dan `deposit`
+- endpoint analytics untuk overview, campaign, deposit, activity, install, dan media sosial
 - trigger manual ETL dan polling status ETL
 - summary ETL untuk status operasional, termasuk durasi, row count, dan quality report
-- Google Ads OAuth callback
-- Meta Ads token exchange dan status
+- Google Ads, YouTube, dan TikTok OAuth callback
+- Meta Ads token exchange/status serta Instagram token exchange/save/refresh
 - request logging dan healthcheck
 
 Endpoint penting:
@@ -48,15 +48,34 @@ Endpoint penting:
 - `GET /api/overview/campaign-cost`
 - `GET /api/campaign/user-acquisition`
 - `GET /api/campaign/brand-awareness`
+- `GET /api/campaign/remarketing`
+- `GET /api/campaign/internal-register`
+- `GET /api/campaign/all-source-register`
+- `GET /api/campaign/login-activity`
+- `GET /api/install/analytics`
+- `GET /api/instagram/analytics`
+- `GET /api/facebook/analytics`
+- `GET /api/tiktok/analytics`
+- `GET /api/youtube/analytics`
 - `GET /api/deposit/daily-report`
+- `GET /api/deposit/remarketing-report`
+- `GET /api/sqlite-maintenance/status`
+- `POST /api/sqlite-maintenance/vacuum`
 - `POST /api/feature-data/update-external-api`
 - `GET /api/feature-data/update-external-api/summary`
 - `GET /api/feature-data/update-external-api/{run_id}`
-- `GET /api/google-ads/oauth/start`
+- `POST /api/google-ads/oauth/start` (GET juga tersedia untuk redirect)
 - `GET /api/google-ads/oauth/callback`
 - `GET /api/meta-ads/token/status`
 - `POST /api/meta-ads/token/exchange`
+- `POST /api/youtube/oauth/start`
+- `GET /api/youtube/oauth/callback`
+- `POST /api/tiktok/oauth/start`
+- `GET /api/tiktok/oauth/callback`
+- `GET /terms` dan `GET /privacy`
 - `GET /health`
+
+Walaupun kode berada di folder `api/v1`, router saat ini menggunakan URL `/api/...`.
 
 ### 2. Frontend Streamlit
 
@@ -69,13 +88,19 @@ Frontend entrypoint ada di `streamlit_run.py`. UI Streamlit ini bukan sekadar da
 - halaman analytics
 - halaman account management
 - halaman manual update data
-- halaman konfigurasi token Google Ads dan Meta Ads
+- halaman konfigurasi token Google Ads, Meta Ads, Instagram, TikTok, dan YouTube
+- halaman database maintenance dan dokumen legal
 
-Public page yang bisa diakses tanpa dashboard login penuh:
+Konfigurasi `PUBLIC_PAGE_KEYS` memuat `google_ads_token`, `meta_ads_token`,
+`instagram_token`, `tiktok_token`, `youtube_token`, `terms`, dan `privacy`.
+Daftar ini dipakai saat dispatch halaman; tidak berarti semua URL halaman token
+bisa langsung diakses anonim.
 
-- `google_ads_token`
-- `meta_ads_token`
-- `youtube_token`
+Resolver sebelum login menangani `terms`/`privacy` (path atau query `page`) dan
+parameter callback OAuth yang diarahkan ke halaman Google Ads Token. Navigasi
+Settings serta operasi backend untuk memulai OAuth atau mengelola token tetap
+memerlukan akun `superadmin`. Callback Google Ads, YouTube, dan TikTok tersedia
+di backend dan memvalidasi OAuth state; TikTok juga menggunakan PKCE.
 
 ### 3. ETL dan Scheduler
 
@@ -89,16 +114,42 @@ Alur ETL dirakit di:
 - `app/etl/pipelines.py`
 - `app/etl/job_runner.py`
 
-Source ETL terjadwal default:
+Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
+`app/etl/job_runner.py`:
 
 - `google_ads`
 - `facebook_ads`
 - `tiktok_ads`
 - `unique_campaign`
 - `ga4_daily_metrics`
+- `instagram_insights`
+- `instagram_media_insights`
+- `tiktok_insights`
+- `tiktok_media_insights`
 - `youtube_daily_insight`
 - `youtube_media_insight`
+- `facebook_page_insights`
+- `facebook_page_media_insights`
+- `daily_register`
+- `regis_utm_daily`
 - `first_deposit`
+- `first_deposit_ba`
+- `ms_deposit`
+- `play_console_install_metrics`
+- `apple_install`
+
+Google Ads dan Facebook Ads memakai API provider; TikTok Ads memakai Google
+Sheets. Integrasi TikTok organik memakai API TikTok. Play Console membaca export
+CSV dari GCS, sedangkan Apple membaca report App Store Connect.
+
+Executor tambahan `apple_install_snapshot` dan `apple_report_request` tidak
+masuk jadwal default. Endpoint membatasi Apple snapshot ke mode manual.
+
+Auto window umumnya H-7 sampai H-1. TikTok account insights memakai snapshot hari
+ini, sedangkan Apple install auto memakai H-5. Manual memakai rentang eksplisit.
+Pipeline menyimpan raw staging, melakukan transform/validasi, lalu mengganti
+window data target dalam transaksi. Hasil kosong pada shared runner juga
+mengosongkan window tersebut.
 
 Scheduler harian:
 
@@ -108,6 +159,8 @@ Scheduler harian:
 - container entrypoint: `docker/scheduler-entrypoint.sh`
 
 Secara default cron dijalankan setiap hari pukul `08:00 Asia/Jakarta`.
+CLI menunggu setiap source selesai dan melanjutkan source berikutnya saat ada
+kegagalan, kecuali dijalankan dengan `--fail-fast`.
 
 Setiap ETL run dicatat di tabel `etl_run` dengan metadata operasional:
 
@@ -120,15 +173,20 @@ Setiap ETL run dicatat di tabel `etl_run` dengan metadata operasional:
 
 Manual ETL dari dashboard hanya menerima satu source per run. Untuk menjalankan
 beberapa source, jalankan source tersebut satu per satu agar status, locking, dan
-error handling tetap jelas di SQLite single-node deployment.
+error handling tetap jelas di SQLite single-node deployment. Status berjalan
+dari `queued` ke `running`, lalu `success` atau `failed`. Job manual menggunakan
+`asyncio.create_task` dalam proses backend; restart backend dapat memutus job.
+Trigger berikutnya menandai run aktif yang berumur lebih dari 6 jam sebagai failed.
+`rows_loaded` merupakan jumlah row pada window target setelah job; bukan jumlah
+insert baru. Quality report merangkum hasil job dan exception validasi.
 
 ## Fitur yang Sudah Ada
 
 ### Authentication dan Session
 
 - bearer access token untuk API call
-- refresh token rotation
-- persistent auth session via cookie `tf_session`
+- pembaruan access/refresh token; session handle cookie tetap sama saat refresh
+- persistent auth session via cookie `tf_session` saat remember-me aktif
 - session restore dari browser
 - logout satu sesi
 - logout semua sesi
@@ -150,8 +208,10 @@ error handling tetap jelas di SQLite single-node deployment.
 ### Dashboard dan Operasi
 
 - overview analytics
-- campaign analytics untuk `user acquisition` dan `brand awareness`
-- first deposit report
+- campaign analytics untuk user acquisition, brand awareness, dan remarketing
+- first deposit dan remarketing deposit report
+- register, login activity, serta install Android/iOS
+- Instagram, Facebook, TikTok, dan YouTube analytics
 - account management untuk `superadmin`
 - manual ETL trigger dengan status polling
 - healthcheck backend
@@ -159,24 +219,27 @@ error handling tetap jelas di SQLite single-node deployment.
 
 ## Role Access
 
-Role yang saat ini dipakai aplikasi:
+Akses navigasi diatur di `streamlit_app/app_shell/config.py`; backend memeriksa
+role pada setiap endpoint dengan helper `app/utils/rbac.py` atau guard khusus.
 
-- `superadmin`
-- `analyst`
-- `digital_marketing`
-- `finance`
-- `sales`
+| Role | Akses navigasi |
+| --- | --- |
+| `superadmin` | Semua halaman, termasuk Settings. |
+| `analyst` | Home, Overall, Revenue, Campaign, Socmed, dan Activity. |
+| `tech_it` | Home, Overall, Revenue, Campaign, Socmed, dan Activity. |
+| `digital_marketing` | Home, Overall, Campaign, Socmed, dan Activity. |
+| `finance` | Home, Overall, Revenue, dan Campaign. |
+| `social_media` | Home dan Socmed. |
+| `sales` | Role dikenal, belum memiliki navigasi aktif. |
 
-Akses halaman Streamlit saat ini:
+Ketiga endpoint Campaign (User Acquisition, Brand Awareness, Remarketing)
+mengizinkan role analytics, termasuk `digital_marketing`, serta `finance`.
+Endpoint Revenue hanya mengizinkan `superadmin`, `analyst`, `tech_it`, dan
+`finance` (beserta alias legacy `admin`).
 
-- `superadmin`: semua halaman
-- `analyst`: semua halaman kecuali grup menu Settings
-- `digital_marketing`: `home`, grup Overall, grup Campaign, dan grup Activity
-- `finance`: `home`, grup Overall, grup Revenue, dan grup Campaign
-- `sales`: role sudah dikenal aplikasi, tetapi belum mendapat navigasi aktif
-
-Backend menerapkan guard role yang sama untuk endpoint analytics. Role legacy `admin`
-masih diperlakukan sebagai alias `analyst` untuk kompatibilitas akun lama.
+Role legacy `admin` dinormalisasi menjadi `analyst` oleh helper RBAC umum.
+Pengecualian: guard endpoint Install memakai role exact dan tidak memasukkan
+`admin`; daftar navigasi legacy `admin` juga tidak memuat Install.
 
 ## Struktur Repo
 
@@ -189,6 +252,7 @@ masih diperlakukan sebagai alias `analyst` untuk kompatibilitas akun lama.
 |  |- db/                       # session, models, schema bootstrap
 |  |- etl/                      # extract, transform, quality, staging, load
 |  |- schemas/                  # schema request/response
+|  |- services/                 # orkestrasi auth
 |  |- utils/                    # service layer dan app bootstrap helpers
 |- docker/
 |  |- scheduler-entrypoint.sh   # bootstrap cron di container scheduler
@@ -218,7 +282,10 @@ masih diperlakukan sebagai alias `analyst` untuk kompatibilitas akun lama.
 
 ## Konfigurasi Environment
 
-Project membaca konfigurasi dari `.env` lewat `python-decouple`, plus mendukung pola `*_FILE` untuk secret.
+Project membaca konfigurasi dari environment/`.env` lewat `python-decouple`.
+Setting yang memakai `_read_setting` di `app/core/config.py` mendukung `*_FILE`.
+Integrasi yang membaca `config` langsung tidak otomatis mendukung pola tersebut.
+Gunakan `.env.example` sebagai template dan sesuaikan key dengan integrasi yang dipakai.
 
 Contoh:
 
@@ -246,7 +313,6 @@ Contoh:
 - `APP_ENCRYPTION_KEY`
 - `ACCESS_TOKEN_EXPIRE_MINUTES`
 - `REFRESH_TOKEN_EXPIRE_DAYS`
-- `ALGORITHM`
 - `BOOTSTRAP_SUPERADMIN`
 - `INITIAL_SUPERADMIN_NAME`
 - `INITIAL_SUPERADMIN_EMAIL`
@@ -264,6 +330,7 @@ Contoh:
 - `GSHEET_SHEET_ID`
 - `FIRST_DEPOSIT_SHEET_ID`
 - `FIRST_DEPOSIT_SHEET_RANGE`
+- `MS_DEPOSIT_SHEET_RANGE`
 - `DAILY_REGIS_SHEET_ID`
 - `DAILY_REGIS_SHEET_RANGE`
 - `REGIS_UTM_GHSEET_SHEET_ID`
@@ -279,14 +346,25 @@ Contoh:
 - `META_APP_ID`
 - `META_APP_SECRET`
 - `META_API_VERSION`
+- `META_AD_ID`
+- `FB_PAGE_ID`
+- `INSTAGRAM_USER_ID`
+- `INSTAGRAM_MEDIA_INSIGHT_CONCURRENCY`
+- `INSTAGRAM_FOLLOW_ACTIVITY_CONCURRENCY`
 - `YOUTUBE_CLIENT_ID`
 - `YOUTUBE_CLIENT_SECRET`
 - `YOUTUBE_REDIRECT_URI`
 - `YOUTUBE_CHANNEL_ID`
 - `YOUTUBE_MEDIA_INSIGHT_CONCURRENCY`
+- `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`, `TIKTOK_SCOPES`
+- `TIKTOK_VIDEO_LIST_MAX_PAGES`
+- `PLAY_CONSOLE_SA`, `PLAY_CONSOLE_NAME_APP`, `PLAY_CONSOLE_REPORT_BUCKET`, `PLAY_CONSOLE_REPORT_PREFIXES`
+- `APPLE_ASC_KEY_ID`, `APPLE_ASC_ISSUER_ID`, `APPLE_ASC_PRIVATE_KEY`, `APPLE_ASC_APP_ID`, `APPLE_ASC_REPORT_REQUEST_ID`
+- `USD_TO_IDR_RATE` (default kode: 16000; konversi deposit pada overview)
 
 ### Variabel Tambahan untuk Streamlit dan Docker
 
+- `FRONTEND_PORT`: port Streamlit dalam Compose, misalnya `5504`
 - `STREAMLIT_API_HOST`
   dipakai agar container Streamlit memanggil backend internal Docker, misalnya `http://backend:8000`
 - `BACKEND_PUBLIC_URL`
@@ -302,6 +380,7 @@ DEV_HOST=localhost
 DEV_PORT=8000
 HOST=0.0.0.0
 PORT=8000
+FRONTEND_PORT=5504
 WORKERS=1
 
 DEV_DB_URL=sqlite+aiosqlite:///./app/db/campaign_data_dev.db
@@ -309,7 +388,7 @@ DB_URL=sqlite+aiosqlite:///./app/db/campaign_data.db
 
 FRONTEND_URL=http://localhost:5504,http://127.0.0.1:5504,http://localhost:8501,http://127.0.0.1:8501
 BACKEND_PUBLIC_URL=http://localhost:8000
-STREAMLIT_API_HOST=http://backend:8000
+STREAMLIT_API_HOST=http://localhost:8000
 
 CSRF_SECRET=replace-me
 JWT_SECRET_KEY=replace-me
@@ -335,18 +414,18 @@ REQUEST_LOG_FLUSH_INTERVAL_SECONDS=1.0
 
 ### Streamlit Secrets
 
-Jika dipakai, `.streamlit/secrets.toml` dapat menyediakan fallback untuk:
-
-- `[api]`
-  - `DEV_HOST`
-  - `HOST`
-- `[db]`
-  - `DB_DEV`
-  - `DB`
-- `[key]`
-  - `JWT_SECRET_KEY`
+Jika dipakai, `.streamlit/secrets.toml` dapat menyediakan fallback URL backend
+melalui `[api].DEV_HOST` dan `[api].HOST`. Helper runtime mendahulukan
+`STREAMLIT_API_HOST` untuk server-side call, lalu `BACKEND_PUBLIC_URL`, sebelum
+fallback ini. Browser auth bridge menggunakan URL publik.
 
 ## Menjalankan Secara Lokal
+
+Siapkan `.env` lokal dari template dan isi secret/integrasi yang dibutuhkan.
+Untuk contoh port 8000, selaraskan `DEV_PORT`, `PORT`, `BACKEND_PUBLIC_URL`,
+`STREAMLIT_API_HOST`, dan redirect URI provider ke port tersebut. Template saat
+ini memuat sebagian URL port 5505; jangan menganggap semua port template sudah
+selaras. Extractor Instagram membaca `INSTAGRAM_USER_ID`.
 
 ### 1. Install dependency runtime
 
@@ -443,10 +522,10 @@ Command:
 docker compose up --build
 ```
 
-Port default:
-
-- backend: `8000`
-- frontend: `5504`
+Port mengikuti environment Compose: backend `${PORT}`, frontend `${FRONTEND_PORT}`.
+Contoh konfigurasi di atas menggunakan 8000 dan 5504. Untuk Compose, gunakan
+`ENV=production` agar backend mengikuti `HOST`/`PORT` dan `DB_URL`; service Compose
+menetapkan `STREAMLIT_API_HOST=http://backend:${PORT}` untuk frontend.
 
 Volume penting yang dipersist:
 
@@ -464,7 +543,6 @@ python3 init_db.py
 python3 migrate_db.py
 python3 main.py
 streamlit run streamlit_run.py --server.port 5504
-python3 -m pytest -q
 python3 scripts/backup_sqlite.py
 python3 scripts/sqlite_maintenance.py --backup
 ```
@@ -489,7 +567,8 @@ atau operasi database di luar Docker.
 - `AUTO_INIT_DB_ON_STARTUP` sebaiknya tetap `false` untuk deployment yang lebih terkontrol.
 - `ALLOW_CONCURRENT_ETL_RUNS=false` adalah default yang aman untuk mencegah ETL overlap.
 - Streamlit server-side call bisa memakai `STREAMLIT_API_HOST`, tapi browser auth flow tetap butuh `BACKEND_PUBLIC_URL` yang benar-benar reachable dari browser.
-- Google Ads OAuth dan Meta token exchange hanya relevan untuk role `superadmin`.
+- Pengelolaan token Google Ads, Meta Ads, Instagram, YouTube, dan TikTok memerlukan `superadmin`.
+- Healthcheck backend membuktikan koneksi DB; tidak membuktikan source ETL sudah berhasil atau datanya terbaru.
 
 ## Testing dan Verifikasi
 
@@ -499,39 +578,31 @@ Dev dependency sudah menyediakan:
 - `pytest-cov`
 - `ruff`
 
-Baseline test saat ini mencakup:
-
-- auth lockout regression (`tests/test_user_utils_authenticate.py`)
-- endpoint helper contract (`tests/test_endpoint_common.py`)
-- campaign payload contracts (`tests/test_fetch_campaign_payloads.py`)
-- campaign allocator math (`tests/test_campaign_allocator.py`)
-- campaign repository transform/cache behavior (`tests/test_campaign_repository.py`)
-
-Menjalankan test suite:
+Folder `tests/` sengaja disimpan lokal dan di-ignore Git. File test tidak ikut
+fresh clone; instalasi dependency dev tidak menyediakan test suite tersebut.
+Jika file test tersedia di workspace lokal, jalankan:
 
 ```bash
-pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-## Temuan Audit Repo
+Untuk verifikasi akses Campaign, jika file lokalnya tersedia:
 
-Berikut poin penting dari hasil pengecekan repo saat ini:
+```bash
+python -m pytest -q tests/test_campaign_access.py
+```
 
-- arsitektur project sudah cukup jelas dan modular antara backend, Streamlit, ETL, dan scheduler
-- deployment Docker sudah disusun sesuai constraint SQLite single-worker
-- flow auth lebih matang dibanding README lama, termasuk session restore, refresh rotation, dan auth bridge browser-side
-- ada dukungan secret encryption untuk token eksternal dan support `*_FILE` untuk secret injection
-- scheduler ETL sudah punya locking via `flock` atau lock file fallback
-- dokumentasi sebelumnya belum cukup menonjolkan risiko besar: `.env` di repo saat ini berisi secret sensitif dan sebaiknya segera diganti serta di-rotate di provider terkait
-- pipeline testing dasar sudah tersedia untuk area auth dan campaign analytics
+Test tersebut memeriksa izin role pada ketiga endpoint Campaign, penolakan request
+anonim, dan pembatasan Revenue untuk digital marketing. Kondisi dan cakupan test
+lain bergantung pada file lokal; README tidak menyatakan seluruh suite selalu lulus.
 
-## Rekomendasi Lanjutan
+## File Lokal dan Secret
 
-- rotate semua secret yang pernah tersimpan di `.env` repo ini
-- sediakan `.env.example` yang steril dari secret riil
-- tambah integration test endpoint (`TestClient`) untuk auth flow dan ETL lifecycle
-- pertimbangkan migrasi ke PostgreSQL jika concurrency dan deployment mulai berkembang
+- `.env` di-ignore dan tidak tracked pada checkout saat dokumentasi ini diperbarui.
+- `.env.example` tersedia sebagai template konfigurasi; isi kredensial pada file lokal atau environment deployment.
+- `tests/` dan `docs/project-understanding.md` sengaja di-ignore dan tidak tracked.
+- Ignore tidak menghapus file yang pernah masuk riwayat commit. Riwayat kebocoran secret belum diaudit; keberadaan `.env` lokal bukan bukti bahwa secret pernah dipush.
+- Jika kredensial diketahui pernah terekspos, lakukan rotasi pada provider terkait.
 
 ## Entry Point Penting
 
