@@ -27,7 +27,7 @@ from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
 from app.utils.campaign import CampaignData
-from app.utils.rbac import ANALYTICS_ROLES, FINANCE_ANALYTICS_ROLES
+from app.utils.rbac import ANALYTICS_ROLES
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ async def user_acquisition_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance")),  # noqa: ARG001
 ):
     """Generate User Acquisition payload for dashboard rendering."""
     return await build_analytics_response(
@@ -150,7 +150,7 @@ async def brand_awareness_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance")),  # noqa: ARG001
 ):
     """Generate Brand Awareness payload for dashboard rendering."""
     return await build_analytics_response(
@@ -167,7 +167,7 @@ async def remarketing_overview(
     start_date: date = Query(...),
     end_date: date = Query(...),
     session: AsyncSession = Depends(get_db),
-    current_user: TfUser = Depends(require_roles_dep(*FINANCE_ANALYTICS_ROLES)),  # noqa: ARG001
+    current_user: TfUser = Depends(require_roles_dep(*ANALYTICS_ROLES, "finance")),  # noqa: ARG001
 ):
     """Generate Remarketing payload for dashboard rendering."""
     return await build_analytics_response(

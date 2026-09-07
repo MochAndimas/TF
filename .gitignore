@@ -66,7 +66,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
-/tests/
+/tests/*
+!/tests/test_campaign_access.py
 pytests.ini
 ruff.toml
 
