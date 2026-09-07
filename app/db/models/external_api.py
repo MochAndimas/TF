@@ -825,3 +825,17 @@ class AllDepo(SqliteBase):
     first_deposit_consultant_qty = Column(Integer, nullable=False)
     first_deposit_consultant_amount = Column(Float, nullable=False)
     pull_date = Column(Date, nullable=False)
+
+
+class AllSubscription(SqliteBase):
+    """Daily subscription aggregates from the ALL RAW SUBS sheet."""
+
+    __tablename__ = "all_subscription"
+    date = Column(Date, primary_key=True)
+    total_subscription_qty = Column(Integer, nullable=False)
+    total_subscription_amount = Column(Float, nullable=False)
+    new_subscription_qty = Column(Integer, nullable=False)
+    new_subscription_amount = Column(Float, nullable=False)
+    total_subscribers = Column(Integer, nullable=False)
+    new_subscribers = Column(Integer, nullable=False)
+    pull_date = Column(Date, nullable=False)

@@ -1129,3 +1129,46 @@ def parse_all_depo_dataframe(raw_rows: list) -> pd.DataFrame:
     for column in columns[1:]:
         df[column] = pd.to_numeric(df[column], errors="coerce")
     return df.sort_values("date")
+
+
+ALL_SUBSCRIPTION_COLUMNS = {
+    "Tanggal": "date",
+    "Total Subscription (Qty)": "total_subscription_qty",
+    "Total Subscription (Amount)": "total_subscription_amount",
+    "New Subscription (Qty)": "new_subscription_qty",
+    "New Subscription (Amount)": "new_subscription_amount",
+    "Total Subscribers": "total_subscribers",
+    "New Subscribers": "new_subscribers",
+}
+
+
+def parse_all_subscription_dataframe(raw_rows: list) -> pd.DataFrame:
+    """Map sheet headers to daily metrics without tag filtering or aggregation."""
+    columns = list(ALL_SUBSCRIPTION_COLUMNS.values())
+    if not raw_rows:
+        return pd.DataFrame(columns=columns)
+
+    def normalize(header):
+        return " ".join(str(header).lower().split())
+
+    mapping = {normalize(header): column for header, column in ALL_SUBSCRIPTION_COLUMNS.items()}
+    headers = [mapping.get(normalize(header), normalize(header)) for header in raw_rows[0]]
+    if len(headers) != len(set(headers)):
+        raise ValueError("DQ failed: All Subscription has duplicate headers.")
+    missing = set(columns) - set(headers)
+    if missing:
+        raise ValueError(f"Missing columns in All Subscription sheet: {sorted(missing)}")
+    rows = []
+    for row in raw_rows[1:]:
+        if not any(str(value).strip() for value in row):
+            continue
+        if len(row) > len(headers):
+            raise ValueError("DQ failed: All Subscription row exceeds header width.")
+        rows.append(list(row) + [None] * (len(headers) - len(row)))
+    df = pd.DataFrame(rows, columns=headers)[columns].copy()
+    df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d", errors="coerce").dt.date
+    if df["date"].isna().any():
+        raise ValueError("DQ failed: All Subscription contains invalid dates.")
+    for column in columns[1:]:
+        df[column] = pd.to_numeric(df[column], errors="coerce")
+    return df.sort_values("date")

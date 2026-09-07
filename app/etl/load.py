@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import (
     AllDepo,
+    AllSubscription,
     AppleInstall,
     Campaign,
     DataDepo,
@@ -1242,6 +1243,29 @@ async def upsert_all_depo_rows(session: AsyncSession, rows: list[dict]) -> None:
         return
     for chunk in _iter_row_chunks(rows, len(rows[0])):
         stmt = sqlite_insert(AllDepo).values(chunk)
+        await session.execute(stmt.on_conflict_do_update(
+            index_elements=["date"],
+            set_={column: getattr(stmt.excluded, column) for column in rows[0] if column != "date"},
+        ))
+
+
+def build_all_subscription_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    rows = df.to_dict("records")
+    for row in rows:
+        for column in row:
+            if column.endswith("_qty") or column.endswith("_subscribers"):
+                row[column] = int(row[column])
+            elif column.endswith("_amount"):
+                row[column] = float(row[column])
+        row["pull_date"] = pull_date
+    return rows
+
+
+async def upsert_all_subscription_rows(session: AsyncSession, rows: list[dict]) -> None:
+    if not rows:
+        return
+    for chunk in _iter_row_chunks(rows, len(rows[0])):
+        stmt = sqlite_insert(AllSubscription).values(chunk)
         await session.execute(stmt.on_conflict_do_update(
             index_elements=["date"],
             set_={column: getattr(stmt.excluded, column) for column in rows[0] if column != "date"},

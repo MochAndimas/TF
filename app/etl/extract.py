@@ -134,6 +134,7 @@ class ExternalApiExtractor:
             default="'All Regis'!A:C",
             cast=str,
         ).strip()
+        self.all_subscription_sheet_range = config("ALL_SUBS_GSHEET_RANGE", default="", cast=str).strip()
         self.all_depo_sheet_id = config("ALL_DEPO_GSHEET_ID", default="", cast=str).strip()
         self.all_depo_sheet_range = config("ALL_DEPO_GSHEET_RANGE", default="", cast=str).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
@@ -2860,6 +2861,22 @@ class ExternalApiExtractor:
             return self.service.spreadsheets().values().get(
                 spreadsheetId=self.all_depo_sheet_id,
                 range=self.all_depo_sheet_range,
+                valueRenderOption="UNFORMATTED_VALUE",
+                dateTimeRenderOption="FORMATTED_STRING",
+            ).execute().get("values", [])
+
+        return await asyncio.to_thread(request)
+
+
+    async def fetch_all_subscription_rows(self) -> list:
+        """Read daily aggregates using the shared Sheets service account."""
+        if self.service is None or not self.all_depo_sheet_id or not self.all_subscription_sheet_range:
+            raise ValueError("All Subscription requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and ALL_SUBS_GSHEET_RANGE.")
+
+        def request():
+            return self.service.spreadsheets().values().get(
+                spreadsheetId=self.all_depo_sheet_id,
+                range=self.all_subscription_sheet_range,
                 valueRenderOption="UNFORMATTED_VALUE",
                 dateTimeRenderOption="FORMATTED_STRING",
             ).execute().get("values", [])

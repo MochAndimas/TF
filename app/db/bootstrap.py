@@ -375,6 +375,15 @@ async def _migration_20260907_001_all_depo(connection) -> None:
     await connection.run_sync(lambda sync_connection: AllDepo.__table__.create(sync_connection, checkfirst=True))
 
 
+async def _migration_20260907_002_all_subscription(connection) -> None:
+    """Create storage for ALL RAW SUBS daily aggregates."""
+    from app.db.models.external_api import AllSubscription
+
+    await connection.run_sync(
+        lambda sync_connection: AllSubscription.__table__.create(sync_connection, checkfirst=True)
+    )
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -440,6 +449,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260907_001_all_depo",
         "Create ALL DEPO daily aggregate table.",
         _migration_20260907_001_all_depo,
+    ),
+    (
+        "20260907_002_all_subscription",
+        "Create ALL RAW SUBS daily aggregate table.",
+        _migration_20260907_002_all_subscription,
     ),
 )
 

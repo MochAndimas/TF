@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 
 from app.db.models.external_api import (
     AllDepo,
+    AllSubscription,
     AppleInstall,
     Campaign,
     DailyRegister,
@@ -72,6 +73,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "first_deposit_ba",
     "ms_deposit",
     "all_depo",
+    "all_subscription",
     "play_console_install_metrics",
     "apple_install",
 )
@@ -451,6 +453,12 @@ async def _run_all_depo(gsheet, session, types, start_date, end_date, run_id) ->
     )
 
 
+async def _run_all_subscription(gsheet, session, types, start_date, end_date, run_id) -> str:
+    return await gsheet.all_subscription(
+        session=session, types=types, start_date=start_date, end_date=end_date, run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -471,6 +479,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
     "all_depo": _run_all_depo,
+    "all_subscription": _run_all_subscription,
     "play_console_install_metrics": _run_play_console_install_metrics,
     "apple_install": _run_apple_install,
     "apple_install_snapshot": _run_apple_install_snapshot,
@@ -497,6 +506,7 @@ SOURCE_MODELS = {
     "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
     "all_depo": AllDepo,
+    "all_subscription": AllSubscription,
     "play_console_install_metrics": PlayConsoleInstallMetrics,
     "apple_install": AppleInstall,
     "apple_install_snapshot": AppleInstall,
@@ -521,6 +531,7 @@ SOURCE_DATE_COLUMNS = {
     "first_deposit_ba": "tanggal_regis",
     "ms_deposit": "last_activity",
     "all_depo": "date",
+    "all_subscription": "date",
     "play_console_install_metrics": "date",
     "apple_install": "date",
     "apple_install_snapshot": "date",
