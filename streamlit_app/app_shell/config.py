@@ -20,6 +20,7 @@ from streamlit_app.page import (
     meta_ads_token,
     overview,
     register,
+    subscription,
     remarketing,
     remarketing_deposit,
     database_maintenance,
@@ -46,6 +47,7 @@ PAGE_LABELS: dict[str, str] = {
     "youtube": "YouTube",
     "internal_register": "Register",
     "login_activity": "Login",
+    "subscription": "Subscription",
     "deposit_report": "First Deposit UA",
     "deposit_ba": "First Deposit BA",
     "remarketing_deposit": "Remarketing Deposit",
@@ -71,6 +73,7 @@ PAGE_SLUGS: dict[str, str] = {
     "youtube": "youtube",
     "internal_register": "internal-register",
     "login_activity": "login-activity",
+    "subscription": "subscription",
     "deposit_report": "first-deposit",
     "deposit_ba": "first-deposit-ba",
     "remarketing_deposit": "remarketing-deposit",
@@ -98,6 +101,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "youtube": "tertiary",
     "internal_register": "tertiary",
     "login_activity": "tertiary",
+    "subscription": "tertiary",
     "deposit_report": "tertiary",
     "deposit_ba": "tertiary",
     "remarketing_deposit": "tertiary",
@@ -113,6 +117,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
 NAV_GROUPS: dict[str, list[str]] = {
     "Portal": ["home"],
     "Overall": ["overview"],
+    "Revenue": ["subscription"],
     "Ads Revenue": ["deposit_report", "deposit_ba", "remarketing_deposit"],
     "Campaign": ["user_acquisition", "brand_awareness", "remarketing"],
     "Socmed": ["instagram", "facebook", "tiktok", "youtube"],
@@ -121,13 +126,13 @@ NAV_GROUPS: dict[str, list[str]] = {
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "register", "update_data", "database_maintenance", "meta_ads_token", "instagram_token", "youtube_token", "tiktok_token", "terms", "privacy"],
-    "analyst": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
-    "admin": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
+    "superadmin": ["home", "subscription", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "register", "update_data", "database_maintenance", "meta_ads_token", "instagram_token", "youtube_token", "tiktok_token", "terms", "privacy"],
+    "analyst": ["home", "subscription", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
+    "admin": ["home", "subscription", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
     "digital_marketing": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity"],
-    "finance": ["home", "overview", "user_acquisition", "brand_awareness", "remarketing", "deposit_report", "deposit_ba", "remarketing_deposit"],
+    "finance": ["home", "subscription", "overview", "user_acquisition", "brand_awareness", "remarketing", "deposit_report", "deposit_ba", "remarketing_deposit"],
     "social_media": ["home", "instagram", "facebook", "tiktok", "youtube"],
-    "tech_it": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
+    "tech_it": ["home", "subscription", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
     "sales": [],
 }
 
@@ -144,6 +149,7 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "youtube": youtube.show_youtube_page,
     "internal_register": internal_register.show_internal_register_page,
     "login_activity": login_activity.show_login_activity_page,
+    "subscription": subscription.show_subscription_page,
     "deposit_report": deposit.show_deposit_page,
     "deposit_ba": deposit_ba.show_deposit_ba_page,
     "remarketing_deposit": remarketing_deposit.show_remarketing_deposit_page,

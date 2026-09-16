@@ -57,6 +57,7 @@ Endpoint penting:
 - `GET /api/facebook/analytics`
 - `GET /api/tiktok/analytics`
 - `GET /api/youtube/analytics`
+- `GET /api/subscription/analytics`
 - `GET /api/deposit/daily-report`
 - `GET /api/deposit/ba-report`
 - `GET /api/deposit/remarketing-report`
@@ -99,6 +100,18 @@ Resolver sebelum login menangani `terms`/`privacy` (path atau query `page`). Nav
 Settings serta operasi backend untuk memulai OAuth atau mengelola token tetap
 memerlukan akun `superadmin`. Callback YouTube dan TikTok tersedia
 di backend dan memvalidasi OAuth state; TikTok juga menggunakan PKCE.
+
+Halaman **Revenue → Subscription** (`?page=subscription`) membaca tabel
+`all_subscription` melalui endpoint `/api/subscription/analytics`. Filter periode,
+kartu metrik, grafik harian dan tabel mengikuti komponen analytics yang sama.
+Nominal menggunakan IDR tanpa konversi. Revenue dan jumlah subscription dijumlahkan
+untuk periode terpilih; kartu subscriber menampilkan nilai pada tanggal terakhir
+berlabel Latest Day, bukan jumlah pengguna unik lintas tanggal. Growth subscriber
+membandingkan nilai tanggal terakhir di masing-masing periode. Grafik mempertahankan
+tanggal tanpa data sebagai celah. Growth membandingkan periode sebelumnya dengan
+jumlah hari yang sama dan tidak ditampilkan jika baseline nol/tidak tersedia.
+Akses mengikuti `FINANCE_ANALYTICS_ROLES`; data dapat diperbarui melalui
+**Update Data → All Subscription (GSheet)**.
 
 ### 3. ETL dan Scheduler
 

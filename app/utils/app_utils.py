@@ -24,6 +24,7 @@ from uvicorn import run as uvicorn_run
 
 from app.api.v1.endpoint.auth import router as auth_router
 from app.api.v1.endpoint.campaign import router as campaign_router
+from app.api.v1.endpoint.subscription import router as subscription_router
 from app.api.v1.endpoint.deposit import router as deposit_router
 from app.api.v1.endpoint.facebook import router as facebook_router
 from app.api.v1.endpoint.feature import router as feature_router
@@ -494,6 +495,7 @@ class FastApiApp:
         self.app.include_router(install_router, tags=["Install Analytics"])
         self.app.include_router(campaign_router, tags=["Campaign Analytics"])
         self.app.include_router(deposit_router, tags=["Deposit Analytics"])
+        self.app.include_router(subscription_router, tags=["Subscription Analytics"])
         self.app.include_router(facebook_router, tags=["Facebook Analytics"])
         self.app.include_router(tiktok_router, tags=["TikTok Analytics"])
         self.app.include_router(youtube_router, tags=["YouTube Analytics"])
