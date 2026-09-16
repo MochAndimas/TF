@@ -27,7 +27,6 @@ from app.api.v1.endpoint.campaign import router as campaign_router
 from app.api.v1.endpoint.deposit import router as deposit_router
 from app.api.v1.endpoint.facebook import router as facebook_router
 from app.api.v1.endpoint.feature import router as feature_router
-from app.api.v1.endpoint.google_ads_oauth import router as google_ads_oauth_router
 from app.api.v1.endpoint.install import router as install_router
 from app.api.v1.endpoint.instagram_token import router as instagram_token_router
 from app.api.v1.endpoint.meta_ads_token import router as meta_ads_token_router
@@ -485,7 +484,6 @@ class FastApiApp:
             None: Routers are attached to ``self.app``.
         """
         self.app.include_router(auth_router, tags=["Authentication"])
-        self.app.include_router(google_ads_oauth_router, tags=["Google Ads OAuth"])
         self.app.include_router(youtube_oauth_router, tags=["YouTube OAuth"])
         self.app.include_router(tiktok_oauth_router, tags=["TikTok OAuth"])
         self.app.include_router(instagram_token_router, tags=["Instagram Token"])

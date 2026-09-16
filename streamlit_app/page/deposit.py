@@ -69,7 +69,7 @@ async def show_deposit_page(host: str) -> None:
 
 
 async def render_deposit_page(
-    host: str, *, title: str = "First Deposit", uri: str = "deposit/daily-report",
+    host: str, *, title: str = "First Deposit UA", uri: str = "deposit/daily-report",
     state_prefix: str = "deposit",
 ) -> None:
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)

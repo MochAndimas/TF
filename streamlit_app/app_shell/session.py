@@ -65,13 +65,6 @@ def resolve_public_page_from_query_params() -> str | None:
     if page_slug in {"terms", "privacy"}:
         return page_slug
 
-    oauth_callback_params = ("code", "error", "state", "scope", "authuser", "prompt")
-    if query_param("google_ads_oauth") == "1":
-        return "google_ads_token"
-    if any(query_param(param) for param in oauth_callback_params):
-        return "google_ads_token"
-    if st.session_state.get("google_ads_oauth_state") and st.query_params:
-        return "google_ads_token"
     return None
 
 

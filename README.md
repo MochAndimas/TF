@@ -33,7 +33,7 @@ Tanggung jawab utamanya:
 - endpoint analytics untuk overview, campaign, deposit, activity, install, dan media sosial
 - trigger manual ETL dan polling status ETL
 - summary ETL untuk status operasional, termasuk durasi, row count, dan quality report
-- Google Ads, YouTube, dan TikTok OAuth callback
+- YouTube dan TikTok OAuth callback
 - Meta Ads token exchange/status serta Instagram token exchange/save/refresh
 - request logging dan healthcheck
 
@@ -65,8 +65,6 @@ Endpoint penting:
 - `POST /api/feature-data/update-external-api`
 - `GET /api/feature-data/update-external-api/summary`
 - `GET /api/feature-data/update-external-api/{run_id}`
-- `POST /api/google-ads/oauth/start` (GET juga tersedia untuk redirect)
-- `GET /api/google-ads/oauth/callback`
 - `GET /api/meta-ads/token/status`
 - `POST /api/meta-ads/token/exchange`
 - `POST /api/youtube/oauth/start`
@@ -89,18 +87,17 @@ Frontend entrypoint ada di `streamlit_run.py`. UI Streamlit ini bukan sekadar da
 - halaman analytics
 - halaman account management
 - halaman manual update data
-- halaman konfigurasi token Google Ads, Meta Ads, Instagram, TikTok, dan YouTube
+- halaman konfigurasi token Meta Ads, Instagram, TikTok, dan YouTube
 - halaman database maintenance dan dokumen legal
 
-Konfigurasi `PUBLIC_PAGE_KEYS` memuat `google_ads_token`, `meta_ads_token`,
+Konfigurasi `PUBLIC_PAGE_KEYS` memuat `meta_ads_token`,
 `instagram_token`, `tiktok_token`, `youtube_token`, `terms`, dan `privacy`.
 Daftar ini dipakai saat dispatch halaman; tidak berarti semua URL halaman token
 bisa langsung diakses anonim.
 
-Resolver sebelum login menangani `terms`/`privacy` (path atau query `page`) dan
-parameter callback OAuth yang diarahkan ke halaman Google Ads Token. Navigasi
+Resolver sebelum login menangani `terms`/`privacy` (path atau query `page`). Navigasi
 Settings serta operasi backend untuk memulai OAuth atau mengelola token tetap
-memerlukan akun `superadmin`. Callback Google Ads, YouTube, dan TikTok tersedia
+memerlukan akun `superadmin`. Callback YouTube dan TikTok tersedia
 di backend dan memvalidasi OAuth state; TikTok juga menggunakan PKCE.
 
 ### 3. ETL dan Scheduler
@@ -344,12 +341,9 @@ Contoh:
 - `REGIS_UTM_SHEET_RANGE`
 - `GA4_PROPERTY_ID`
 - `GA4_SA_CREDS`
-- `GOOGLE_ADS_DEVELOPER_TOKEN`
-- `GOOGLE_ADS_CLIENT_ID`
-- `GOOGLE_ADS_CLIENT_SECRET`
+- `GOOGLE_ADS_SA` (required: single-line service-account JSON or JSON file path)
 - `GOOGLE_ADS_LOGIN_CUSTOMER_ID`
 - `GOOGLE_ADS_CUSTOMER_ID`
-- `GOOGLE_ADS_REDIRECT_URI`
 - `META_APP_ID`
 - `META_APP_SECRET`
 - `META_API_VERSION`
@@ -368,6 +362,18 @@ Contoh:
 - `PLAY_CONSOLE_SA`, `PLAY_CONSOLE_NAME_APP`, `PLAY_CONSOLE_REPORT_BUCKET`, `PLAY_CONSOLE_REPORT_PREFIXES`
 - `APPLE_ASC_KEY_ID`, `APPLE_ASC_ISSUER_ID`, `APPLE_ASC_PRIVATE_KEY`, `APPLE_ASC_APP_ID`, `APPLE_ASC_REPORT_REQUEST_ID`
 - `USD_TO_IDR_RATE` (default kode: 16000; konversi deposit pada overview)
+
+Google Ads uses only `GOOGLE_ADS_SA`. Missing or invalid service-account credentials
+fail explicitly. Personal OAuth, its token page and callback endpoints have been
+removed. Developer tokens are no longer required.
+Grant the service-account email Read-only access to the target Google Ads account
+or its MCC, and ensure its Cloud project has production API access. Set
+`GOOGLE_ADS_CUSTOMER_ID` to the advertiser account and, for MCC access, set
+`GOOGLE_ADS_LOGIN_CUSTOMER_ID` to the manager account (IDs without hyphens).
+Keep credential JSON out of Git. When using Docker, an inline JSON value in `.env`
+is passed through `env_file`; a JSON file path must exist inside the container.
+Rebuild backend and scheduler images after updating dependencies and recreate their
+containers to load the new code and environment.
 
 ### Variabel Tambahan untuk Streamlit dan Docker
 
@@ -574,7 +580,7 @@ atau operasi database di luar Docker.
 - `AUTO_INIT_DB_ON_STARTUP` sebaiknya tetap `false` untuk deployment yang lebih terkontrol.
 - `ALLOW_CONCURRENT_ETL_RUNS=false` adalah default yang aman untuk mencegah ETL overlap.
 - Streamlit server-side call bisa memakai `STREAMLIT_API_HOST`, tapi browser auth flow tetap butuh `BACKEND_PUBLIC_URL` yang benar-benar reachable dari browser.
-- Pengelolaan token Google Ads, Meta Ads, Instagram, YouTube, dan TikTok memerlukan `superadmin`.
+- Pengelolaan token Meta Ads, Instagram, YouTube, dan TikTok memerlukan `superadmin`.
 - Healthcheck backend membuktikan koneksi DB; tidak membuktikan source ETL sudah berhasil atau datanya terbaru.
 
 ## Testing dan Verifikasi

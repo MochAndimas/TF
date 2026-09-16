@@ -258,27 +258,26 @@ class ExternalApiExtractor:
                 stored_secret.updated_at = timestamp
             await session.commit()
 
-    async def _build_google_ads_client(self) -> GoogleAdsClient | None:
-        """Create Google Ads API client from environment variables when configured."""
-        developer_token = config("GOOGLE_ADS_DEVELOPER_TOKEN", default="", cast=str).strip()
-        refresh_token = await self._load_managed_secret("google_ads_refresh_token")
-        if not refresh_token:
-            refresh_token = config("GOOGLE_ADS_REFRESH_TOKEN", default="", cast=str).strip()
-        client_id = config("GOOGLE_ADS_CLIENT_ID", default="", cast=str).strip()
-        client_secret = config("GOOGLE_ADS_CLIENT_SECRET", default="", cast=str).strip()
-        if not all([developer_token, refresh_token, client_id, client_secret]):
-            return None
-
-        client_config: dict[str, str | bool] = {
-            "developer_token": developer_token,
-            "refresh_token": refresh_token,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "use_proto_plus": True,
-        }
-        if self.google_ads_login_customer_id:
-            client_config["login_customer_id"] = self.google_ads_login_customer_id
-        return GoogleAdsClient.load_from_dict(client_config)
+    async def _build_google_ads_client(self) -> GoogleAdsClient:
+        """Create a Google Ads client using the configured service account only."""
+        if not config("GOOGLE_ADS_SA", default="", cast=str).strip():
+            raise ValueError("GOOGLE_ADS_SA is required for Google Ads service-account auth.")
+        try:
+            credentials = ServiceAccountCredentials.from_service_account_info(
+                load_service_account_info("GOOGLE_ADS_SA"),
+                scopes=["https://www.googleapis.com/auth/adwords"],
+            )
+        except (ValueError, TypeError, KeyError, AttributeError, OSError):
+            # Credential parser errors must not expose the supplied JSON/key.
+            raise ValueError(
+                "GOOGLE_ADS_SA must contain valid service-account JSON "
+                "or a readable path to a service-account JSON file."
+            ) from None
+        return GoogleAdsClient(
+            credentials=credentials,
+            login_customer_id=self.google_ads_login_customer_id,
+            use_proto_plus=True,
+        )
 
     async def fetch_sheet_values(self, range_name: str) -> list:
         """Fetch raw row values from one Google Sheets range.
@@ -380,8 +379,8 @@ class ExternalApiExtractor:
         if self.google_ads_client is None or not self.google_ads_customer_id:
             raise ValueError(
                 "Google Ads credentials are not fully configured. "
-                "Required env vars: GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_CLIENT_ID, "
-                "GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN, GOOGLE_ADS_CUSTOMER_ID."
+                "Set GOOGLE_ADS_CUSTOMER_ID and GOOGLE_ADS_SA. "
+                "Set GOOGLE_ADS_LOGIN_CUSTOMER_ID when accessing through an MCC."
             )
 
         standard_query = f"""
