@@ -258,13 +258,13 @@ def render_performance_metric_cards(
 def render_overview_metric_cards(st_module, summary_payload: dict[str, object]) -> None:
     current_metrics = summary_payload.get("current_period", {}).get("metrics", {})
     growth_metrics = summary_payload.get("growth_percentage", {})
-    cards = [("Last Day Stickiness", "last_day_stickiness"), ("Average Stickiness", "average_stickiness"), ("Avg Active User", "active_user")]
+    cards = [("Last Day Stickiness", "last_day_stickiness"), ("Average Stickiness", "average_stickiness"), ("Last Day 28 Days Active User", "active_user")]
 
     for column, (label, key) in zip(st_module.columns(3, gap="small"), cards):
         with column:
             with st_module.container(border=True):
                 raw_value = _campaign_metric_value(current_metrics, key)
-                metric_value = _campaign_format_number(raw_value) if key == "active_user" else f"{raw_value:.2f}%"
+                metric_value = f"{raw_value:,.0f}" if key == "active_user" else f"{raw_value:.2f}%"
                 growth_value = growth_metrics.get(key, 0.0)
                 st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value))
 

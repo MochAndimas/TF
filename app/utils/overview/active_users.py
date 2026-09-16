@@ -116,16 +116,16 @@ class OverviewData:
         previous_last = float(previous_df.iloc[-1]["stickiness"]) if not previous_df.empty else 0.0
         current_avg = float(current_df["stickiness"].mean()) if not current_df.empty else 0.0
         previous_avg = float(previous_df["stickiness"].mean()) if not previous_df.empty else 0.0
-        current_active_user = float(current_df["active_users"].mean()) if not current_df.empty else 0.0
-        previous_active_user = float(previous_df["active_users"].mean()) if not previous_df.empty else 0.0
+        current_active_user = 0
+        previous_active_user = 0
 
         if not current_raw.empty:
             current_working = current_raw.copy()
             for column in ("daily_active_users", "monthly_active_users", "active_users"):
                 current_working[column] = pd.to_numeric(current_working[column], errors="coerce").fillna(0)
             latest_current = current_working.sort_values("date").iloc[-1]
-            current_active_user = float(current_working["active_users"].mean())
             monthly_current = float(latest_current.get("monthly_active_users", 0) or 0)
+            current_active_user = int(monthly_current)
             if monthly_current:
                 current_last = round((float(latest_current.get("daily_active_users", 0) or 0) / monthly_current) * 100, 2)
 
@@ -134,8 +134,8 @@ class OverviewData:
             for column in ("daily_active_users", "monthly_active_users", "active_users"):
                 previous_working[column] = pd.to_numeric(previous_working[column], errors="coerce").fillna(0)
             latest_previous = previous_working.sort_values("date").iloc[-1]
-            previous_active_user = float(previous_working["active_users"].mean())
             monthly_previous = float(latest_previous.get("monthly_active_users", 0) or 0)
+            previous_active_user = int(monthly_previous)
             if monthly_previous:
                 previous_last = round((float(latest_previous.get("daily_active_users", 0) or 0) / monthly_previous) * 100, 2)
 
