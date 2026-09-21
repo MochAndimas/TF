@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_app.functions.api import fetch_api_result
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.page.campaign_components.common import PAGE_STYLE, set_transparent_chart_background
 
@@ -80,7 +80,7 @@ def render_report(data):
                 display = "—" if value is None else (f"Rp {value:,.0f}" if amount else f"{value:,.0f}")
                 latest = field.endswith("subscribers")
                 delta = growth.get(field)
-                st.metric(
+                _render_metric_with_growth(st,
                     LABELS[field] + (" (Latest Day)" if latest else ""), display,
                     delta=_campaign_format_growth(delta, {"previous_period": {"start_date": data.get("previous_start_date"), "end_date": data.get("previous_end_date")}}) if delta is not None else None,
                 )

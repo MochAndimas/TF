@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from html import escape
 from app.utils.period_comparison import growth_percentage as calculate_growth
 
 import streamlit as st
@@ -92,6 +93,70 @@ def _campaign_format_growth(growth: float | None, summary: dict | None = None) -
     return f"{sign}{growth:.2f}% {label}"
 
 
+
+def _compact_comparison_label(comparison: str) -> str:
+    """Shorten repeated month/year text while keeping the full range unambiguous."""
+    if comparison.startswith("vs "):
+        parts = comparison[3:].split(" – ")
+        if len(parts) == 2:
+            from datetime import datetime
+            try:
+                start, end = (datetime.strptime(part, "%d %b %Y").date() for part in parts)
+            except ValueError:
+                return comparison
+            if start == end:
+                return f"vs {start.day} {start:%b %Y}"
+            if (start.year, start.month) == (end.year, end.month):
+                return f"vs {start.day}–{end.day} {end:%b %Y}"
+            if start.year == end.year:
+                return f"vs {start.day} {start:%b} – {end.day} {end:%b %Y}"
+            return f"vs {start.day} {start:%b %Y} – {end.day} {end:%b %Y}"
+    return "vs previous period" if comparison == "from last period" else comparison
+
+
+def _render_metric_with_growth(st_module, *args, delta=None, **kwargs) -> None:
+    """Keep the native metric and tooltip, with a compact wrapping growth footer."""
+    comparison = ""
+    badge = delta
+    if isinstance(delta, str):
+        for separator in (" vs ", " from "):
+            if separator in delta:
+                badge, _, detail = delta.partition(separator)
+                comparison = separator.strip() + " " + detail
+                break
+    color_mode = kwargs.pop("delta_color", "normal")
+    st_module.metric(*args, **kwargs)
+    if badge is None:
+        return
+
+    try:
+        change = float(str(badge).removesuffix("%"))
+    except ValueError:
+        change = 0.0
+    positive = change > 0
+    favorable = not positive if color_mode == "inverse" else positive
+    if change == 0 or color_mode == "off":
+        color, background = "var(--text-color)", "rgba(128,128,128,.12)"
+    elif favorable:
+        color, background = "#21a76a", "rgba(33,167,106,.13)"
+    else:
+        color, background = "#ef6262", "rgba(239,98,98,.13)"
+    arrow = "↑ " if change > 0 else "↓ " if change < 0 else ""
+    label = _compact_comparison_label(comparison)
+    # Escape source text: the only HTML here is our fixed presentation markup.
+    st_module.markdown(
+        '<div class="tf-growth-footer" style="display:flex;flex-wrap:wrap;align-items:center;'
+        'gap:6px 10px;margin-top:-.55rem;line-height:1.45;padding-bottom:2px;">'
+        f'<span style="display:inline-flex;flex-shrink:0;align-items:center;border-radius:6px;'
+        f'padding:3px 7px;font-size:.78rem;font-weight:600;color:{color};background:{background};">'
+        f'{escape(arrow + str(badge))}</span>'
+        f'<span title="{escape(comparison, quote=True)}" style="font-size:.72rem;'
+        f'color:var(--text-color);opacity:.58;overflow-wrap:anywhere;min-width:0;">{escape(label)}</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _campaign_metric_value(metrics: dict[str, float], key: str) -> float:
     value = metrics.get(key, 0)
     try:
@@ -109,7 +174,7 @@ def _render_hover_metric_card(
     tooltip: str | None = None,
 ) -> None:
     delta_color = "off" if growth_value == 0 else "normal"
-    st_module.metric(label=label, value=value, delta=delta, delta_color=delta_color, help=tooltip)
+    _render_metric_with_growth(st_module, label=label, value=value, delta=delta, delta_color=delta_color, help=tooltip)
 
 
 def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -> float:
@@ -166,7 +231,7 @@ def render_campaign_metric_cards(
                         tooltip=tooltip_value,
                     )
                 else:
-                    st_module.metric(label=label, value=metric_value, delta=growth_text)
+                    _render_metric_with_growth(st_module, label=label, value=metric_value, delta=growth_text)
 
 
 def render_brand_awareness_metric_cards(st_module, source_metrics: dict[str, object], source_label: str) -> None:
@@ -260,7 +325,7 @@ def render_performance_metric_cards(
                         tooltip=tooltip_value,
                     )
                 else:
-                    st_module.metric(label=label, value=metric_value, delta=growth_text)
+                    _render_metric_with_growth(st_module, label=label, value=metric_value, delta=growth_text)
 
 
 def render_overview_metric_cards(st_module, summary_payload: dict[str, object]) -> None:
@@ -274,7 +339,7 @@ def render_overview_metric_cards(st_module, summary_payload: dict[str, object]) 
                 raw_value = _campaign_metric_value(current_metrics, key)
                 metric_value = f"{raw_value:,.0f}" if key == "active_user" else f"{raw_value:.2f}%"
                 growth_value = growth_metrics.get(key, 0.0)
-                st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value, summary_payload))
+                _render_metric_with_growth(st_module, label=label, value=metric_value, delta=_campaign_format_growth(growth_value, summary_payload))
 
 
 def render_overview_cost_metric_cards(st_module, summary_payload: dict[str, object]) -> None:
@@ -333,7 +398,7 @@ def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, obj
                         tooltip=tooltip_value,
                     )
                 else:
-                    st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value, summary_payload))
+                    _render_metric_with_growth(st_module, label=label, value=metric_value, delta=_campaign_format_growth(growth_value, summary_payload))
 
 
 def render_overview_cost_to_revenue_metric_cards(
@@ -369,7 +434,7 @@ def render_overview_cost_to_revenue_metric_cards(
                         tooltip=tooltip_value,
                     )
                 else:
-                    st_module.metric(
+                    _render_metric_with_growth(st_module,
                         label=label,
                         value=f"{raw_value:.2f}%",
                         delta=_campaign_format_growth(growth_metrics.get(key, 0.0), summary_payload),

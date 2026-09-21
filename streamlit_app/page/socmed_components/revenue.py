@@ -4,7 +4,7 @@ from datetime import date
 
 import streamlit as st
 
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 
 
 def revenue_comparison_for_period(period: str | None) -> str:
@@ -34,5 +34,5 @@ def render_revenue(metrics: dict | None) -> None:
         with column:
             with st.container(border=True):
                 change = growth.get(key, 0.0)
-                st.metric(label, value, delta=_campaign_format_growth(change).replace("from last period", comparison_label),
+                _render_metric_with_growth(st, label, value, delta=_campaign_format_growth(change).replace("from last period", comparison_label),
                           delta_color="off" if change == 0 else "normal")

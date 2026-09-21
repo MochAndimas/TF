@@ -9,6 +9,7 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.functions.socmed_summary import media_summary_with_growth
 from app.utils.period_comparison import previous_period_range, growth_percentage
 from app.api.v1.functions.fetch_socmed_revenue import RevenueComparison, fetch_socmed_revenue
 
@@ -582,6 +583,11 @@ async def fetch_instagram_analytics_payload(
     previous_start, previous_end = previous_period_range(
         start_date, end_date, revenue_comparison if revenue_comparison != "previous_period" else None)
     previous_df = await _read_instagram_rows(session=session, start_date=previous_start, end_date=previous_end)
+    previous_media_df = await _read_instagram_media_rows(session=session, start_date=previous_start, end_date=previous_end)
+    media_summary = media_summary_with_growth(
+        _media_summary_payload(media_df), _media_summary_payload(previous_media_df),
+        start_date=start_date, end_date=end_date, previous_start=previous_start, previous_end=previous_end,
+    )
     current_metrics = _summary_payload(df)["current_period"]["metrics"]
     previous_metrics = _summary_payload(previous_df)["current_period"]["metrics"]
     account_metrics = {
@@ -596,7 +602,7 @@ async def fetch_instagram_analytics_payload(
         "end_date": end_date.isoformat(),
         "metrics": account_metrics,
         "daily_rows": _daily_rows_payload(df),
-        "media_summary": _media_summary_payload(media_df),
+        "media_summary": media_summary,
         "media_daily_rows": _media_daily_rows_payload(media_df),
         "media_rows": _media_rows_payload(media_df),
         "hashtag_rows": _hashtag_rows_payload(media_df),

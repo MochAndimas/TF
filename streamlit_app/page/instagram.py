@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_app.functions.dates import campaign_preset_ranges
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
 from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
 from streamlit_app.page.socmed_components.revenue import render_revenue, revenue_comparison_for_period
@@ -102,7 +102,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
             with column:
                 with st.container(border=True):
                     growth_value = growth_metrics.get(key, 0.0)
-                    st.metric(
+                    _render_metric_with_growth(st,
                         label,
                         value,
                         delta=_campaign_format_growth(growth_value, metrics),
@@ -377,26 +377,30 @@ def _build_composition_figure(df: pd.DataFrame) -> go.Figure:
 def _render_media_metrics(media_summary: dict[str, object]) -> None:
     totals = media_summary.get("totals", {}) if isinstance(media_summary, dict) else {}
     metric_specs = [
-        ("Media", _fmt_int(totals.get("media_count"))),
-        ("Feed Posts", _fmt_int(totals.get("feed_count"))),
-        ("Reels", _fmt_int(totals.get("reels_count"))),
-        ("Media Engagement", _fmt_int(totals.get("total_engagement"))),
-        ("Engagement Rate", _fmt_pct(totals.get("engagement_rate"))),
-        ("Media Reach", _fmt_int(totals.get("reach"))),
-        ("Views", _fmt_int(totals.get("views"))),
-        ("Reels Watch Hours", _fmt_ms_hours(totals.get("reels_watch_time"))),
-        ("Avg Reels Watch Time", _fmt_ms_duration(totals.get("reels_avg_watch_time"))),
-        ("Profile Visits", _fmt_int(totals.get("profile_visits"))),
-        ("Followers Gained", _fmt_int(totals.get("follows"))),
-        ("Avg Engagement", _fmt_float(totals.get("avg_engagement_per_media"))),
+        ("Media", "media_count", _fmt_int(totals.get("media_count"))),
+        ("Feed Posts", "feed_count", _fmt_int(totals.get("feed_count"))),
+        ("Reels", "reels_count", _fmt_int(totals.get("reels_count"))),
+        ("Media Engagement", "total_engagement", _fmt_int(totals.get("total_engagement"))),
+        ("Engagement Rate", "engagement_rate", _fmt_pct(totals.get("engagement_rate"))),
+        ("Media Reach", "reach", _fmt_int(totals.get("reach"))),
+        ("Views", "views", _fmt_int(totals.get("views"))),
+        ("Reels Watch Hours", "reels_watch_time", _fmt_ms_hours(totals.get("reels_watch_time"))),
+        ("Avg Reels Watch Time", "reels_avg_watch_time", _fmt_ms_duration(totals.get("reels_avg_watch_time"))),
+        ("Profile Visits", "profile_visits", _fmt_int(totals.get("profile_visits"))),
+        ("Followers Gained", "follows", _fmt_int(totals.get("follows"))),
+        ("Avg Engagement", "avg_engagement_per_media", _fmt_float(totals.get("avg_engagement_per_media"))),
     ]
     for row_start in range(0, len(metric_specs), 5):
         row_specs = metric_specs[row_start : row_start + 5]
         columns = st.columns(len(row_specs), gap="small")
-        for column, (label, value) in zip(columns, row_specs):
+        for column, (label, key, value) in zip(columns, row_specs):
             with column:
                 with st.container(border=True):
-                    st.metric(label, value)
+                    change = media_summary.get("growth_percentage", {}).get(key)
+                    _render_metric_with_growth(
+                        st, label, value, delta=_campaign_format_growth(change, media_summary),
+                        delta_color="off" if change is None or change == 0 else "normal",
+                    )
 
 
 def _build_media_engagement_figure(df: pd.DataFrame) -> go.Figure:
@@ -898,6 +902,7 @@ async def show_instagram_page(host: str) -> None:
     selected_range = (start_date, end_date, revenue_comparison) + comparison_cache_key()
     should_fetch = (
         "instagram_analytics_payload" not in st.session_state
+        or "growth_percentage" not in st.session_state.get("instagram_analytics_payload", {}).get("data", {}).get("media_summary", {})
         or "revenue" not in st.session_state.get("instagram_analytics_payload", {}).get("data", {})
         or st.session_state.get("instagram_analytics_range") != selected_range
     )

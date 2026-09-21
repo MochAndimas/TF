@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 from app.utils.period_comparison import growth_percentage as calculate_growth
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 
 import streamlit as st
 
@@ -45,7 +45,7 @@ def render_status_cards(
                         tooltip=format_amount_full(raw_value, currency_unit=currency_unit),
                     )
                 else:
-                    st.metric(label=label, value=formatter(totals.get(key, 0.0)), delta=_campaign_format_growth(growth.get(key, 0.0), summary))
+                    _render_metric_with_growth(st, label=label, value=formatter(totals.get(key, 0.0)), delta=_campaign_format_growth(growth.get(key, 0.0), summary))
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:

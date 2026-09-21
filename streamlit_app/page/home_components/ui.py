@@ -177,7 +177,6 @@ def render_hero(fullname: str) -> None:
         f"""
         <div class="tf-home-hero">
             <div class="tf-home-hero-content">
-                <div class="tf-home-eyebrow">● Internal Intelligence</div>
                 <div class="tf-home-title">Good to see you, {escape(fullname)}</div>
                 <div class="tf-home-subtitle">
                     One place to follow campaign efficiency, audience growth, and revenue signals across every active channel.

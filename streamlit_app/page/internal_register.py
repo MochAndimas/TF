@@ -12,7 +12,7 @@ import streamlit as st
 
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.dates import campaign_preset_ranges
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.page.activity_components.api import fetch_legacy_activity_payload
 from streamlit_app.page.campaign_components.common import PAGE_STYLE, set_transparent_chart_background
 
@@ -196,7 +196,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
         with column:
             with st.container(border=True):
                 growth_value = growth_metrics.get(key, 0.0)
-                st.metric(
+                _render_metric_with_growth(st,
                     label,
                     value,
                     delta=_campaign_format_growth(growth_value, metrics),

@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_app.functions.dates import campaign_preset_ranges
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
 from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
 from streamlit_app.page.socmed_components.revenue import render_revenue, revenue_comparison_for_period
@@ -214,7 +214,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
                         value = _fmt_ms_hours(current.get(key))
                     else:
                         value = _fmt_int(current.get(key))
-                    st.metric(
+                    _render_metric_with_growth(st,
                         label,
                         value,
                         delta=_campaign_format_growth(growth_value, metrics),
@@ -337,24 +337,28 @@ def _render_daily_table(df: pd.DataFrame) -> None:
 
 def _render_media_metrics(summary: dict[str, object]) -> None:
     specs = [
-        ("Posts", _fmt_int(summary.get("post_count"))),
-        ("Media Engagement", _fmt_int(summary.get("total_engagement"))),
-        ("Engagement Rate", _fmt_pct(summary.get("engagement_rate"))),
-        ("Reactions", _fmt_int(summary.get("total_reactions"))),
-        ("Post Clicks", _fmt_int(summary.get("post_clicks"))),
-        ("Media Views", _fmt_int(summary.get("post_media_view"))),
-        ("Video Views", _fmt_int(summary.get("post_video_views"))),
-        ("Video Watch Hours", _fmt_ms_hours(summary.get("post_video_view_time"))),
-        ("Avg Watch Time", _fmt_ms_duration(summary.get("post_video_avg_time_watched"))),
-        ("Avg Video Length", _fmt_ms_duration(summary.get("post_video_length"))),
-        ("Avg Engagement", _fmt_float(summary.get("avg_engagement_per_post"))),
+        ("Posts", "post_count", _fmt_int(summary.get("post_count"))),
+        ("Media Engagement", "total_engagement", _fmt_int(summary.get("total_engagement"))),
+        ("Engagement Rate", "engagement_rate", _fmt_pct(summary.get("engagement_rate"))),
+        ("Reactions", "total_reactions", _fmt_int(summary.get("total_reactions"))),
+        ("Post Clicks", "post_clicks", _fmt_int(summary.get("post_clicks"))),
+        ("Media Views", "post_media_view", _fmt_int(summary.get("post_media_view"))),
+        ("Video Views", "post_video_views", _fmt_int(summary.get("post_video_views"))),
+        ("Video Watch Hours", "post_video_view_time", _fmt_ms_hours(summary.get("post_video_view_time"))),
+        ("Avg Watch Time", "post_video_avg_time_watched", _fmt_ms_duration(summary.get("post_video_avg_time_watched"))),
+        ("Avg Video Length", "post_video_length", _fmt_ms_duration(summary.get("post_video_length"))),
+        ("Avg Engagement", "avg_engagement_per_post", _fmt_float(summary.get("avg_engagement_per_post"))),
     ]
     for row_start in range(0, len(specs), 4):
         row_specs = specs[row_start : row_start + 4]
-        for column, (label, value) in zip(st.columns(len(row_specs), gap="small"), row_specs):
+        for column, (label, key, value) in zip(st.columns(len(row_specs), gap="small"), row_specs):
             with column:
                 with st.container(border=True):
-                    st.metric(label, value)
+                    change = summary.get("growth_percentage", {}).get(key)
+                    _render_metric_with_growth(
+                        st, label, value, delta=_campaign_format_growth(change, summary),
+                        delta_color="off" if change is None or change == 0 else "normal",
+                    )
 
 
 def _build_media_activity_figure(df: pd.DataFrame) -> go.Figure:
@@ -561,6 +565,7 @@ async def show_facebook_page(host: str) -> None:
     selected_range = (start_date, end_date, revenue_comparison) + comparison_cache_key()
     should_fetch = (
         "facebook_analytics_payload" not in st.session_state
+        or "growth_percentage" not in st.session_state.get("facebook_analytics_payload", {}).get("data", {}).get("media_summary", {})
         or "revenue" not in st.session_state.get("facebook_analytics_payload", {}).get("data", {})
         or st.session_state.get("facebook_analytics_range") != selected_range
     )

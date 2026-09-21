@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_app.functions.dates import campaign_preset_ranges
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
 from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
 from streamlit_app.page.socmed_components.revenue import render_revenue, revenue_comparison_for_period
@@ -150,7 +150,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
             with column:
                 with st.container(border=True):
                     growth_value = growth.get(key, 0.0)
-                    st.metric(
+                    _render_metric_with_growth(st,
                         label,
                         value,
                         delta=_campaign_format_growth(growth_value, metrics),
@@ -314,20 +314,24 @@ def _render_daily_table(df: pd.DataFrame) -> None:
 def _render_media_metrics(summary: dict[str, object]) -> None:
     totals = summary.get("totals", {}) if isinstance(summary, dict) else {}
     specs = [
-        ("Content", _fmt_int(totals.get("video_count"))),
-        ("Views", _fmt_int(totals.get("views"))),
-        ("Watch Hours", _fmt_hours(totals.get("watch_hours"))),
-        ("Avg % Viewed", f"{_fmt_float(totals.get('average_view_percentage'))}%"),
-        ("Media Engagement", _fmt_int(totals.get("total_engagement"))),
-        ("Subscribers Gained", _fmt_int(totals.get("subscribers_gained"))),
-        ("Avg Engagement", _fmt_float(totals.get("avg_engagement_per_video"))),
+        ("Content", "video_count", _fmt_int(totals.get("video_count"))),
+        ("Views", "views", _fmt_int(totals.get("views"))),
+        ("Watch Hours", "watch_hours", _fmt_hours(totals.get("watch_hours"))),
+        ("Avg % Viewed", "average_view_percentage", f"{_fmt_float(totals.get('average_view_percentage'))}%"),
+        ("Media Engagement", "total_engagement", _fmt_int(totals.get("total_engagement"))),
+        ("Subscribers Gained", "subscribers_gained", _fmt_int(totals.get("subscribers_gained"))),
+        ("Avg Engagement", "avg_engagement_per_video", _fmt_float(totals.get("avg_engagement_per_video"))),
     ]
     for row_specs, count in [(specs[:4], 4), (specs[4:], 3)]:
         columns = st.columns(count, gap="small")
-        for column, (label, value) in zip(columns, row_specs):
+        for column, (label, key, value) in zip(columns, row_specs):
             with column:
                 with st.container(border=True):
-                    st.metric(label, value)
+                    change = summary.get("growth_percentage", {}).get(key)
+                    _render_metric_with_growth(
+                        st, label, value, delta=_campaign_format_growth(change, summary),
+                        delta_color="off" if change is None or change == 0 else "normal",
+                    )
 
 
 def _build_media_type_figure(summary: dict[str, object]) -> go.Figure:
@@ -498,6 +502,7 @@ async def show_youtube_page(host: str) -> None:
     selected_range = (start_date, end_date, revenue_comparison) + comparison_cache_key()
     should_fetch = (
         "youtube_analytics_payload" not in st.session_state
+        or "growth_percentage" not in st.session_state.get("youtube_analytics_payload", {}).get("data", {}).get("media_summary", {})
         or "revenue" not in st.session_state.get("youtube_analytics_payload", {}).get("data", {})
         or st.session_state.get("youtube_analytics_range") != selected_range
     )

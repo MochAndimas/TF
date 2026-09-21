@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_app.functions.dates import campaign_preset_ranges
-from streamlit_app.functions.metrics import _campaign_format_growth
+from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
 from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
 from streamlit_app.page.socmed_components.revenue import render_revenue, revenue_comparison_for_period
@@ -140,7 +140,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
             with column:
                 with st.container(border=True):
                     growth_value = growth.get(key, 0.0)
-                    st.metric(
+                    _render_metric_with_growth(st,
                         label,
                         value,
                         delta=_campaign_format_growth(growth_value, metrics),
@@ -329,23 +329,27 @@ def _render_daily_table(df: pd.DataFrame) -> None:
 
 def _render_media_metrics(summary: dict[str, object]) -> None:
     specs = [
-        ("Videos", _fmt_int(summary.get("video_count"))),
-        ("Views / Plays", _fmt_int(summary.get("views"))),
-        ("Media Engagement", _fmt_int(summary.get("engagement"))),
-        ("Engagement Rate", _fmt_pct(summary.get("engagement_rate"))),
-        ("Likes", _fmt_int(summary.get("likes"))),
-        ("Comments", _fmt_int(summary.get("comments"))),
-        ("Shares", _fmt_int(summary.get("shares"))),
-        ("Avg Views / Video", _fmt_float(summary.get("avg_views_per_video"))),
-        ("Avg Engagement / Video", _fmt_float(summary.get("avg_engagement_per_video"))),
+        ("Videos", "video_count", _fmt_int(summary.get("video_count"))),
+        ("Views / Plays", "views", _fmt_int(summary.get("views"))),
+        ("Media Engagement", "engagement", _fmt_int(summary.get("engagement"))),
+        ("Engagement Rate", "engagement_rate", _fmt_pct(summary.get("engagement_rate"))),
+        ("Likes", "likes", _fmt_int(summary.get("likes"))),
+        ("Comments", "comments", _fmt_int(summary.get("comments"))),
+        ("Shares", "shares", _fmt_int(summary.get("shares"))),
+        ("Avg Views / Video", "avg_views_per_video", _fmt_float(summary.get("avg_views_per_video"))),
+        ("Avg Engagement / Video", "avg_engagement_per_video", _fmt_float(summary.get("avg_engagement_per_video"))),
     ]
     for row_start in range(0, len(specs), 3):
         row_specs = specs[row_start : row_start + 3]
         columns = st.columns(len(row_specs), gap="small")
-        for column, (label, value) in zip(columns, row_specs):
+        for column, (label, key, value) in zip(columns, row_specs):
             with column:
                 with st.container(border=True):
-                    st.metric(label, value)
+                    change = summary.get("growth_percentage", {}).get(key)
+                    _render_metric_with_growth(
+                        st, label, value, delta=_campaign_format_growth(change, summary),
+                        delta_color="off" if change is None or change == 0 else "normal",
+                    )
 
 
 def _render_media_table(df: pd.DataFrame) -> None:
@@ -409,6 +413,7 @@ async def show_tiktok_page(host: str) -> None:
     selected_range = (start_date, end_date, revenue_comparison) + comparison_cache_key()
     should_fetch = (
         "tiktok_analytics_payload" not in st.session_state
+        or "growth_percentage" not in st.session_state.get("tiktok_analytics_payload", {}).get("data", {}).get("media_summary", {})
         or "revenue" not in st.session_state.get("tiktok_analytics_payload", {}).get("data", {})
         or st.session_state.get("tiktok_analytics_range") != selected_range
     )

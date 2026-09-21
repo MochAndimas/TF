@@ -12,6 +12,7 @@ from streamlit_app.functions.api import ApiClientResult, fetch_api_result
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import (
+    _render_metric_with_growth,
     _campaign_format_growth,
     _campaign_format_number,
     render_brand_awareness_metric_cards,
@@ -149,7 +150,7 @@ def _render_install_metric_cards(install_payload: dict[str, object]) -> None:
                     continue
                 if growth_value == 0:
                     delta_color = "off"
-                st.metric(
+                _render_metric_with_growth(st,
                     label=label,
                     value=_campaign_format_number(raw_value),
                     delta=_campaign_format_growth(growth_value, summary_payload),
