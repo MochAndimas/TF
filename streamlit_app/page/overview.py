@@ -1,5 +1,7 @@
 """Streamlit renderer for the main Overview page."""
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import asyncio
 import datetime as dt
 
@@ -150,7 +152,7 @@ def _render_install_metric_cards(install_payload: dict[str, object]) -> None:
                 st.metric(
                     label=label,
                     value=_campaign_format_number(raw_value),
-                    delta=_campaign_format_growth(growth_value),
+                    delta=_campaign_format_growth(growth_value, summary_payload),
                     delta_color=delta_color,
                 )
 
@@ -291,6 +293,7 @@ async def show_overview_page(host: str) -> None:
 
     with st.container(border=True):
         period_key = st.selectbox("Periods", options=list(presets.keys()), key="overview_period")
+        select_comparison(period_key)
         if period_key == "Custom Range":
             selected = st.date_input("Select Date Range", key=date_range_key)
             if not isinstance(selected, tuple) or len(selected) != 2:
@@ -306,7 +309,7 @@ async def show_overview_page(host: str) -> None:
         st.warning("Start date cannot be after end date.")
         return
 
-    selected_range = (start_date, end_date)
+    selected_range = (start_date, end_date) + comparison_cache_key()
     if not await _ensure_overview_payloads(host, start_date, end_date, selected_range):
         return
 

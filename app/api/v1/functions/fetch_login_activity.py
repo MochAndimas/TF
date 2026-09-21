@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+from app.utils.period_comparison import previous_period_range, growth_percentage as calculate_growth
+
 from datetime import date, timedelta
 
 import pandas as pd
@@ -325,9 +327,7 @@ def _single_period_metrics(df: pd.DataFrame, start_date: date, end_date: date) -
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:
-    if previous_value == 0:
-        return 0.0 if current_value == 0 else 100.0
-    return round(((current_value - previous_value) / previous_value) * 100, 2)
+    return calculate_growth(current_value, previous_value)
 
 
 def _metric_payload(
@@ -376,9 +376,7 @@ async def fetch_login_activity_payload(
     end_date: date,
     source: str = "all",
 ) -> dict[str, object]:
-    period_days = (end_date - start_date).days + 1
-    previous_end = start_date - timedelta(days=1)
-    previous_start = previous_end - timedelta(days=period_days - 1)
+    previous_start, previous_end = previous_period_range(start_date, end_date)
     df = await _read_login_rows(session=session, start_date=start_date, end_date=end_date, source=source)
     previous_df = await _read_login_rows(session=session, start_date=previous_start, end_date=previous_end, source=source)
 

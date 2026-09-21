@@ -65,6 +65,9 @@ async def fetch_api_result(
 ) -> ApiClientResult:
     """Fetch a protected API endpoint and return a stable result wrapper."""
     st_module = st if st is not None else stlib
+    if params and "start_date" in params and "end_date" in params:
+        params = dict(params)
+        params.setdefault("comparison", st_module.session_state.get("analytics_comparison", "previous_period"))
     try:
         access_token = get_access_token()
         if not access_token:

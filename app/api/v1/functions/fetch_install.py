@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.utils.period_comparison import previous_period_range, growth_percentage as calculate_growth
+
 from datetime import date, timedelta
 
 import pandas as pd
@@ -12,16 +14,11 @@ from app.db.models.external_api import AppleInstall, PlayConsoleInstallMetrics
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:
-    if previous_value == 0:
-        return 100.0 if current_value else 0.0
-    return round(((current_value - previous_value) / previous_value) * 100, 2)
+    return calculate_growth(current_value, previous_value)
 
 
 def _previous_period_range(start_date: date, end_date: date) -> tuple[date, date]:
-    period_days = (end_date - start_date).days + 1
-    previous_end = start_date - timedelta(days=1)
-    previous_start = previous_end - timedelta(days=period_days - 1)
-    return previous_start, previous_end
+    return previous_period_range(start_date, end_date)
 
 
 def _normal_filter(value: str | None) -> str | None:

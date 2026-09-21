@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.utils.period_comparison import growth_percentage as calculate_growth
+
 
 class CampaignLeadAllocator:
     """Allocate aggregate lead metrics into row-level campaign datasets."""
@@ -35,8 +37,4 @@ class CampaignLeadAllocator:
 
     @staticmethod
     def growth_percentage(current_value: float, previous_value: float) -> float | None:
-        if previous_value == 0:
-            if current_value == 0:
-                return 0.0
-            return 100.0
-        return round(((current_value - previous_value) / previous_value) * 100, 2)
+        return calculate_growth(current_value, previous_value)

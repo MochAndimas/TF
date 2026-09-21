@@ -9,6 +9,9 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.period_comparison import previous_period_range, growth_percentage
+from app.api.v1.functions.fetch_socmed_revenue import RevenueComparison, fetch_socmed_revenue
+
 from app.db.models.external_api import InstagramInsights, InstagramMediaInsights
 
 HASHTAG_PATTERN = re.compile(r"(?<![\w])#([\w]+)", re.UNICODE)
@@ -160,9 +163,7 @@ async def _read_instagram_media_rows(
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:
-    if previous_value == 0:
-        return 100.0 if current_value else 0.0
-    return round(((current_value - previous_value) / previous_value) * 100, 2)
+    return growth_percentage(current_value, previous_value)
 
 
 def _safe_percentage(numerator: float, denominator: float) -> float:
@@ -223,28 +224,7 @@ def _summary_payload(df: pd.DataFrame) -> dict[str, object]:
         float(current["total_followers"]),
     )
 
-    midpoint = len(df) // 2
-    previous = df.iloc[:midpoint].copy()
-    recent = df.iloc[midpoint:].copy()
-    growth = {}
-    for metric in ("new_followers", "unfollowers", "total_engagement", "likes", "comments", "shares", "saves"):
-        growth[metric] = _growth_percentage(
-            float(recent[metric].sum()) if not recent.empty else 0.0,
-            float(previous[metric].sum()) if not previous.empty else 0.0,
-        )
-    growth["total_followers"] = 0.0
-    recent_followers = _latest_non_zero(recent["total_followers"]) if not recent.empty else 0
-    previous_followers = _latest_non_zero(previous["total_followers"]) if not previous.empty else 0
-    growth["engagement_rate"] = _growth_percentage(
-        _safe_percentage(float(recent["total_engagement"].sum()) if not recent.empty else 0.0, float(recent_followers)),
-        _safe_percentage(float(previous["total_engagement"].sum()) if not previous.empty else 0.0, float(previous_followers)),
-    )
-    growth["engagement_per_new_follower"] = _growth_percentage(
-        current["engagement_per_new_follower"],
-        round(float(previous["total_engagement"].sum()) / float(previous["new_followers"].sum()), 2)
-        if not previous.empty and float(previous["new_followers"].sum()) else 0.0,
-    )
-    return {"current_period": {"metrics": current}, "growth_percentage": growth}
+    return {"current_period": {"metrics": current}}
 
 
 def _daily_rows_payload(df: pd.DataFrame) -> list[dict[str, object]]:
@@ -586,6 +566,7 @@ async def fetch_instagram_analytics_payload(
     *,
     start_date: date,
     end_date: date,
+    revenue_comparison: RevenueComparison = "previous_period",
 ) -> dict[str, object]:
     """Build Instagram analytics payload for the dashboard page."""
     df = await _read_instagram_rows(
@@ -598,10 +579,22 @@ async def fetch_instagram_analytics_payload(
         start_date=start_date,
         end_date=end_date,
     )
+    previous_start, previous_end = previous_period_range(
+        start_date, end_date, revenue_comparison if revenue_comparison != "previous_period" else None)
+    previous_df = await _read_instagram_rows(session=session, start_date=previous_start, end_date=previous_end)
+    current_metrics = _summary_payload(df)["current_period"]["metrics"]
+    previous_metrics = _summary_payload(previous_df)["current_period"]["metrics"]
+    account_metrics = {
+        "current_period": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "metrics": current_metrics},
+        "previous_period": {"start_date": previous_start.isoformat(), "end_date": previous_end.isoformat(), "metrics": previous_metrics},
+        "growth_percentage": {key: growth_percentage(float(value), float(previous_metrics[key]))
+                              for key, value in current_metrics.items()},
+    }
     return {
+        "revenue": await fetch_socmed_revenue(session, source="instagram", start_date=start_date, end_date=end_date, comparison=revenue_comparison),
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "metrics": _summary_payload(df),
+        "metrics": account_metrics,
         "daily_rows": _daily_rows_payload(df),
         "media_summary": _media_summary_payload(media_df),
         "media_daily_rows": _media_daily_rows_payload(media_df),

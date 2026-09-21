@@ -384,6 +384,43 @@ async def _migration_20260907_002_all_subscription(connection) -> None:
     )
 
 
+async def _migration_20260918_001_data_socmed(connection) -> None:
+    """Create social media registration storage."""
+    from app.db.models.external_api import DataSocmed
+
+    await connection.run_sync(
+        lambda sync_connection: DataSocmed.__table__.create(sync_connection, checkfirst=True)
+    )
+
+
+async def _migration_20260918_002_data_socmed_first_depo_date(connection) -> None:
+    """Add the optional first deposit date without changing existing rows."""
+    columns = {
+        row[1] for row in
+        (await connection.execute(text("PRAGMA table_info('data_socmed')"))).fetchall()
+    }
+    if "first_depo_date" not in columns:
+        await connection.execute(text("ALTER TABLE data_socmed ADD COLUMN first_depo_date DATE"))
+
+
+async def _migration_20260921_001_all_depo_user_metrics(connection) -> None:
+    """Add ALL DEPO user-count metrics without altering historical aggregates."""
+    columns = {
+        row[1]
+        for row in (await connection.execute(text("PRAGMA table_info('all_depo')"))).fetchall()
+    }
+    desired_columns = {
+        "total_deposit_user_qty": "INTEGER NOT NULL DEFAULT 0",
+        "total_deposit_auto_closing_user_qty": "INTEGER NOT NULL DEFAULT 0",
+        "total_deposit_consultant_user_qty": "INTEGER NOT NULL DEFAULT 0",
+    }
+    for column_name, column_type in desired_columns.items():
+        if column_name not in columns:
+            await connection.execute(
+                text(f"ALTER TABLE all_depo ADD COLUMN {column_name} {column_type}")
+            )
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -454,6 +491,21 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260907_002_all_subscription",
         "Create ALL RAW SUBS daily aggregate table.",
         _migration_20260907_002_all_subscription,
+    ),
+    (
+        "20260918_001_data_socmed",
+        "Create social media registration table.",
+        _migration_20260918_001_data_socmed,
+    ),
+    (
+        "20260918_002_data_socmed_first_depo_date",
+        "Add first deposit date to social media registrations.",
+        _migration_20260918_002_data_socmed_first_depo_date,
+    ),
+    (
+        "20260921_001_all_depo_user_metrics",
+        "Add ALL DEPO user-count metrics.",
+        _migration_20260921_001_all_depo_user_metrics,
     ),
 )
 

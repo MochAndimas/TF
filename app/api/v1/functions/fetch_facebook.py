@@ -8,6 +8,9 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.utils.period_comparison import previous_period_range, growth_percentage
+from app.api.v1.functions.fetch_socmed_revenue import RevenueComparison, fetch_socmed_revenue
+
 from app.db.models.external_api import FacebookPageInsights, FacebookPageMediaInsights
 
 
@@ -22,9 +25,7 @@ DAILY_REACTION_COLUMNS = [
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:
-    if previous_value == 0:
-        return 100.0 if current_value else 0.0
-    return round(((current_value - previous_value) / previous_value) * 100, 2)
+    return growth_percentage(current_value, previous_value)
 
 
 def _safe_percentage(numerator: float, denominator: float) -> float:
@@ -195,30 +196,7 @@ def _daily_summary(df: pd.DataFrame) -> dict[str, object]:
         float(current["post_engagements"]),
         float(current["page_fans"]),
     )
-    midpoint = len(df) // 2
-    previous = df.iloc[:midpoint]
-    recent = df.iloc[midpoint:]
-    growth = {"page_fans": 0.0}
-    for metric in [key for key in metric_keys[1:] if key != "engagement_rate"]:
-        growth[metric] = _growth_percentage(
-            float(recent[metric].sum()) if not recent.empty else 0.0,
-            float(previous[metric].sum()) if not previous.empty else 0.0,
-        )
-    growth["engagement_rate"] = _growth_percentage(
-        _safe_percentage(
-            float(recent["post_engagements"].sum()) if not recent.empty else 0.0,
-            float(recent.loc[recent["page_fans"] > 0, "page_fans"].iloc[-1])
-            if not recent.empty and (recent["page_fans"] > 0).any()
-            else 0.0,
-        ),
-        _safe_percentage(
-            float(previous["post_engagements"].sum()) if not previous.empty else 0.0,
-            float(previous.loc[previous["page_fans"] > 0, "page_fans"].iloc[-1])
-            if not previous.empty and (previous["page_fans"] > 0).any()
-            else 0.0,
-        ),
-    )
-    return {"current_period": {"metrics": current}, "growth_percentage": growth}
+    return {"current_period": {"metrics": current}}
 
 
 def _media_summary(df: pd.DataFrame) -> dict[str, object]:
@@ -352,14 +330,27 @@ async def fetch_facebook_analytics_payload(
     *,
     start_date: date,
     end_date: date,
+    revenue_comparison: RevenueComparison = "previous_period",
 ) -> dict[str, object]:
     """Build Facebook Page analytics payload for the dashboard page."""
     daily_df = await _read_daily_rows(session=session, start_date=start_date, end_date=end_date)
     media_df = await _read_media_rows(session=session, start_date=start_date, end_date=end_date)
+    previous_start, previous_end = previous_period_range(
+        start_date, end_date, revenue_comparison if revenue_comparison != "previous_period" else None)
+    previous_df = await _read_daily_rows(session=session, start_date=previous_start, end_date=previous_end)
+    current_metrics = _daily_summary(daily_df)["current_period"]["metrics"]
+    previous_metrics = _daily_summary(previous_df)["current_period"]["metrics"]
+    account_metrics = {
+        "current_period": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat(), "metrics": current_metrics},
+        "previous_period": {"start_date": previous_start.isoformat(), "end_date": previous_end.isoformat(), "metrics": previous_metrics},
+        "growth_percentage": {key: growth_percentage(float(value), float(previous_metrics[key]))
+                              for key, value in current_metrics.items()},
+    }
     return {
+        "revenue": await fetch_socmed_revenue(session, source="facebook", start_date=start_date, end_date=end_date, comparison=revenue_comparison),
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
-        "metrics": _daily_summary(daily_df),
+        "metrics": account_metrics,
         "daily_rows": _rows_payload(daily_df),
         "media_summary": _media_summary(media_df),
         "media_daily_rows": _media_daily_payload(media_df),

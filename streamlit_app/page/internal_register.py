@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import pandas as pd
@@ -30,6 +32,7 @@ def _render_filters() -> tuple[dt.date | None, dt.date | None, str | None]:
 
     with st.container(border=True):
         selected_period = st.selectbox("Periods", options=list(presets.keys()), key="internal_register_period")
+        select_comparison(selected_period)
         if selected_period == "Custom Range":
             selected = st.date_input("Select Date Range", key="internal_register_date_range")
             if not isinstance(selected, tuple) or len(selected) != 2:
@@ -196,7 +199,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
                 st.metric(
                     label,
                     value,
-                    delta=_campaign_format_growth(growth_value),
+                    delta=_campaign_format_growth(growth_value, metrics),
                     delta_color="off" if growth_value == 0 else "normal",
                     help=tooltip,
                 )
@@ -269,7 +272,7 @@ async def show_internal_register_page(host: str) -> None:
         return
 
     source_key = "all"
-    selected_range = (start_date, end_date, source_key)
+    selected_range = (start_date, end_date, source_key) + comparison_cache_key()
     cached_payload = st.session_state.get("internal_register_payload", {})
     cached_charts = cached_payload.get("data", {}).get("charts", {}) if isinstance(cached_payload, dict) else {}
     should_fetch = (

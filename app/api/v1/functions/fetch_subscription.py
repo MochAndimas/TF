@@ -1,5 +1,6 @@
 """Read daily subscription analytics without treating daily subscriber counts as unique users."""
 from datetime import date, timedelta
+from app.utils.period_comparison import previous_period_range, growth_percentage
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -33,8 +34,7 @@ def summarize(rows: list[dict]) -> dict:
 async def fetch_subscription_payload(session: AsyncSession, start_date: date, end_date: date) -> dict:
     validate_date_range(start_date, end_date)
     days = (end_date - start_date).days + 1
-    previous_end = start_date - timedelta(days=1)
-    previous_start = start_date - timedelta(days=days)
+    previous_start, previous_end = previous_period_range(start_date, end_date)
     result = await session.execute(
         select(AllSubscription).where(
             AllSubscription.date.between(previous_start, end_date)
@@ -44,14 +44,17 @@ async def fetch_subscription_payload(session: AsyncSession, start_date: date, en
     for record in result.scalars():
         row = {field: getattr(record, field) for field in DAILY_FIELDS}
         row.update(date=record.date.isoformat(), pull_date=record.pull_date.isoformat())
-        (current if record.date >= start_date else previous).append(row)
+        if record.date >= start_date:
+            current.append(row)
+        elif record.date <= previous_end:
+            previous.append(row)
     current_metrics, previous_metrics = summarize(current), summarize(previous)
     growth = {}
     for field in DAILY_FIELDS:
         baseline = previous_metrics[field]
         growth[field] = (
-            round((current_metrics[field] - baseline) / baseline * 100, 2)
-            if current and previous and baseline else None
+            growth_percentage(current_metrics[field], baseline)
+            if current and previous else None
         )
     return {
         "start_date": start_date.isoformat(), "end_date": end_date.isoformat(),

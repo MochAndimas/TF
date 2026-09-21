@@ -1,6 +1,8 @@
 """Subscription revenue analytics using the shared analytics visual style."""
 from __future__ import annotations
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import pandas as pd
@@ -8,6 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from streamlit_app.functions.api import fetch_api_result
+from streamlit_app.functions.metrics import _campaign_format_growth
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.page.campaign_components.common import PAGE_STYLE, set_transparent_chart_background
 
@@ -28,6 +31,7 @@ def render_filters():
     st.session_state.setdefault("subscription_date_range", presets["This Month"])
     with st.container(border=True):
         selected = st.selectbox("Periods", list(presets), key="subscription_period")
+        select_comparison(selected)
         if selected == "Custom Range":
             dates = st.date_input("Select Date Range", key="subscription_date_range")
             if not isinstance(dates, tuple) or len(dates) != 2:
@@ -78,7 +82,7 @@ def render_report(data):
                 delta = growth.get(field)
                 st.metric(
                     LABELS[field] + (" (Latest Day)" if latest else ""), display,
-                    delta=f"{delta:+.2f}%" if delta is not None else None,
+                    delta=_campaign_format_growth(delta, {"previous_period": {"start_date": data.get("previous_start_date"), "end_date": data.get("previous_end_date")}}) if delta is not None else None,
                 )
     frame = pd.DataFrame(rows)
     frame["date"] = pd.to_datetime(frame["date"])

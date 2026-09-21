@@ -1,5 +1,7 @@
 """Streamlit page for User Acquisition analytics."""
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import streamlit as st
 
 from streamlit_app.functions.charting import campaign_figure_from_payload
@@ -30,7 +32,7 @@ async def show_user_acquisition_page(host: str) -> None:
 
     source_options = {"Google Ads": "google", "Facebook Ads": "facebook", "TikTok Ads": "tiktok"}
     selected_key = source_options[selected_source]
-    selected_range = (start_date, end_date)
+    selected_range = (start_date, end_date) + comparison_cache_key()
     cached_payload = st.session_state.get("campaign_ads_payload", {})
     cached_details = cached_payload.get("data", {}).get("ads_campaign_details", {})
     cached_selected_details = cached_details.get(selected_key, {}) if isinstance(cached_details, dict) else {}

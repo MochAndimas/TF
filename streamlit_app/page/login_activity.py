@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import pandas as pd
@@ -35,6 +37,7 @@ def _render_filters() -> tuple[dt.date | None, dt.date | None, str | None]:
         period_col, source_col = st.columns([2, 2], gap="small")
         with period_col:
             selected_period = st.selectbox("Periods", options=list(presets.keys()), key="login_activity_period")
+            select_comparison(selected_period)
             if selected_period == "Custom Range":
                 selected = st.date_input("Select Date Range", key="login_activity_date_range")
                 if not isinstance(selected, tuple) or len(selected) != 2:
@@ -76,7 +79,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
                 st.metric(
                     label,
                     value,
-                    delta=_campaign_format_growth(growth_value),
+                    delta=_campaign_format_growth(growth_value, metrics),
                     delta_color="off" if growth_value == 0 else "normal",
                     help=tooltip,
                 )
@@ -112,7 +115,7 @@ async def show_login_activity_page(host: str) -> None:
         return
 
     source_key = SOURCE_OPTIONS[selected_source]
-    selected_range = (start_date, end_date, source_key)
+    selected_range = (start_date, end_date, source_key) + comparison_cache_key()
     should_fetch = "login_activity_payload" not in st.session_state or st.session_state.get("login_activity_range") != selected_range
     if should_fetch:
         if not st.session_state.get("access_token"):

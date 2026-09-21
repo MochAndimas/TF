@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import pandas as pd
+from app.utils.period_comparison import growth_percentage as calculate_growth
+from streamlit_app.functions.metrics import _campaign_format_growth
+
 import streamlit as st
 
 from streamlit_app.functions.metrics import _render_hover_metric_card
@@ -23,6 +26,7 @@ def render_status_cards(
     currency_unit: str,
     deposit_label: str = "First Deposit",
     show_title: bool = True,
+    summary: dict | None = None,
 ) -> None:
     if show_title:
         st.markdown(f'<div class="deposit-group-title">{title}</div>', unsafe_allow_html=True)
@@ -36,18 +40,16 @@ def render_status_cards(
                         st,
                         label=label,
                         value=formatter(raw_value, currency_unit=currency_unit),
-                        delta=f"{growth.get(key, 0.0):+.2f}% vs prev period",
+                        delta=_campaign_format_growth(growth.get(key, 0.0), summary),
                         growth_value=growth.get(key, 0.0),
                         tooltip=format_amount_full(raw_value, currency_unit=currency_unit),
                     )
                 else:
-                    st.metric(label=label, value=formatter(totals.get(key, 0.0)), delta=f"{growth.get(key, 0.0):+.2f}% vs prev period")
+                    st.metric(label=label, value=formatter(totals.get(key, 0.0)), delta=_campaign_format_growth(growth.get(key, 0.0), summary))
 
 
 def _growth_percentage(current_value: float, previous_value: float) -> float:
-    if previous_value == 0:
-        return 100.0 if current_value else 0.0
-    return round(((current_value - previous_value) / previous_value) * 100, 2)
+    return calculate_growth(current_value, previous_value)
 
 
 def _combined_status_totals(status_totals: dict[str, dict[str, float]]) -> dict[str, float]:
@@ -80,14 +82,14 @@ def render_metric_cards(
             metric_key: _growth_percentage(float(combined_totals.get(metric_key, 0) or 0), float(previous_totals.get(metric_key, 0) or 0))
             for metric_key in ("depo_amount", "qty", "aov")
         }
-        render_status_cards("", combined_totals, combined_growth, currency_unit=currency_unit, deposit_label=deposit_label, show_title=False)
+        render_status_cards("", combined_totals, combined_growth, currency_unit=currency_unit, deposit_label=deposit_label, show_title=False, summary=summary)
         return
 
     left_col, right_col = st.columns(2, gap="small")
     with left_col:
-        render_status_cards("New User", totals.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label)
+        render_status_cards("New User", totals.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("new", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label, summary=summary)
     with right_col:
-        render_status_cards("Existing User", totals.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label)
+        render_status_cards("Existing User", totals.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), growth.get("existing", {"depo_amount": 0.0, "qty": 0.0, "aov": 0.0}), currency_unit=currency_unit, deposit_label=deposit_label, summary=summary)
 
 
 def render_deposit_method_table(report: dict[str, object], currency_unit: str, height: int = 320) -> None:

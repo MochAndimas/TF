@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.functions.fetch_socmed_revenue import RevenueComparison
 from app.api.v1.endpoint.common import build_analytics_response, require_roles_dep, validate_date_range
 from app.api.v1.functions.fetch_facebook import fetch_facebook_analytics_payload
 from app.db.models.user import TfUser
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 async def facebook_analytics(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    revenue_comparison: RevenueComparison = Query("previous_period"),
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(require_roles_dep(*SOCMED_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
@@ -33,6 +35,7 @@ async def facebook_analytics(
             session=session,
             start_date=start_date,
             end_date=end_date,
+            revenue_comparison=revenue_comparison,
         ),
         success_message="Facebook analytics generated.",
         logger=logger,

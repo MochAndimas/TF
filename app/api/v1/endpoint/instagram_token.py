@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.functions.fetch_socmed_revenue import RevenueComparison
 from app.api.v1.endpoint.common import build_analytics_response, require_roles_dep, validate_date_range
 from app.api.v1.functions.fetch_instagram import fetch_instagram_analytics_payload
 from app.core.security import decrypt_secret, encrypt_secret
@@ -156,6 +157,7 @@ async def instagram_token_status(
 async def instagram_analytics(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    revenue_comparison: RevenueComparison = Query("previous_period"),
     session: AsyncSession = Depends(get_db),
     current_user: TfUser = Depends(require_roles_dep(*SOCMED_ANALYTICS_ROLES)),  # noqa: ARG001
 ):
@@ -166,6 +168,7 @@ async def instagram_analytics(
             session=session,
             start_date=start_date,
             end_date=end_date,
+            revenue_comparison=revenue_comparison,
         ),
         success_message="Instagram analytics generated.",
         logger=logger,

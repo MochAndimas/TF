@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from app.utils.period_comparison import previous_period_range, growth_percentage as calculate_growth
+
 from datetime import date, timedelta
 
 import pandas as pd
@@ -186,14 +188,11 @@ class CampaignDataBase:
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        period_days = (to_date - from_date).days + 1
-        previous_to = from_date - timedelta(days=1)
-        previous_from = previous_to - timedelta(days=period_days - 1)
-        return previous_from, previous_to
+        return previous_period_range(from_date, to_date)
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float | None:
-        return CampaignLeadAllocator.growth_percentage(current_value, previous_value)
+        return calculate_growth(current_value, previous_value)
 
     @staticmethod
     def _serialize_daily_rows(daily: pd.DataFrame) -> list[dict[str, object]]:

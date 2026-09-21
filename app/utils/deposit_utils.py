@@ -7,6 +7,8 @@ frontend-friendly payloads used by deposit report screens.
 
 from __future__ import annotations
 
+from app.utils.period_comparison import previous_period_range, growth_percentage as calculate_growth
+
 from datetime import date, timedelta
 
 import pandas as pd
@@ -154,35 +156,11 @@ class DepositData:
 
     @staticmethod
     def _previous_period_range(from_date: date, to_date: date) -> tuple[date, date]:
-        """Compute previous period with the same duration.
-
-        Args:
-            from_date (date): Current period inclusive start date.
-            to_date (date): Current period inclusive end date.
-
-        Returns:
-            tuple[date, date]: ``(previous_from, previous_to)`` with identical
-            number of days to current window.
-        """
-        period_days = (to_date - from_date).days + 1
-        previous_to = from_date - timedelta(days=1)
-        previous_from = previous_to - timedelta(days=period_days - 1)
-        return previous_from, previous_to
+        return previous_period_range(from_date, to_date)
 
     @staticmethod
     def _growth_percentage(current_value: float, previous_value: float) -> float:
-        """Calculate growth percentage with zero-denominator safeguard.
-
-        Args:
-            current_value (float): Current-period metric value.
-            previous_value (float): Previous-period metric value.
-
-        Returns:
-            float: Growth in percent, rounded to 2 decimals.
-        """
-        if previous_value == 0:
-            return 100.0 if current_value else 0.0
-        return round(((current_value - previous_value) / previous_value) * 100, 2)
+        return calculate_growth(current_value, previous_value)
 
     def _status_totals(self, dataframe: pd.DataFrame) -> dict[str, dict[str, float]]:
         """Aggregate totals by user status for summary cards.

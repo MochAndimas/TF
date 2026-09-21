@@ -1,5 +1,7 @@
 """Streamlit page for Brand Awareness analytics."""
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import streamlit as st
 
 from streamlit_app.functions.charting import campaign_figure_from_payload
@@ -30,7 +32,7 @@ async def show_brand_awareness_page(host: str) -> None:
 
     source_options = {"Google Ads": "google", "Facebook Ads": "facebook", "TikTok Ads": "tiktok"}
     selected_key = source_options[selected_source]
-    selected_range = (start_date, end_date)
+    selected_range = (start_date, end_date) + comparison_cache_key()
     cached_payload = st.session_state.get("brand_awareness_payload", {})
     cached_charts = cached_payload.get("data", {}).get("charts", {})
     cached_selected = cached_charts.get(selected_key, {}) if isinstance(cached_charts, dict) else {}

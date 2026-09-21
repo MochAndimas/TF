@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date
+from app.utils.period_comparison import growth_percentage as calculate_growth
+
 import streamlit as st
 from decouple import config
 
@@ -75,11 +78,18 @@ def _campaign_convert_idr_to_usd(value: float | int) -> float:
     return float(value) / rate
 
 
-def _campaign_format_growth(growth: float | None) -> str:
+def _campaign_format_growth(growth: float | None, summary: dict | None = None) -> str:
     if growth is None:
         return "N/A"
     sign = "+" if growth > 0 else ""
-    return f"{sign}{growth:.2f}% from last period"
+    previous = (summary or {}).get("previous_period", {})
+    start = previous.get("start_date") or previous.get("from_date")
+    end = previous.get("end_date") or previous.get("to_date")
+    label = "from last period"
+    if start and end:
+        start, end = date.fromisoformat(str(start)), date.fromisoformat(str(end))
+        label = f"vs {start:%d %b %Y} – {end:%d %b %Y}"
+    return f"{sign}{growth:.2f}% {label}"
 
 
 def _campaign_metric_value(metrics: dict[str, float], key: str) -> float:
@@ -108,9 +118,7 @@ def _campaign_growth_from_periods(source_metrics: dict[str, object], key: str) -
     current_value = _campaign_metric_value(current_metrics, key)
     previous_value = _campaign_metric_value(previous_metrics, key)
 
-    if previous_value == 0:
-        return 0.0 if current_value == 0 else 100.0
-    return round(((current_value - previous_value) / previous_value) * 100, 2)
+    return calculate_growth(current_value, previous_value)
 
 
 def render_campaign_metric_cards(
@@ -147,7 +155,7 @@ def render_campaign_metric_cards(
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = _campaign_growth_from_periods(source_metrics, key)
-                growth_text = _campaign_format_growth(growth_value)
+                growth_text = _campaign_format_growth(growth_value, source_metrics)
                 if key in {"cost", "cost_leads"}:
                     _render_hover_metric_card(
                         st_module,
@@ -241,7 +249,7 @@ def render_performance_metric_cards(
                 growth_value = growth_metrics.get(key)
                 if growth_value is None:
                     growth_value = _campaign_growth_from_periods(source_metrics, key)
-                growth_text = _campaign_format_growth(growth_value)
+                growth_text = _campaign_format_growth(growth_value, source_metrics)
                 if key in {"cost", "cpm", "cpc"}:
                     _render_hover_metric_card(
                         st_module,
@@ -266,7 +274,7 @@ def render_overview_metric_cards(st_module, summary_payload: dict[str, object]) 
                 raw_value = _campaign_metric_value(current_metrics, key)
                 metric_value = f"{raw_value:,.0f}" if key == "active_user" else f"{raw_value:.2f}%"
                 growth_value = growth_metrics.get(key, 0.0)
-                st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value))
+                st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value, summary_payload))
 
 
 def render_overview_cost_metric_cards(st_module, summary_payload: dict[str, object]) -> None:
@@ -287,7 +295,7 @@ def render_overview_cost_metric_cards(st_module, summary_payload: dict[str, obje
                     st_module,
                     label=label,
                     value=_campaign_format_currency(raw_value, compact=True),
-                    delta=_campaign_format_growth(growth_metrics.get(key, 0.0)),
+                    delta=_campaign_format_growth(growth_metrics.get(key, 0.0), summary_payload),
                     growth_value=growth_metrics.get(key, 0.0),
                     tooltip=_campaign_format_currency(raw_value, compact=False),
                 )
@@ -320,12 +328,12 @@ def render_overview_leads_metric_cards(st_module, summary_payload: dict[str, obj
                         st_module,
                         label=label,
                         value=metric_value,
-                        delta=_campaign_format_growth(growth_value),
+                        delta=_campaign_format_growth(growth_value, summary_payload),
                         growth_value=growth_value,
                         tooltip=tooltip_value,
                     )
                 else:
-                    st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value))
+                    st_module.metric(label=label, value=metric_value, delta=_campaign_format_growth(growth_value, summary_payload))
 
 
 def render_overview_cost_to_revenue_metric_cards(
@@ -356,7 +364,7 @@ def render_overview_cost_to_revenue_metric_cards(
                         st_module,
                         label=label,
                         value=metric_value,
-                        delta=_campaign_format_growth(growth_metrics.get(key, 0.0)),
+                        delta=_campaign_format_growth(growth_metrics.get(key, 0.0), summary_payload),
                         growth_value=growth_metrics.get(key, 0.0),
                         tooltip=tooltip_value,
                     )
@@ -364,5 +372,5 @@ def render_overview_cost_to_revenue_metric_cards(
                     st_module.metric(
                         label=label,
                         value=f"{raw_value:.2f}%",
-                        delta=_campaign_format_growth(growth_metrics.get(key, 0.0)),
+                        delta=_campaign_format_growth(growth_metrics.get(key, 0.0), summary_payload),
                     )

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.external_api import (
     AllDepo,
     AllSubscription,
+    DataSocmed,
     AppleInstall,
     Campaign,
     DataDepo,
@@ -1269,4 +1270,22 @@ async def upsert_all_subscription_rows(session: AsyncSession, rows: list[dict]) 
         await session.execute(stmt.on_conflict_do_update(
             index_elements=["date"],
             set_={column: getattr(stmt.excluded, column) for column in rows[0] if column != "date"},
+        ))
+
+
+def build_data_socmed_rows(df: pd.DataFrame, pull_date: date) -> list[dict]:
+    """Keep the final table limited to the requested fields."""
+    return [{key: _normalize_sql_value(value) for key, value in row.items()}
+            for row in df.to_dict(orient="records")]
+
+
+async def upsert_data_socmed_rows(session: AsyncSession, rows: list[dict]) -> None:
+    if not rows:
+        return
+    for chunk in _iter_row_chunks(rows, len(rows[0])):
+        statement = sqlite_insert(DataSocmed).values(chunk)
+        await session.execute(statement.on_conflict_do_update(
+            index_elements=["tgl_regis", "id"],
+            set_={key: getattr(statement.excluded, key)
+                  for key in rows[0] if key not in {"tgl_regis", "id"}},
         ))

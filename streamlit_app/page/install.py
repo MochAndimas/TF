@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
+
+from app.utils.period_comparison import growth_percentage as calculate_growth
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -34,6 +38,7 @@ def _render_period_filter() -> tuple[dt.date | None, dt.date | None]:
 
     with st.container(border=True):
         selected_period = st.selectbox("Periods", options=list(presets.keys()), key="install_period")
+        select_comparison(selected_period)
         if selected_period == "Custom Range":
             selected = st.date_input("Select Date Range", key="install_date_range")
             if not isinstance(selected, tuple) or len(selected) != 2:
@@ -52,6 +57,7 @@ def _render_metric_card(
     label: str,
     value: str,
     growth_value: float | None = None,
+    summary: dict | None = None,
     delta_color: str = "normal",
 ) -> None:
     if growth_value is None:
@@ -61,7 +67,7 @@ def _render_metric_card(
     st.metric(
         label=label,
         value=value,
-        delta=_campaign_format_growth(growth_value),
+        delta=_campaign_format_growth(growth_value, summary),
         delta_color="off" if growth_value == 0 else delta_color,
     )
 
@@ -98,6 +104,7 @@ def _render_metrics(metrics: dict[str, object], all_time: dict[str, object] | No
                     label=label,
                     value=value,
                     growth_value=growth_value,
+                    summary=metrics,
                     delta_color=delta_color,
                 )
 
@@ -108,6 +115,7 @@ def _render_metrics(metrics: dict[str, object], all_time: dict[str, object] | No
                     label=label,
                     value=value,
                     growth_value=growth.get(key, 0.0),
+                    summary=metrics,
                     delta_color="inverse" if key in {"uninstallers", "churn_rate"} else "normal",
                 )
 
@@ -148,9 +156,7 @@ def _details_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
 
 
 def _growth_percentage(current: float, previous: float) -> float:
-    if previous == 0:
-        return 100.0 if current else 0.0
-    return round(((current - previous) / previous) * 100, 2)
+    return calculate_growth(current, previous)
 
 
 def _install_values(installers: int, uninstallers: int, active_devices: int) -> dict[str, float]:
@@ -523,7 +529,7 @@ async def show_install_page(host: str) -> None:
 
     package_name, country = "all", "all"
 
-    selected_range = (start_date, end_date, package_name, country)
+    selected_range = (start_date, end_date, package_name, country) + comparison_cache_key()
     should_fetch = "install_payload" not in st.session_state or st.session_state.get("install_range") != selected_range
     if should_fetch:
         if not st.session_state.get("access_token"):

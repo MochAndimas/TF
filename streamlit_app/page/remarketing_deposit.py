@@ -1,5 +1,7 @@
 """Streamlit page for the remarketing deposit report."""
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import streamlit as st
@@ -43,6 +45,7 @@ async def show_remarketing_deposit_page(host: str) -> None:
                 index=0,
                 key="remarketing_deposit_period",
             )
+            select_comparison(period_key)
             if period_key == "Custom Range":
                 selected = st.date_input("Select Date Range", key=date_range_key)
                 if not isinstance(selected, tuple) or len(selected) != 2:
@@ -66,7 +69,7 @@ async def show_remarketing_deposit_page(host: str) -> None:
         return
 
     selected_type = type_options[selected_type_label]
-    selected_range = (start_date, end_date, selected_type)
+    selected_range = (start_date, end_date, selected_type) + comparison_cache_key()
     should_fetch = (
         "remarketing_deposit_payload" not in st.session_state
         or st.session_state.get("remarketing_deposit_range") != selected_range

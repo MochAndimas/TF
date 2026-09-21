@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from app.db.models.external_api import (
     AllDepo,
     AllSubscription,
+    DataSocmed,
     AppleInstall,
     Campaign,
     DailyRegister,
@@ -74,6 +75,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "ms_deposit",
     "all_depo",
     "all_subscription",
+    "data_socmed",
     "play_console_install_metrics",
     "apple_install",
 )
@@ -459,6 +461,12 @@ async def _run_all_subscription(gsheet, session, types, start_date, end_date, ru
     )
 
 
+async def _run_data_socmed(gsheet, session, types, start_date, end_date, run_id) -> str:
+    return await gsheet.data_socmed(
+        session=session, types=types, start_date=start_date, end_date=end_date, run_id=run_id,
+    )
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -480,6 +488,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "ms_deposit": _run_ms_deposit,
     "all_depo": _run_all_depo,
     "all_subscription": _run_all_subscription,
+    "data_socmed": _run_data_socmed,
     "play_console_install_metrics": _run_play_console_install_metrics,
     "apple_install": _run_apple_install,
     "apple_install_snapshot": _run_apple_install_snapshot,
@@ -507,6 +516,7 @@ SOURCE_MODELS = {
     "ms_deposit": DataMsDeposit,
     "all_depo": AllDepo,
     "all_subscription": AllSubscription,
+    "data_socmed": DataSocmed,
     "play_console_install_metrics": PlayConsoleInstallMetrics,
     "apple_install": AppleInstall,
     "apple_install_snapshot": AppleInstall,
@@ -532,6 +542,7 @@ SOURCE_DATE_COLUMNS = {
     "ms_deposit": "last_activity",
     "all_depo": "date",
     "all_subscription": "date",
+    "data_socmed": "tgl_regis",
     "play_console_install_metrics": "date",
     "apple_install": "date",
     "apple_install_snapshot": "date",

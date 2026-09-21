@@ -1,5 +1,7 @@
 """Streamlit page for the deposit report."""
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import streamlit as st
@@ -87,6 +89,7 @@ async def render_deposit_page(
         left_col, right_col = st.columns([2, 2], gap="small")
         with left_col:
             period_key = st.selectbox("Periods", options=list(presets.keys()), key=f"{state_prefix}_period")
+            select_comparison(period_key)
             if period_key == "Custom Range":
                 selected = st.date_input("Select Date Range", key=date_range_key)
                 if not isinstance(selected, tuple) or len(selected) != 2:
@@ -105,7 +108,7 @@ async def render_deposit_page(
         return
 
     selected_type = type_options[selected_type_label]
-    selected_range = (start_date, end_date, selected_type)
+    selected_range = (start_date, end_date, selected_type) + comparison_cache_key()
     should_fetch = f"{state_prefix}_daily_payload" not in st.session_state or st.session_state.get(f"{state_prefix}_daily_range") != selected_range
 
     if should_fetch:

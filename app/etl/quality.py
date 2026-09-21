@@ -703,3 +703,20 @@ def validate_all_subscription_dataframe(df: pd.DataFrame) -> None:
             raise ValueError(f"DQ failed: All Subscription has invalid values in {column}.")
         if (column.endswith("_qty") or column.endswith("_subscribers")) and (values % 1 != 0).any():
             raise ValueError(f"DQ failed: All Subscription requires whole counts in {column}.")
+
+
+def validate_data_socmed_dataframe(df: pd.DataFrame) -> None:
+    """Require valid registration keys and finite nonnegative optional deposits."""
+    import numpy as np
+
+    if df.empty:
+        return
+    if df["id"].isna().any() or df["id"].fillna("").str.strip().eq("").any():
+        raise ValueError("DQ failed: Data Socmed has missing IDs.")
+    if df["tgl_regis"].isna().any() or (df["tgl_regis"] < MIN_HISTORICAL_DATE).any():
+        raise ValueError("DQ failed: Data Socmed contains invalid registration dates.")
+    if df.duplicated(["id", "tgl_regis"]).any():
+        raise ValueError("DQ failed: Data Socmed contains duplicate registration keys.")
+    amounts = df["first_depo"].dropna()
+    if not np.isfinite(amounts).all() or (amounts < 0).any():
+        raise ValueError("DQ failed: Data Socmed contains invalid first deposit amounts.")

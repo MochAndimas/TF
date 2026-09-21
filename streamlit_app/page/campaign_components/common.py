@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import streamlit as st
@@ -90,6 +92,7 @@ def render_campaign_page_filters(
         filter_col, source_col = st.columns([2, 2], gap="small")
         with filter_col:
             selected_period = st.selectbox("Periods", options=list(presets.keys()), key=period_key)
+            select_comparison(selected_period)
             if selected_period == "Custom Range":
                 selected = st.date_input("Select Date Range", key=date_range_key)
                 if not isinstance(selected, tuple) or len(selected) != 2:

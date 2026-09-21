@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import (
     AllDepo,
     AllSubscription,
+    DataSocmed,
     AppleInstall,
     DailyRegister,
     DataDepo,
@@ -29,6 +30,7 @@ from app.db.models.external_api import (
 )
 from app.etl.extract import ExternalApiExtractor
 from app.etl.load import (
+    build_data_socmed_rows, upsert_data_socmed_rows,
     build_all_subscription_rows, upsert_all_subscription_rows,
     build_all_depo_rows, upsert_all_depo_rows,
     build_apple_install_rows,
@@ -72,6 +74,7 @@ from app.etl.load import (
     upsert_youtube_media_insight_rows,
 )
 from app.etl.quality import (
+    validate_data_socmed_dataframe,
     validate_all_subscription_dataframe,
     validate_all_depo_dataframe,
     validate_apple_install_dataframe,
@@ -109,6 +112,7 @@ from app.etl.staging import (
     stage_play_console_install_raw,
 )
 from app.etl.transform import (
+    parse_data_socmed_dataframe,
     parse_all_subscription_dataframe,
     parse_all_depo_dataframe,
     parse_apple_install_dataframe,
@@ -1611,6 +1615,36 @@ class GoogleSheetApi(DateWindowPipelineRunner):
                 extract=extract, stage=stage, parse=parse_all_subscription_dataframe,
                 validate=validate_all_subscription_dataframe, build_rows=build_all_subscription_rows,
                 delete_window=delete_window, load_rows=upsert_all_subscription_rows,
+            ),
+            session=session, start_date=start_date, end_date=end_date, types=types, run_id=run_id,
+        )
+
+
+    async def data_socmed(self, session: AsyncSession, start_date=None, end_date=None,
+                          types: str = "auto", run_id: str | None = None) -> str:
+        """Replace registrations in the requested registration-date window."""
+        async def extract(_start, _end):
+            return await self.extractor.fetch_data_socmed_rows()
+
+        async def stage(session_, raw_rows, run_id_):
+            return await stage_ads_raw(
+                session_, raw_rows, run_id=run_id_, source="data_socmed",
+                range_name=self.extractor.data_socmed_sheet_range,
+            )
+
+        async def delete_window(session_, target_start, target_end):
+            result = await session_.execute(delete(DataSocmed).where(
+                DataSocmed.tgl_regis.between(target_start, target_end)
+            ))
+            return int(result.rowcount or 0)
+
+        return await self._run_date_window_pipeline(
+            spec=DateWindowPipelineSpec(
+                label="data_socmed", source="data_socmed", empty_metric_name="Data Socmed",
+                date_column="tgl_regis", auto_skip_model=DataSocmed,
+                extract=extract, stage=stage, parse=parse_data_socmed_dataframe,
+                validate=validate_data_socmed_dataframe, build_rows=build_data_socmed_rows,
+                delete_window=delete_window, load_rows=upsert_data_socmed_rows,
             ),
             session=session, start_date=start_date, end_date=end_date, types=types, run_id=run_id,
         )

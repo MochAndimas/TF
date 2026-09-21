@@ -16,6 +16,7 @@ async def fetch_legacy_socmed_payload(
     start_date: dt.date,
     end_date: dt.date,
     fallback_message: str,
+    revenue_comparison: str = "previous_period",
 ) -> dict[str, object] | None:
     """Fetch social-media payload using the standard API client and return raw shape."""
     result = await fetch_api_result(
@@ -26,6 +27,7 @@ async def fetch_legacy_socmed_payload(
         params={
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
+            "revenue_comparison": revenue_comparison,
         },
     )
     if result.ok and isinstance(result.raw, dict):

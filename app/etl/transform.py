@@ -1085,10 +1085,13 @@ ALL_DEPO_COLUMNS = {
     'Tanggal': 'date',
     'Register (Qty)': 'register_qty',
     'Total Deposit (Qty)': 'total_deposit_qty',
+    'Total Deposit (user)': 'total_deposit_user_qty',
     'Total Deposit (amount)': 'total_deposit_amount',
     'Total Deposit Auto Closing (Qty)': 'total_deposit_auto_closing_qty',
+    'Total Deposit Auto Closing (user)': 'total_deposit_auto_closing_user_qty',
     'Total Deposit Auto Closing (Amount)': 'total_deposit_auto_closing_amount',
     'Total Deposit Closing with Consulant (Qty)': 'total_deposit_consultant_qty',
+    'Total Deposit Closing with Consulant (user)': 'total_deposit_consultant_user_qty',
     'Total Deposit Closing with Consulant (Amount)': 'total_deposit_consultant_amount',
     'First Deposit (Qty)': 'first_deposit_qty',
     'First Deposit (amount)': 'first_deposit_amount',
@@ -1172,3 +1175,77 @@ def parse_all_subscription_dataframe(raw_rows: list) -> pd.DataFrame:
     for column in columns[1:]:
         df[column] = pd.to_numeric(df[column], errors="coerce")
     return df.sort_values("date")
+
+
+DATA_SOCMED_COLUMNS = {
+    "tgl_regis": "tgl_regis",
+    "id": "id",
+    "fullname": "fullname",
+    "utm_source": "utm_source",
+    "utm_medium": "utm_medium",
+    "tag": "tag",
+    "status new/existing": "user_status",
+    "first depo $": "first_depo",
+    "time to closing": "time_to_closing",
+    "first depo date": "first_depo_date",
+}
+
+
+def project_data_socmed_rows(raw_rows: list) -> list[dict]:
+    """Select the requested fields before staging any sheet payload."""
+    if not raw_rows:
+        return []
+
+    def normalize(value):
+        return "".join(str(value).lower().split())
+
+    mapping = {normalize(key): value for key, value in DATA_SOCMED_COLUMNS.items()}
+    headers = [mapping.get(normalize(header)) for header in raw_rows[0]]
+    selected = [header for header in headers if header is not None]
+    if len(selected) != len(set(selected)):
+        raise ValueError("DQ failed: Data Socmed has duplicate requested headers.")
+    missing = set(DATA_SOCMED_COLUMNS.values()) - set(selected)
+    if missing:
+        raise ValueError(f"Missing columns in Data Socmed sheet: {sorted(missing)}")
+    records = []
+    for row in raw_rows[1:]:
+        record = {key: row[index] if index < len(row) else None
+                  for index, key in enumerate(headers) if key is not None}
+        if any(value is not None and str(value).strip() for value in record.values()):
+            records.append(record)
+    return records
+
+
+def parse_data_socmed_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Normalize registrations without filtering tags, status, or deposit amounts."""
+    columns = list(DATA_SOCMED_COLUMNS.values())
+    if not raw_rows:
+        return pd.DataFrame(columns=columns)
+    df = pd.DataFrame(raw_rows)
+    missing = set(columns) - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing columns in Data Socmed payload: {sorted(missing)}")
+    df = df[columns].copy()
+    allowed_sources = {"instagram", "youtube", "tiktok", "facebook"}
+    source_names = df["utm_source"].fillna("").astype(str).str.strip().str.lower()
+    df = df.loc[source_names.isin(allowed_sources)].copy()
+    if df.empty:
+        return pd.DataFrame(columns=columns)
+    df["tgl_regis"] = pd.to_datetime(df["tgl_regis"], format="mixed", errors="coerce").dt.date
+    if df["tgl_regis"].isna().any():
+        raise ValueError("DQ failed: Data Socmed contains invalid registration dates.")
+    deposit_dates = df["first_depo_date"].replace(r"^\s*$", None, regex=True).replace({0: None, "0": None})
+    parsed_dates = pd.to_datetime(deposit_dates, format="mixed", errors="coerce")
+    if (deposit_dates.notna() & parsed_dates.isna()).any():
+        raise ValueError("DQ failed: Data Socmed contains invalid first deposit dates.")
+    # Match the deposit pipelines: spreadsheet zero-dates mean no deposit date.
+    parsed_dates = parsed_dates.where(parsed_dates >= pd.Timestamp("1900-01-01"))
+    df["first_depo_date"] = parsed_dates.dt.date
+    for column in set(columns) - {"tgl_regis", "first_depo", "first_depo_date"}:
+        df[column] = df[column].map(lambda value: str(value).strip() if pd.notna(value) and str(value).strip() else None)
+    amounts = df["first_depo"].replace(r"^\s*$", None, regex=True)
+    numeric = pd.to_numeric(amounts, errors="coerce")
+    if (amounts.notna() & numeric.isna()).any():
+        raise ValueError("DQ failed: Data Socmed contains invalid first deposit amounts.")
+    df["first_depo"] = numeric
+    return df

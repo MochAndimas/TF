@@ -813,10 +813,13 @@ class AllDepo(SqliteBase):
     date = Column(Date, primary_key=True)
     register_qty = Column(Integer, nullable=False)
     total_deposit_qty = Column(Integer, nullable=False)
+    total_deposit_user_qty = Column(Integer, nullable=False, default=0)
     total_deposit_amount = Column(Float, nullable=False)
     total_deposit_auto_closing_qty = Column(Integer, nullable=False)
+    total_deposit_auto_closing_user_qty = Column(Integer, nullable=False, default=0)
     total_deposit_auto_closing_amount = Column(Float, nullable=False)
     total_deposit_consultant_qty = Column(Integer, nullable=False)
+    total_deposit_consultant_user_qty = Column(Integer, nullable=False, default=0)
     total_deposit_consultant_amount = Column(Float, nullable=False)
     first_deposit_qty = Column(Integer, nullable=False)
     first_deposit_amount = Column(Float, nullable=False)
@@ -839,3 +842,19 @@ class AllSubscription(SqliteBase):
     total_subscribers = Column(Integer, nullable=False)
     new_subscribers = Column(Integer, nullable=False)
     pull_date = Column(Date, nullable=False)
+
+
+class DataSocmed(SqliteBase):
+    """Social media registrations from the configured Google Sheet."""
+
+    __tablename__ = "data_socmed"
+    tgl_regis = Column(Date, primary_key=True)
+    id = Column(String, primary_key=True)
+    fullname = Column(String, nullable=True)
+    utm_source = Column(String, nullable=True)
+    utm_medium = Column(String, nullable=True)
+    tag = Column(String, nullable=True)
+    user_status = Column(String, nullable=True)
+    first_depo = Column(Float, nullable=True)
+    first_depo_date = Column(Date, nullable=True)
+    time_to_closing = Column(String, nullable=True)

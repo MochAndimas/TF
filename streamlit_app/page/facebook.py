@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+
 import datetime as dt
 
 import pandas as pd
@@ -12,6 +14,7 @@ from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
 from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
+from streamlit_app.page.socmed_components.revenue import render_revenue, revenue_comparison_for_period
 
 
 def _render_filters() -> tuple[dt.date | None, dt.date | None]:
@@ -31,6 +34,7 @@ def _render_filters() -> tuple[dt.date | None, dt.date | None]:
             options=list(presets.keys()),
             key=period_key,
         )
+        select_comparison(selected_period)
         if selected_period == "Custom Range":
             selected = st.date_input("Select Date Range", key=date_range_key)
             if not isinstance(selected, tuple) or len(selected) != 2:
@@ -213,7 +217,7 @@ def _render_metrics(metrics: dict[str, object]) -> None:
                     st.metric(
                         label,
                         value,
-                        delta=_campaign_format_growth(growth_value),
+                        delta=_campaign_format_growth(growth_value, metrics),
                         delta_color="off" if growth_value == 0 else ("inverse" if key == "page_fan_removes" else "normal"),
                     )
 
@@ -553,9 +557,11 @@ async def show_facebook_page(host: str) -> None:
         st.warning("Start date cannot be after end date.")
         return
 
-    selected_range = (start_date, end_date)
+    revenue_comparison = revenue_comparison_for_period(st.session_state.get("facebook_analytics_period"))
+    selected_range = (start_date, end_date, revenue_comparison) + comparison_cache_key()
     should_fetch = (
         "facebook_analytics_payload" not in st.session_state
+        or "revenue" not in st.session_state.get("facebook_analytics_payload", {}).get("data", {})
         or st.session_state.get("facebook_analytics_range") != selected_range
     )
     if should_fetch:
@@ -566,6 +572,7 @@ async def show_facebook_page(host: str) -> None:
             response = await fetch_legacy_socmed_payload(
                 host=host,
                 uri="facebook/analytics",
+                revenue_comparison=revenue_comparison,
                 start_date=start_date,
                 end_date=end_date,
                 fallback_message="Failed to fetch Facebook analytics.",
@@ -580,6 +587,8 @@ async def show_facebook_page(host: str) -> None:
     media_daily_df = _media_daily_dataframe(payload.get("media_daily_rows", []))
     media_df = _media_dataframe(payload.get("media_rows", []))
 
+    render_revenue(payload.get("revenue"))
+    st.markdown("## Account insights")
     _render_metrics(payload.get("metrics", {}))
     followers_figure = _build_followers_figure(daily_df)
     performance_figure = _build_daily_performance_figure(daily_df)

@@ -424,6 +424,8 @@ class FastApiApp:
         Returns:
             None: Middleware handlers are attached to ``self.app``.
         """
+        from app.utils.period_comparison import AnalyticsComparisonMiddleware
+        self.app.add_middleware(AnalyticsComparisonMiddleware)
         self._add_cors_middleware()
         self._add_trusted_host_middleware()
 
