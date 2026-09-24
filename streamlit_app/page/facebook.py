@@ -567,6 +567,7 @@ async def show_facebook_page(host: str) -> None:
         "facebook_analytics_payload" not in st.session_state
         or "growth_percentage" not in st.session_state.get("facebook_analytics_payload", {}).get("data", {}).get("media_summary", {})
         or "revenue" not in st.session_state.get("facebook_analytics_payload", {}).get("data", {})
+        or "daily_rows" not in st.session_state.get("facebook_analytics_payload", {}).get("data", {}).get("revenue", {})
         or st.session_state.get("facebook_analytics_range") != selected_range
     )
     if should_fetch:
