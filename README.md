@@ -148,7 +148,8 @@ Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
 - `all_subscription` — one row per date from ALL SUBS: total/new subscription quantities and amounts, and daily unique users (`Total Subscription (users)` → `unique_subscribers`). The retired `new_subscribers` column is removed; historical source headers remain supported. Daily unique users are not summed into period unique users. Uses `ALL_DEPO_GSHEET_ID`, `ALL_SUBS_GSHEET_RANGE` and `GSHEET_SA_CREDS`. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Amounts retain the source units.
 - `first_subs` — one row per date from FIRST SUBS, keyed by `date`, with `pull_date` recorded at load. Maps Register (Qty) → `register_qty`, First Subscription (Qty/Amount) → `first_subscription_qty`/`first_subscription_amount`, Auto Closing (User/Amount) → `first_subscription_auto_closing_users`/`first_subscription_auto_closing_amount`, and Closing Consultant (users/Amount) → `first_subscription_consultant_users`/`first_subscription_consultant_amount`. Uses `FIRST_SUBS_GSHEET_RANGE`, `ALL_DEPO_GSHEET_ID`, and `GSHEET_SA_CREDS`. Available under Update Data → First Subscription (GSheet) and included in scheduled updates. Manual loads replace the selected dates; auto refreshes H-7 through H-1. Counts must be whole nonnegative numbers and amounts finite and nonnegative. Header-only sources replace the selected window with no rows, following the shared ETL policy.
 - `ms_deposit`
-- `all_depo` — daily ALL DEPO aggregates; one row per date, register quantity and total/first-deposit quantities and amounts, split by auto closing and consultant. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Values retain the source sheet units.
+- `all_depo` — daily total-deposit aggregates from ALL DEPO; total qty/users/amount and Auto Closing/Consultant splits. Uses `ALL_DEPO_GSHEET_ID`, `ALL_DEPO_GSHEET_RANGE`, and `GSHEET_SA_CREDS`. Manual updates replace selected dates; auto refreshes H-7 through H-1.
+- `first_depo` — daily register and first-deposit aggregates from FIRST DEPO, independent of ads attribution. Uses `FIRST_DEPO_GSHEET_RANGE` with the shared `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`. Stores register qty, first-deposit qty/amount and Auto Closing/Consultant qty/amount plus date/pull_date. Available under First Depo Revenue (GSheet). Migration `20261002_003_split_first_depo` copies historical first-deposit values and pull dates from all_depo, preserving existing first_depo rows, then drops the moved columns. Deposit Revenue joins both sources by date; absent source values remain unknown, including derived Top Up metrics.
 - `play_console_install_metrics`
 - `apple_install`
 
@@ -349,7 +350,7 @@ Contoh:
 - `ALL_SUBS_GSHEET_RANGE` (for example `'ALL SUBS'!A:F`)
 - `FIRST_SUBS_GSHEET_RANGE` (for example `'FIRST SUBS'!A:H`; shares `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`)
 - `ALL_DEPO_GSHEET_ID`
-- `ALL_DEPO_GSHEET_RANGE` (for example `'ALL DEPO'!A:N`; uses `GSHEET_SA_CREDS`)
+- `ALL_DEPO_GSHEET_RANGE` (for example `'ALL DEPO'!A:J`; uses `GSHEET_SA_CREDS`)
 - `DAILY_REGIS_SHEET_ID`
 - `DAILY_REGIS_SHEET_RANGE`
 - `REGIS_UTM_GHSEET_SHEET_ID`
@@ -639,3 +640,5 @@ lain bergantung pada file lokal; README tidak menyatakan seluruh suite selalu lu
 - DB init: `init_db.py`
 - Scheduled ETL: `run_scheduled_etl.py`
 - Docker scheduler entrypoint: `docker/scheduler-entrypoint.sh`
+
+- `FIRST_DEPO_GSHEET_RANGE` (for example `'FIRST DEPO'!A:H`; shares `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`)

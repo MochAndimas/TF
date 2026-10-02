@@ -438,6 +438,31 @@ async def _migration_20261002_002_all_subscription_drop_new_subscribers(connecti
         await connection.execute(text("ALTER TABLE all_subscription DROP COLUMN new_subscribers"))
 
 
+async def _migration_20261002_003_split_first_depo(connection) -> None:
+    """Move historical first-deposit metrics before removing their old columns."""
+    from app.db.models.external_api import FirstDepo
+
+    await connection.run_sync(lambda conn: FirstDepo.__table__.create(conn, checkfirst=True))
+    columns = {row[1] for row in (await connection.execute(text("PRAGMA table_info('all_depo')"))).fetchall()}
+    moved = [column.name for column in FirstDepo.__table__.columns if column.name not in {"date", "pull_date"}]
+    if not set(moved).issubset(columns):
+        if set(moved) & columns:
+            raise ValueError("Cannot migrate partially split ALL DEPO schema.")
+        return
+    names = ", ".join(["date", *moved, "pull_date"])
+    await connection.execute(text(
+        f"INSERT INTO first_depo ({names}) SELECT {names} FROM all_depo WHERE 1 "
+        "ON CONFLICT(date) DO NOTHING"
+    ))
+    missing = await connection.scalar(text(
+        "SELECT COUNT(*) FROM all_depo a LEFT JOIN first_depo f ON a.date = f.date WHERE f.date IS NULL"
+    ))
+    if missing:
+        raise ValueError("First deposit history copy is incomplete.")
+    for column in moved:
+        await connection.execute(text(f"ALTER TABLE all_depo DROP COLUMN {column}"))
+
+
 async def _migration_20260918_001_data_socmed(connection) -> None:
     """Create social media registration storage."""
     from app.db.models.external_api import DataSocmed
@@ -580,6 +605,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20261002_002_all_subscription_drop_new_subscribers",
         "Remove retired new_subscribers column from ALL SUBS.",
         _migration_20261002_002_all_subscription_drop_new_subscribers,
+    ),
+    (
+        "20261002_003_split_first_depo",
+        "Move first-deposit history into first_depo and split ALL DEPO storage.",
+        _migration_20261002_003_split_first_depo,
     ),
 )
 

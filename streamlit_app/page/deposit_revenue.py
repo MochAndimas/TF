@@ -135,6 +135,8 @@ def closing_breakdown(metrics, prefix, measure='amount'):
     total = metrics[f'{prefix}_{measure}']
     amounts = [metrics[f'{prefix}_auto_closing_{measure}'], metrics[f'{prefix}_consultant_{measure}']]
     labels = ['Auto Closing', 'Consultant']
+    if total is None or any(value is None for value in amounts):
+        return None
     remainder = total - sum(amounts)
     if remainder < -0.01:
         return None
@@ -160,7 +162,7 @@ def render_report(data):
             with col, st.container(border=True):
                 value = totals[key]
                 amount = key.endswith('_amount') or key.startswith('average_')
-                _render_metric_with_growth(st, LABELS[key], (_campaign_format_currency(value, compact=True) if value is not None else '—') if amount else f'{value:,.0f}',
+                _render_metric_with_growth(st, LABELS[key], (_campaign_format_currency(value, compact=True) if value is not None else '—') if amount else ('—' if value is None else f'{value:,.0f}'),
                     delta=_campaign_format_growth(data['growth_percentage'].get(key), data),
                     help='Sum of daily depositing-user counts. A returning user can count on multiple days.' if key=='total_deposit_user_qty' else money(value) if amount else None)
     frame = daily_frame(data)
@@ -195,7 +197,7 @@ def render_report(data):
                 amount = key.endswith('_amount')
                 _render_metric_with_growth(
                     st, label,
-                    _campaign_format_currency(value, compact=True) if amount else f'{value:,.0f}',
+                    _campaign_format_currency(value, compact=True) if amount else ('—' if value is None else f'{value:,.0f}'),
                     delta=_campaign_format_growth(data['growth_percentage'].get(key), data),
                     help=money(value) if amount else None,
                 )
@@ -208,7 +210,7 @@ def render_report(data):
             st.markdown(f'#### {title}')
             breakdown = closing_breakdown(totals,prefix,measure)
             if breakdown is None:
-                st.warning('Closing-method amounts exceed the reported total. Check source data before comparing shares.')
+                st.warning('Closing-method data is missing or exceeds the reported total. Update both All Depo and First Depo Revenue.')
             elif sum(breakdown[1]) == 0:
                 st.info('No deposit data available for this period.')
             else:
@@ -223,13 +225,13 @@ def render_report(data):
             'Total Amount (IDR)':totals[f'total_deposit_{key}_amount'],
             'First Deposit Qty':totals[f'first_deposit_{key}_qty'],
             'First Deposit Amount (IDR)':totals[f'first_deposit_{key}_amount']})
-    st.dataframe(pd.DataFrame(methods).style.format({'Total Amount (IDR)':'Rp {:,.2f}','First Deposit Amount (IDR)':'Rp {:,.2f}'}),hide_index=True,width='stretch')
+    st.dataframe(pd.DataFrame(methods).style.format({'Total Amount (IDR)':'Rp {:,.2f}','First Deposit Amount (IDR)':'Rp {:,.2f}'}, na_rep='—'),hide_index=True,width='stretch')
     st.markdown('## Daily Details')
     details = pd.DataFrame(data['daily_rows']).sort_values('date',ascending=False)
     details['date'] = pd.to_datetime(details['date']).dt.date
     display = details.rename(columns={'date':'Date','pull_date':'Last Updated',**LABELS})
     with st.container(border=True):
-        st.dataframe(display.style.format({LABELS[key]:'Rp {:,.2f}' for key in details.columns if key.endswith('_amount')}),
+        st.dataframe(display.style.format({LABELS[key]:'Rp {:,.2f}' for key in details.columns if key.endswith('_amount')}, na_rep='—'),
             hide_index=True,width='stretch',column_config={'Date':st.column_config.DateColumn(format='DD MMM YYYY')})
 
 

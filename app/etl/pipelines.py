@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.external_api import (
     AllDepo,
+    FirstDepo,
     AllSubscription,
     FirstSubs,
     DataSocmed,
@@ -35,6 +36,7 @@ from app.etl.load import (
     build_all_subscription_rows, upsert_all_subscription_rows,
     build_first_subs_rows, upsert_first_subs_rows,
     build_all_depo_rows, upsert_all_depo_rows,
+    build_first_depo_rows, upsert_first_depo_rows,
     build_apple_install_rows,
     build_ads_rows,
     build_daily_register_rows,
@@ -80,6 +82,7 @@ from app.etl.quality import (
     validate_all_subscription_dataframe,
     validate_first_subs_dataframe,
     validate_all_depo_dataframe,
+    validate_first_depo_dataframe,
     validate_apple_install_dataframe,
     validate_ads_dataframe,
     validate_daily_register_dataframe,
@@ -119,6 +122,7 @@ from app.etl.transform import (
     parse_all_subscription_dataframe,
     parse_first_subs_dataframe,
     parse_all_depo_dataframe,
+    parse_first_depo_dataframe,
     parse_apple_install_dataframe,
     parse_ads_dataframe,
     parse_daily_register_dataframe,
@@ -1590,6 +1594,35 @@ class GoogleSheetApi(DateWindowPipelineRunner):
                 extract=extract, stage=stage, parse=parse_all_depo_dataframe,
                 validate=validate_all_depo_dataframe, build_rows=build_all_depo_rows,
                 delete_window=delete_window, load_rows=upsert_all_depo_rows,
+            ),
+            session=session, start_date=start_date, end_date=end_date, types=types, run_id=run_id,
+        )
+
+
+    async def first_depo(self, session: AsyncSession, start_date=None, end_date=None,
+                       types: str = "auto", run_id: str | None = None) -> str:
+        """Replace the selected daily aggregate window from FIRST DEPO."""
+        async def extract(_start, _end):
+            return await self.extractor.fetch_first_depo_rows()
+
+        async def stage(session_, raw_rows, run_id_):
+            return await stage_ads_raw(
+                session_, raw_rows, run_id=run_id_, source="first_depo",
+                range_name=self.extractor.first_depo_sheet_range,
+            )
+
+        async def delete_window(session_, target_start, target_end):
+            return await delete_rows_in_date_window(
+                session_, FirstDepo, window_start=target_start, window_end=target_end,
+            )
+
+        return await self._run_date_window_pipeline(
+            spec=DateWindowPipelineSpec(
+                label="first_depo", source="first_depo", empty_metric_name="First Depo",
+                date_column="date", auto_skip_model=FirstDepo,
+                extract=extract, stage=stage, parse=parse_first_depo_dataframe,
+                validate=validate_first_depo_dataframe, build_rows=build_first_depo_rows,
+                delete_window=delete_window, load_rows=upsert_first_depo_rows,
             ),
             session=session, start_date=start_date, end_date=end_date, types=types, run_id=run_id,
         )

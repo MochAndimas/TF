@@ -811,7 +811,6 @@ class AllDepo(SqliteBase):
 
     __tablename__ = "all_depo"
     date = Column(Date, primary_key=True)
-    register_qty = Column(Integer, nullable=False)
     total_deposit_qty = Column(Integer, nullable=False)
     total_deposit_user_qty = Column(Integer, nullable=False, default=0)
     total_deposit_amount = Column(Float, nullable=False)
@@ -821,6 +820,15 @@ class AllDepo(SqliteBase):
     total_deposit_consultant_qty = Column(Integer, nullable=False)
     total_deposit_consultant_user_qty = Column(Integer, nullable=False, default=0)
     total_deposit_consultant_amount = Column(Float, nullable=False)
+    pull_date = Column(Date, nullable=False)
+
+
+class FirstDepo(SqliteBase):
+    """Daily aggregates from FIRST DEPO, independent of ads attribution."""
+
+    __tablename__ = "first_depo"
+    date = Column(Date, primary_key=True)
+    register_qty = Column(Integer, nullable=False)
     first_deposit_qty = Column(Integer, nullable=False)
     first_deposit_amount = Column(Float, nullable=False)
     first_deposit_auto_closing_qty = Column(Integer, nullable=False)
