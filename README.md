@@ -145,11 +145,11 @@ Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
 - `regis_utm_daily`
 - `first_deposit`
 - `first_deposit_ba`
-- `all_subscription` — one row per date from ALL SUBS: total/new subscription quantities and amounts, and daily unique users (`Total Subscription (users)` → `unique_subscribers`). The retired `new_subscribers` column is removed; historical source headers remain supported. Daily unique users are not summed into period unique users. Uses `ALL_DEPO_GSHEET_ID`, `ALL_SUBS_GSHEET_RANGE` and `GSHEET_SA_CREDS`. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Amounts retain the source units.
-- `first_subs` — one row per date from FIRST SUBS, keyed by `date`, with `pull_date` recorded at load. Maps Register (Qty) → `register_qty`, First Subscription (Qty/Amount) → `first_subscription_qty`/`first_subscription_amount`, Auto Closing (User/Amount) → `first_subscription_auto_closing_users`/`first_subscription_auto_closing_amount`, and Closing Consultant (users/Amount) → `first_subscription_consultant_users`/`first_subscription_consultant_amount`. Uses `FIRST_SUBS_GSHEET_RANGE`, `ALL_DEPO_GSHEET_ID`, and `GSHEET_SA_CREDS`. Available under Update Data → First Subscription (GSheet) and included in scheduled updates. Manual loads replace the selected dates; auto refreshes H-7 through H-1. Counts must be whole nonnegative numbers and amounts finite and nonnegative. Header-only sources replace the selected window with no rows, following the shared ETL policy.
+- `all_subscription` — one row per date from ALL SUBS: total/new subscription quantities and amounts, and daily unique users (`Total Subscription (users)` → `unique_subscribers`). The retired `new_subscribers` column is removed; historical source headers remain supported. Daily unique users are not summed into period unique users. Uses `OVERVIEW_GSHEET_ID`, `ALL_SUBS_GSHEET_RANGE` and `GSHEET_SA_CREDS`. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Amounts retain the source units.
+- `first_subs` — one row per date from FIRST SUBS, keyed by `date`, with `pull_date` recorded at load. Maps Register (Qty) → `register_qty`, First Subscription (Qty/Amount) → `first_subscription_qty`/`first_subscription_amount`, Auto Closing (User/Amount) → `first_subscription_auto_closing_users`/`first_subscription_auto_closing_amount`, and Closing Consultant (users/Amount) → `first_subscription_consultant_users`/`first_subscription_consultant_amount`. Uses `FIRST_SUBS_GSHEET_RANGE`, `OVERVIEW_GSHEET_ID`, and `GSHEET_SA_CREDS`. Available under Update Data → First Subscription (GSheet) and included in scheduled updates. Manual loads replace the selected dates; auto refreshes H-7 through H-1. Counts must be whole nonnegative numbers and amounts finite and nonnegative. Header-only sources replace the selected window with no rows, following the shared ETL policy.
 - `ms_deposit`
-- `all_depo` — daily total-deposit aggregates from ALL DEPO; total qty/users/amount and Auto Closing/Consultant splits. Uses `ALL_DEPO_GSHEET_ID`, `ALL_DEPO_GSHEET_RANGE`, and `GSHEET_SA_CREDS`. Manual updates replace selected dates; auto refreshes H-7 through H-1.
-- `first_depo` — daily register and first-deposit aggregates from FIRST DEPO, independent of ads attribution. Uses `FIRST_DEPO_GSHEET_RANGE` with the shared `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`. Stores register qty, first-deposit qty/amount and Auto Closing/Consultant qty/amount plus date/pull_date. Available under First Depo Revenue (GSheet). Migration `20261002_003_split_first_depo` copies historical first-deposit values and pull dates from all_depo, preserving existing first_depo rows, then drops the moved columns. Deposit Revenue joins both sources by date; absent source values remain unknown, including derived Top Up metrics.
+- `all_depo` — daily total-deposit aggregates from ALL DEPO; total qty/users/amount and Auto Closing/Consultant splits. Uses `OVERVIEW_GSHEET_ID`, `ALL_DEPO_GSHEET_RANGE`, and `GSHEET_SA_CREDS`. Manual updates replace selected dates; auto refreshes H-7 through H-1.
+- `first_depo` — daily register and first-deposit aggregates from FIRST DEPO, independent of ads attribution. Uses `FIRST_DEPO_GSHEET_RANGE` with the shared `OVERVIEW_GSHEET_ID` and `GSHEET_SA_CREDS`. Stores register qty, first-deposit qty/amount and Auto Closing/Consultant qty/amount plus date/pull_date. Available under First Depo Revenue (GSheet). Migration `20261002_003_split_first_depo` copies historical first-deposit values and pull dates from all_depo, preserving existing first_depo rows, then drops the moved columns. Deposit Revenue joins both sources by date; absent source values remain unknown, including derived Top Up metrics.
 - `play_console_install_metrics`
 - `apple_install`
 
@@ -348,8 +348,8 @@ Contoh:
 - `FIRST_DEPOSIT_SHEET_RANGE`
 - `MS_DEPOSIT_SHEET_RANGE`
 - `ALL_SUBS_GSHEET_RANGE` (for example `'ALL SUBS'!A:F`)
-- `FIRST_SUBS_GSHEET_RANGE` (for example `'FIRST SUBS'!A:H`; shares `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`)
-- `ALL_DEPO_GSHEET_ID`
+- `FIRST_SUBS_GSHEET_RANGE` (for example `'FIRST SUBS'!A:H`; shares `OVERVIEW_GSHEET_ID` and `GSHEET_SA_CREDS`)
+- `OVERVIEW_GSHEET_ID`
 - `ALL_DEPO_GSHEET_RANGE` (for example `'ALL DEPO'!A:J`; uses `GSHEET_SA_CREDS`)
 - `DAILY_REGIS_SHEET_ID`
 - `DAILY_REGIS_SHEET_RANGE`
@@ -641,4 +641,6 @@ lain bergantung pada file lokal; README tidak menyatakan seluruh suite selalu lu
 - Scheduled ETL: `run_scheduled_etl.py`
 - Docker scheduler entrypoint: `docker/scheduler-entrypoint.sh`
 
-- `FIRST_DEPO_GSHEET_RANGE` (for example `'FIRST DEPO'!A:H`; shares `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`)
+- `FIRST_DEPO_GSHEET_RANGE` (for example `'FIRST DEPO'!A:H`; shares `OVERVIEW_GSHEET_ID` and `GSHEET_SA_CREDS`)
+
+Subscription Revenue also reads `first_subs` independently of ALL SUBS. First Subscription adds register/first-subscription qty, first-subscription revenue, Auto Closing/Consultant revenue and daily user sums, previous-period growth, four daily charts, and a separate daily details table. Missing dates remain chart gaps; First Subscription is not treated as equivalent to New Subscription.

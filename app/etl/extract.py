@@ -138,7 +138,7 @@ class ExternalApiExtractor:
         self.data_socmed_sheet_range = config("DATA_SOCMED_GSHEET_RANGE", default="", cast=str).strip()
         self.first_subs_sheet_range = config("FIRST_SUBS_GSHEET_RANGE", default="", cast=str).strip()
         self.all_subscription_sheet_range = config("ALL_SUBS_GSHEET_RANGE", default="", cast=str).strip()
-        self.all_depo_sheet_id = config("ALL_DEPO_GSHEET_ID", default="", cast=str).strip()
+        self.overview_sheet_id = config("OVERVIEW_GSHEET_ID", default="", cast=str).strip()
         self.first_depo_sheet_range = config("FIRST_DEPO_GSHEET_RANGE", default="", cast=str).strip()
         self.all_depo_sheet_range = config("ALL_DEPO_GSHEET_RANGE", default="", cast=str).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
@@ -2857,12 +2857,12 @@ class ExternalApiExtractor:
 
     async def fetch_all_depo_rows(self) -> list:
         """Read daily aggregates using the shared Sheets service account."""
-        if self.service is None or not self.all_depo_sheet_id or not self.all_depo_sheet_range:
-            raise ValueError("All Depo requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and ALL_DEPO_GSHEET_RANGE.")
+        if self.service is None or not self.overview_sheet_id or not self.all_depo_sheet_range:
+            raise ValueError("All Depo requires GSHEET_SA_CREDS, OVERVIEW_GSHEET_ID and ALL_DEPO_GSHEET_RANGE.")
 
         def request():
             return self.service.spreadsheets().values().get(
-                spreadsheetId=self.all_depo_sheet_id,
+                spreadsheetId=self.overview_sheet_id,
                 range=self.all_depo_sheet_range,
                 valueRenderOption="UNFORMATTED_VALUE",
                 dateTimeRenderOption="FORMATTED_STRING",
@@ -2873,12 +2873,12 @@ class ExternalApiExtractor:
 
     async def fetch_first_depo_rows(self) -> list:
         """Read daily aggregates using the shared Sheets service account."""
-        if self.service is None or not self.all_depo_sheet_id or not self.first_depo_sheet_range:
-            raise ValueError("First Depo requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and FIRST_DEPO_GSHEET_RANGE.")
+        if self.service is None or not self.overview_sheet_id or not self.first_depo_sheet_range:
+            raise ValueError("First Depo requires GSHEET_SA_CREDS, OVERVIEW_GSHEET_ID and FIRST_DEPO_GSHEET_RANGE.")
 
         def request():
             return self.service.spreadsheets().values().get(
-                spreadsheetId=self.all_depo_sheet_id,
+                spreadsheetId=self.overview_sheet_id,
                 range=self.first_depo_sheet_range,
                 valueRenderOption="UNFORMATTED_VALUE",
                 dateTimeRenderOption="FORMATTED_STRING",
@@ -2889,12 +2889,12 @@ class ExternalApiExtractor:
 
     async def fetch_all_subscription_rows(self) -> list:
         """Read daily aggregates using the shared Sheets service account."""
-        if self.service is None or not self.all_depo_sheet_id or not self.all_subscription_sheet_range:
-            raise ValueError("All Subscription requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and ALL_SUBS_GSHEET_RANGE.")
+        if self.service is None or not self.overview_sheet_id or not self.all_subscription_sheet_range:
+            raise ValueError("All Subscription requires GSHEET_SA_CREDS, OVERVIEW_GSHEET_ID and ALL_SUBS_GSHEET_RANGE.")
 
         def request():
             return self.service.spreadsheets().values().get(
-                spreadsheetId=self.all_depo_sheet_id,
+                spreadsheetId=self.overview_sheet_id,
                 range=self.all_subscription_sheet_range,
                 valueRenderOption="UNFORMATTED_VALUE",
                 dateTimeRenderOption="FORMATTED_STRING",
@@ -2905,12 +2905,12 @@ class ExternalApiExtractor:
 
     async def fetch_first_subs_rows(self) -> list:
         """Read daily aggregates using the shared Sheets service account."""
-        if self.service is None or not self.all_depo_sheet_id or not self.first_subs_sheet_range:
-            raise ValueError("First Subs requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and FIRST_SUBS_GSHEET_RANGE.")
+        if self.service is None or not self.overview_sheet_id or not self.first_subs_sheet_range:
+            raise ValueError("First Subs requires GSHEET_SA_CREDS, OVERVIEW_GSHEET_ID and FIRST_SUBS_GSHEET_RANGE.")
 
         def request():
             return self.service.spreadsheets().values().get(
-                spreadsheetId=self.all_depo_sheet_id,
+                spreadsheetId=self.overview_sheet_id,
                 range=self.first_subs_sheet_range,
                 valueRenderOption="UNFORMATTED_VALUE",
                 dateTimeRenderOption="FORMATTED_STRING",
