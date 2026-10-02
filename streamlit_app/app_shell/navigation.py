@@ -96,25 +96,8 @@ def sync_page_url_hash(page_key: str | None) -> None:
     if not slug:
         return
 
-    script = """
-        <script>
-        const desiredPage = "__PAGE_SLUG__";
-        const url = new URL(window.parent.location.href);
-        let changed = false;
-        if (url.searchParams.get("page") !== desiredPage) {
-          url.searchParams.set("page", desiredPage);
-          changed = true;
-        }
-        if (url.hash) {
-          url.hash = "";
-          changed = true;
-        }
-        if (changed) {
-          window.parent.history.replaceState(null, "", url.toString());
-        }
-        </script>
-        """
-    html(script.replace("__PAGE_SLUG__", slug), height=0, width=0)
+    if st.query_params.get("page") != slug:
+        st.query_params["page"] = slug
 
 
 def allowed_pages_for_role(role: str | None) -> list[str]:

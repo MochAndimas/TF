@@ -26,9 +26,8 @@ def _daily_revenue_frame(metrics: dict) -> pd.DataFrame:
     frame = pd.DataFrame(rows)
     if frame.empty:
         frame = pd.DataFrame(columns=["date", "register", "first_deposit_qty"])
-    else:
-        frame["date"] = pd.to_datetime(frame["date"])
-        frame = frame.set_index("date")
+    frame["date"] = pd.to_datetime(frame["date"])
+    frame = frame.set_index("date")
     frame = frame.reindex(pd.date_range(start_date, end_date), fill_value=0).rename_axis("date").reset_index()
     for column in ("register", "first_deposit_qty"):
         frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0)

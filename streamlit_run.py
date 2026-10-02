@@ -101,8 +101,8 @@ def main() -> None:
         hide_sidebar_on_login()
 
     try:
+        sync_page_url_hash(selected_page)
         asyncio.run(_dispatch_page(host=host, selected_page=selected_page))
-        sync_page_url_hash(st.session_state.get("page"))
     except Exception as error:
         st.error(f"Error fetching data: {error}")
 
