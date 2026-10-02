@@ -145,7 +145,8 @@ Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
 - `regis_utm_daily`
 - `first_deposit`
 - `first_deposit_ba`
-- `all_subscription` — one row per date from ALL RAW SUBS: total/new subscription quantities and amounts, and total/new subscribers. Uses `ALL_DEPO_GSHEET_ID`, `ALL_SUBS_GSHEET_RANGE` and `GSHEET_SA_CREDS`. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Amounts retain the source units.
+- `all_subscription` — one row per date from ALL SUBS: total/new subscription quantities and amounts, and daily unique users (`Total Subscription (users)` → `unique_subscribers`). The retired `new_subscribers` column is removed; historical source headers remain supported. Daily unique users are not summed into period unique users. Uses `ALL_DEPO_GSHEET_ID`, `ALL_SUBS_GSHEET_RANGE` and `GSHEET_SA_CREDS`. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Amounts retain the source units.
+- `first_subs` — one row per date from FIRST SUBS, keyed by `date`, with `pull_date` recorded at load. Maps Register (Qty) → `register_qty`, First Subscription (Qty/Amount) → `first_subscription_qty`/`first_subscription_amount`, Auto Closing (User/Amount) → `first_subscription_auto_closing_users`/`first_subscription_auto_closing_amount`, and Closing Consultant (users/Amount) → `first_subscription_consultant_users`/`first_subscription_consultant_amount`. Uses `FIRST_SUBS_GSHEET_RANGE`, `ALL_DEPO_GSHEET_ID`, and `GSHEET_SA_CREDS`. Available under Update Data → First Subscription (GSheet) and included in scheduled updates. Manual loads replace the selected dates; auto refreshes H-7 through H-1. Counts must be whole nonnegative numbers and amounts finite and nonnegative. Header-only sources replace the selected window with no rows, following the shared ETL policy.
 - `ms_deposit`
 - `all_depo` — daily ALL DEPO aggregates; one row per date, register quantity and total/first-deposit quantities and amounts, split by auto closing and consultant. Manual updates replace the selected dates; auto refreshes H-7 through H-1. Values retain the source sheet units.
 - `play_console_install_metrics`
@@ -345,7 +346,8 @@ Contoh:
 - `FIRST_DEPOSIT_SHEET_ID`
 - `FIRST_DEPOSIT_SHEET_RANGE`
 - `MS_DEPOSIT_SHEET_RANGE`
-- `ALL_SUBS_GSHEET_RANGE` (for example `'ALL RAW SUBS'!A:G`)
+- `ALL_SUBS_GSHEET_RANGE` (for example `'ALL SUBS'!A:F`)
+- `FIRST_SUBS_GSHEET_RANGE` (for example `'FIRST SUBS'!A:H`; shares `ALL_DEPO_GSHEET_ID` and `GSHEET_SA_CREDS`)
 - `ALL_DEPO_GSHEET_ID`
 - `ALL_DEPO_GSHEET_RANGE` (for example `'ALL DEPO'!A:N`; uses `GSHEET_SA_CREDS`)
 - `DAILY_REGIS_SHEET_ID`

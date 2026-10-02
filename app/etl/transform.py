@@ -1140,8 +1140,7 @@ ALL_SUBSCRIPTION_COLUMNS = {
     "Total Subscription (Amount)": "total_subscription_amount",
     "New Subscription (Qty)": "new_subscription_qty",
     "New Subscription (Amount)": "new_subscription_amount",
-    "Total Subscribers": "total_subscribers",
-    "New Subscribers": "new_subscribers",
+    "Total Subscribers": "unique_subscribers",
 }
 
 
@@ -1155,6 +1154,7 @@ def parse_all_subscription_dataframe(raw_rows: list) -> pd.DataFrame:
         return " ".join(str(header).lower().split())
 
     mapping = {normalize(header): column for header, column in ALL_SUBSCRIPTION_COLUMNS.items()}
+    mapping[normalize("Total Subscription (users)")] = "unique_subscribers"
     headers = [mapping.get(normalize(header), normalize(header)) for header in raw_rows[0]]
     if len(headers) != len(set(headers)):
         raise ValueError("DQ failed: All Subscription has duplicate headers.")
@@ -1168,12 +1168,60 @@ def parse_all_subscription_dataframe(raw_rows: list) -> pd.DataFrame:
         if len(row) > len(headers):
             raise ValueError("DQ failed: All Subscription row exceeds header width.")
         rows.append(list(row) + [None] * (len(headers) - len(row)))
-    df = pd.DataFrame(rows, columns=headers)[columns].copy()
+    df = pd.DataFrame(rows, columns=headers)
+    df = df[columns].copy()
     df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d", errors="coerce").dt.date
     if df["date"].isna().any():
         raise ValueError("DQ failed: All Subscription contains invalid dates.")
     for column in columns[1:]:
-        df[column] = pd.to_numeric(df[column], errors="coerce")
+        values = pd.to_numeric(df[column], errors="coerce")
+        df[column] = values
+    return df.sort_values("date")
+
+
+FIRST_SUBS_COLUMNS = {
+    "Tanggal": "date",
+    "Register (Qty)": "register_qty",
+    "First Subscription (Qty)": "first_subscription_qty",
+    "First Subscription (Amount)": "first_subscription_amount",
+    "First Subscription Auto Closing (User)": "first_subscription_auto_closing_users",
+    "First Subscription Auto Closing (Amount)": "first_subscription_auto_closing_amount",
+    "First Subscription Closing Consultant (users)": "first_subscription_consultant_users",
+    "First Subscription Closing Consultant (Amount)": "first_subscription_consultant_amount",
+}
+
+
+def parse_first_subs_dataframe(raw_rows: list) -> pd.DataFrame:
+    """Map sheet headers to daily metrics without tag filtering or aggregation."""
+    columns = list(FIRST_SUBS_COLUMNS.values())
+    if not raw_rows:
+        return pd.DataFrame(columns=columns)
+
+    def normalize(header):
+        return " ".join(str(header).lower().split())
+
+    mapping = {normalize(header): column for header, column in FIRST_SUBS_COLUMNS.items()}
+    headers = [mapping.get(normalize(header), normalize(header)) for header in raw_rows[0]]
+    if len(headers) != len(set(headers)):
+        raise ValueError("DQ failed: First Subs has duplicate headers.")
+    missing = set(columns) - set(headers)
+    if missing:
+        raise ValueError(f"Missing columns in First Subs sheet: {sorted(missing)}")
+    rows = []
+    for row in raw_rows[1:]:
+        if not any(str(value).strip() for value in row):
+            continue
+        if len(row) > len(headers):
+            raise ValueError("DQ failed: First Subs row exceeds header width.")
+        rows.append(list(row) + [None] * (len(headers) - len(row)))
+    df = pd.DataFrame(rows, columns=headers)
+    df = df[columns].copy()
+    df["date"] = pd.to_datetime(df["date"], format="%Y-%m-%d", errors="coerce").dt.date
+    if df["date"].isna().any():
+        raise ValueError("DQ failed: First Subs contains invalid dates.")
+    for column in columns[1:]:
+        values = pd.to_numeric(df[column], errors="coerce")
+        df[column] = values
     return df.sort_values("date")
 
 

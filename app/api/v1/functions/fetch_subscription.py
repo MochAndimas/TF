@@ -13,7 +13,7 @@ FLOW_FIELDS = (
     "total_subscription_amount", "new_subscription_amount",
     "total_subscription_qty", "new_subscription_qty",
 )
-DAILY_FIELDS = (*FLOW_FIELDS, "total_subscribers", "new_subscribers")
+DAILY_FIELDS = (*FLOW_FIELDS, "unique_subscribers")
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -24,8 +24,7 @@ def summarize(rows: list[dict]) -> dict:
     }
     latest = rows[-1] if rows else {}
     totals.update(
-        total_subscribers=latest.get("total_subscribers"),
-        new_subscribers=latest.get("new_subscribers"),
+        unique_subscribers=latest.get("unique_subscribers"),
         subscriber_date=latest.get("date"),
     )
     return totals
@@ -54,7 +53,7 @@ async def fetch_subscription_payload(session: AsyncSession, start_date: date, en
         baseline = previous_metrics[field]
         growth[field] = (
             growth_percentage(current_metrics[field], baseline)
-            if current and previous else None
+            if current and previous and current_metrics[field] is not None and baseline is not None else None
         )
     return {
         "start_date": start_date.isoformat(), "end_date": end_date.isoformat(),

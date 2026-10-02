@@ -831,7 +831,7 @@ class AllDepo(SqliteBase):
 
 
 class AllSubscription(SqliteBase):
-    """Daily subscription aggregates from the ALL RAW SUBS sheet."""
+    """ALL SUBS aggregates; unique_subscribers counts daily unique users."""
 
     __tablename__ = "all_subscription"
     date = Column(Date, primary_key=True)
@@ -839,8 +839,22 @@ class AllSubscription(SqliteBase):
     total_subscription_amount = Column(Float, nullable=False)
     new_subscription_qty = Column(Integer, nullable=False)
     new_subscription_amount = Column(Float, nullable=False)
-    total_subscribers = Column(Integer, nullable=False)
-    new_subscribers = Column(Integer, nullable=False)
+    unique_subscribers = Column(Integer, nullable=False)
+    pull_date = Column(Date, nullable=False)
+
+
+class FirstSubs(SqliteBase):
+    """Daily first subscription aggregates from FIRST SUBS."""
+
+    __tablename__ = "first_subs"
+    date = Column(Date, primary_key=True)
+    register_qty = Column(Integer, nullable=False)
+    first_subscription_qty = Column(Integer, nullable=False)
+    first_subscription_amount = Column(Float, nullable=False)
+    first_subscription_auto_closing_users = Column(Integer, nullable=False)
+    first_subscription_auto_closing_amount = Column(Float, nullable=False)
+    first_subscription_consultant_users = Column(Integer, nullable=False)
+    first_subscription_consultant_amount = Column(Float, nullable=False)
     pull_date = Column(Date, nullable=False)
 
 

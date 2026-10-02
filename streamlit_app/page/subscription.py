@@ -19,8 +19,7 @@ LABELS = {
     "new_subscription_amount": "New Subscription Revenue",
     "total_subscription_qty": "Total Subscription Qty",
     "new_subscription_qty": "New Subscription Qty",
-    "total_subscribers": "Total Subscribers",
-    "new_subscribers": "New Subscribers",
+    "unique_subscribers": "Unique Subscription Users",
 }
 COLORS = ("#636EFA", "#00CC96")
 
@@ -97,14 +96,14 @@ def render_report(data):
         with column, st.container(border=True):
             st.plotly_chart(build_daily_figure(daily, fields, title, currency=currency), width="stretch")
     with st.container(border=True):
-        st.plotly_chart(build_daily_figure(daily, ("total_subscribers", "new_subscribers"), "Daily Subscribers"), width="stretch")
+        st.plotly_chart(build_daily_figure(daily, ("unique_subscribers", "new_subscription_qty"), "Daily Unique Users and New Subscriptions"), width="stretch")
     st.markdown('<div class="metric-section-title">Subscription Daily Details</div>', unsafe_allow_html=True)
     details = frame[["date", *LABELS]].rename(columns={"date": "Date", **LABELS})
     details["Date"] = details["Date"].dt.date
     with st.container(border=True):
         styled_details = details.sort_values("Date", ascending=False).style.format({
             label: "Rp {:,.2f}" for field, label in LABELS.items() if field.endswith("amount")
-        })
+        }, na_rep="—")
         st.dataframe(styled_details, hide_index=True, width="stretch", column_config={
             "Date": st.column_config.DateColumn(format="DD MMM YYYY"),
             **{label: st.column_config.NumberColumn(format="%d") for field, label in LABELS.items() if not field.endswith("amount")},

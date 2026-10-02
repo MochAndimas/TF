@@ -384,6 +384,60 @@ async def _migration_20260907_002_all_subscription(connection) -> None:
     )
 
 
+async def _migration_20261001_001_all_subscription_nullable_new_subscribers(connection) -> None:
+    """Preserve historical counts while allowing ALL SUBS to omit new users."""
+    columns = (await connection.execute(text("PRAGMA table_info('all_subscription')"))).fetchall()
+    if not any(row[1] == "new_subscribers" and row[3] for row in columns):
+        return
+    await connection.execute(text("""
+        CREATE TABLE all_subscription_new (
+            date DATE NOT NULL PRIMARY KEY,
+            total_subscription_qty INTEGER NOT NULL,
+            total_subscription_amount FLOAT NOT NULL,
+            new_subscription_qty INTEGER NOT NULL,
+            new_subscription_amount FLOAT NOT NULL,
+            total_subscribers INTEGER NOT NULL,
+            new_subscribers INTEGER,
+            pull_date DATE NOT NULL
+        )
+    """))
+    names = "date, total_subscription_qty, total_subscription_amount, new_subscription_qty, new_subscription_amount, total_subscribers, new_subscribers, pull_date"
+    await connection.execute(text(f"INSERT INTO all_subscription_new ({names}) SELECT {names} FROM all_subscription"))
+    await connection.execute(text("DROP TABLE all_subscription"))
+    await connection.execute(text("ALTER TABLE all_subscription_new RENAME TO all_subscription"))
+
+
+async def _migration_20261001_002_all_subscription_unique_subscribers(connection) -> None:
+    """Rename the daily unique user count without changing historical values."""
+    columns = {
+        row[1] for row in
+        (await connection.execute(text("PRAGMA table_info('all_subscription')"))).fetchall()
+    }
+    if "total_subscribers" in columns and "unique_subscribers" not in columns:
+        await connection.execute(text(
+            "ALTER TABLE all_subscription RENAME COLUMN total_subscribers TO unique_subscribers"
+        ))
+
+
+async def _migration_20261002_001_first_subs(connection) -> None:
+    """Create storage for FIRST SUBS daily aggregates."""
+    from app.db.models.external_api import FirstSubs
+
+    await connection.run_sync(
+        lambda sync_connection: FirstSubs.__table__.create(sync_connection, checkfirst=True)
+    )
+
+
+async def _migration_20261002_002_all_subscription_drop_new_subscribers(connection) -> None:
+    """Remove the retired new subscriber metric from subscription storage."""
+    columns = {
+        row[1] for row in
+        (await connection.execute(text("PRAGMA table_info('all_subscription')"))).fetchall()
+    }
+    if "new_subscribers" in columns:
+        await connection.execute(text("ALTER TABLE all_subscription DROP COLUMN new_subscribers"))
+
+
 async def _migration_20260918_001_data_socmed(connection) -> None:
     """Create social media registration storage."""
     from app.db.models.external_api import DataSocmed
@@ -506,6 +560,26 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20260921_001_all_depo_user_metrics",
         "Add ALL DEPO user-count metrics.",
         _migration_20260921_001_all_depo_user_metrics,
+    ),
+    (
+        "20261001_001_all_subscription_nullable_new_subscribers",
+        "Allow unavailable new subscriber counts in ALL SUBS.",
+        _migration_20261001_001_all_subscription_nullable_new_subscribers,
+    ),
+    (
+        "20261001_002_all_subscription_unique_subscribers",
+        "Rename subscription daily unique users to unique_subscribers.",
+        _migration_20261001_002_all_subscription_unique_subscribers,
+    ),
+    (
+        "20261002_001_first_subs",
+        "Create FIRST SUBS daily aggregate table.",
+        _migration_20261002_001_first_subs,
+    ),
+    (
+        "20261002_002_all_subscription_drop_new_subscribers",
+        "Remove retired new_subscribers column from ALL SUBS.",
+        _migration_20261002_002_all_subscription_drop_new_subscribers,
     ),
 )
 

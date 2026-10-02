@@ -136,6 +136,7 @@ class ExternalApiExtractor:
         ).strip()
         self.data_socmed_sheet_id = config("DATA_SOCMED_GSHEET", default="", cast=str).strip()
         self.data_socmed_sheet_range = config("DATA_SOCMED_GSHEET_RANGE", default="", cast=str).strip()
+        self.first_subs_sheet_range = config("FIRST_SUBS_GSHEET_RANGE", default="", cast=str).strip()
         self.all_subscription_sheet_range = config("ALL_SUBS_GSHEET_RANGE", default="", cast=str).strip()
         self.all_depo_sheet_id = config("ALL_DEPO_GSHEET_ID", default="", cast=str).strip()
         self.all_depo_sheet_range = config("ALL_DEPO_GSHEET_RANGE", default="", cast=str).strip()
@@ -2878,6 +2879,22 @@ class ExternalApiExtractor:
             return self.service.spreadsheets().values().get(
                 spreadsheetId=self.all_depo_sheet_id,
                 range=self.all_subscription_sheet_range,
+                valueRenderOption="UNFORMATTED_VALUE",
+                dateTimeRenderOption="FORMATTED_STRING",
+            ).execute().get("values", [])
+
+        return await asyncio.to_thread(request)
+
+
+    async def fetch_first_subs_rows(self) -> list:
+        """Read daily aggregates using the shared Sheets service account."""
+        if self.service is None or not self.all_depo_sheet_id or not self.first_subs_sheet_range:
+            raise ValueError("First Subs requires GSHEET_SA_CREDS, ALL_DEPO_GSHEET_ID and FIRST_SUBS_GSHEET_RANGE.")
+
+        def request():
+            return self.service.spreadsheets().values().get(
+                spreadsheetId=self.all_depo_sheet_id,
+                range=self.first_subs_sheet_range,
                 valueRenderOption="UNFORMATTED_VALUE",
                 dateTimeRenderOption="FORMATTED_STRING",
             ).execute().get("values", [])

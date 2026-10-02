@@ -705,6 +705,24 @@ def validate_all_subscription_dataframe(df: pd.DataFrame) -> None:
             raise ValueError(f"DQ failed: All Subscription requires whole counts in {column}.")
 
 
+def validate_first_subs_dataframe(df: pd.DataFrame) -> None:
+    """Reject duplicate dates, invalid counts and non-finite or negative amounts."""
+    import numpy as np
+
+    if df.empty:
+        return
+    if df["date"].isna().any() or (df["date"] < MIN_HISTORICAL_DATE).any():
+        raise ValueError("DQ failed: First Subs contains invalid dates.")
+    if df["date"].duplicated().any():
+        raise ValueError("DQ failed: First Subs contains duplicate dates.")
+    for column in df.columns.drop("date"):
+        values = pd.to_numeric(df[column], errors="coerce")
+        if not np.isfinite(values).all() or (values < 0).any():
+            raise ValueError(f"DQ failed: First Subs has invalid values in {column}.")
+        if (column.endswith("_qty") or column.endswith("_users")) and (values % 1 != 0).any():
+            raise ValueError(f"DQ failed: First Subs requires whole counts in {column}.")
+
+
 def validate_data_socmed_dataframe(df: pd.DataFrame) -> None:
     """Require valid registration keys and finite nonnegative optional deposits."""
     import numpy as np
