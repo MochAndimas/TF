@@ -500,6 +500,19 @@ async def _migration_20260921_001_all_depo_user_metrics(connection) -> None:
             )
 
 
+async def _migration_20261005_001_adjust_callbacks(connection) -> None:
+    from app.db.models.adjust import AdjustCallbackRaw, AdjustInstall
+    for model in (AdjustCallbackRaw, AdjustInstall):
+        await connection.run_sync(lambda conn, table=model.__table__: table.create(conn, checkfirst=True))
+
+
+async def _migration_20261005_002_adjust_campaign_id(connection) -> None:
+    columns = {row[1] for row in (await connection.execute(text("PRAGMA table_info('adjust_install')"))).fetchall()}
+    if "campaign_id" not in columns:
+        await connection.execute(text("ALTER TABLE adjust_install ADD COLUMN campaign_id TEXT"))
+    await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_adjust_install_campaign_id ON adjust_install(campaign_id)"))
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -611,6 +624,8 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "Move first-deposit history into first_depo and split ALL DEPO storage.",
         _migration_20261002_003_split_first_depo,
     ),
+    ("20261005_001_adjust_callbacks", "Add Adjust callback inbox and install facts.", _migration_20261005_001_adjust_callbacks),
+    ("20261005_002_adjust_campaign_id", "Add optional Adjust campaign ID.", _migration_20261005_002_adjust_campaign_id),
 )
 
 

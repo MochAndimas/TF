@@ -35,6 +35,7 @@ class RequestLogService:
     """Own request-log sampling, queueing, worker lifecycle, and DB persistence."""
 
     SKIPPED_LOG_PATHS = {
+        "/api/adjust/callback",
         "/health",
         "/docs",
         "/redoc",

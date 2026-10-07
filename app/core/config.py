@@ -102,6 +102,10 @@ class Settings(BaseModel):
     INITIAL_SUPERADMIN_PASSWORD: str | None = None
     AUTO_INIT_DB_ON_STARTUP: bool = False
     SQLITE_BUSY_TIMEOUT_MS: int = 30000
+    ADJUST_CALLBACK_SECRET: str = _read_setting("ADJUST_CALLBACK_SECRET", default="", secret=True)
+    ADJUST_APP_TOKENS: str = env("ADJUST_APP_TOKENS", default="")
+    ADJUST_CALLBACK_ENVIRONMENT: Literal["sandbox", "production"] = env("ADJUST_CALLBACK_ENVIRONMENT", default="sandbox")
+    ADJUST_CALLBACK_ALLOWED_CIDRS: str = env("ADJUST_CALLBACK_ALLOWED_CIDRS", default="")
     ALLOW_CONCURRENT_ETL_RUNS: bool = False
     REQUEST_LOG_ENABLED: bool = True
     REQUEST_LOG_SAMPLE_RATE: float = 1.0

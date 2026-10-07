@@ -41,6 +41,8 @@ from app.db.models.external_api import (
     YouTubeMediaInsight,
 )
 from app.db.session import sqlite_async_session
+from app.db.models.adjust import AdjustInstall
+from app.etl.adjust.pipeline import process_callbacks
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
 from app.etl.run_report import build_quality_report
@@ -57,6 +59,7 @@ from app.utils.etl_run_utils import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
+    "adjust_callbacks",
     "google_ads",
     "facebook_ads",
     "tiktok_ads",
@@ -483,7 +486,12 @@ async def _run_data_socmed(gsheet, session, types, start_date, end_date, run_id)
     )
 
 
+async def _run_adjust_callbacks(_gsheet, session, types, start_date, end_date, run_id):
+    return await process_callbacks(session, types, start_date, end_date, run_id)
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
+    "adjust_callbacks": _run_adjust_callbacks,
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
     "facebook_ads": _run_facebook_ads,
@@ -514,6 +522,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
 }
 
 SOURCE_MODELS = {
+    "adjust_callbacks": AdjustInstall,
     "unique_campaign": Campaign,
     "google_ads": GoogleAds,
     "facebook_ads": FacebookAds,
@@ -584,6 +593,8 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
         tuple[Any, Any]: Normalized ``(start_date, end_date)`` pair, or
         ``(None, None)`` for sources that do not operate on date windows.
     """
+    if data == "adjust_callbacks" and types == "auto":
+        return None, None
     if data == "unique_campaign":
         return None, None
     if data == "apple_report_request":
@@ -694,7 +705,7 @@ async def execute_update_job(
     async with sqlite_async_session() as session:
         try:
             await _mark_running()
-            gsheet = GoogleSheetApi()
+            gsheet = None if data == "adjust_callbacks" else GoogleSheetApi()
             executor = PIPELINE_EXECUTORS.get(data)
             if executor is None:
                 raise HTTPException(status_code=404, detail="Please chose one data to update!")

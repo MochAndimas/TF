@@ -1,5 +1,7 @@
 """Package initializer for `app.db.models` namespace."""
 
+from app.db.models.adjust import AdjustCallbackRaw, AdjustInstall  # noqa: F401
+
 # Ensure all SQLAlchemy models are imported and registered in metadata
 # before schema bootstrap runs.
 from app.db.models.etl_run import EtlRun  # noqa: F401

@@ -644,3 +644,10 @@ lain bergantung pada file lokal; README tidak menyatakan seluruh suite selalu lu
 - `FIRST_DEPO_GSHEET_RANGE` (for example `'FIRST DEPO'!A:H`; shares `OVERVIEW_GSHEET_ID` and `GSHEET_SA_CREDS`)
 
 Subscription Revenue also reads `first_subs` independently of ALL SUBS. First Subscription adds register/first-subscription qty, first-subscription revenue, Auto Closing/Consultant revenue and daily user sums, previous-period growth, four daily charts, and a separate daily details table. Missing dates remain chart gaps; First Subscription is not treated as equivalent to New Subscription.
+
+## Adjust install callbacks
+
+Install callbacks are received by `POST /api/adjust/callback`, durably stored,
+and processed by the `adjust_callbacks` ETL source. Setup, replay semantics,
+and Adjust sandbox UI configuration are in [docs/adjust-callbacks.md](docs/adjust-callbacks.md).
+Verification: `python -m unittest scripts.verification.test_adjust_callbacks`.
