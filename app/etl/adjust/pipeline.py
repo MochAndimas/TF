@@ -2,10 +2,9 @@
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
-from sqlalchemy import case, func, select
-from sqlalchemy.dialects.sqlite import insert
-from app.db.models.adjust import AdjustCallbackRaw, AdjustInstall
-from app.etl.adjust.transform import normalize_install
+from sqlalchemy import func, select
+from app.db.models.adjust import AdjustCallbackRaw
+from app.etl.adjust.registry import CALLBACK_HANDLERS
 from app.etl.transform import resolve_date_window
 
 
@@ -35,19 +34,16 @@ async def process_callbacks(session, types="auto", start_date=None, end_date=Non
             raw.attempts += 1
             raw.run_id = run_id
             try:
-                fact = normalize_install(raw.payload, raw.id)
+                kind = str(raw.payload.get("activity_kind", "")).strip().lower()
+                handler = CALLBACK_HANDLERS.get(kind)
+                if handler is None:
+                    raise ValueError("Unsupported Adjust activity_kind")
+                fact = handler.normalize(raw.payload, raw.id)
             except ValueError as error:
                 raw.status, raw.error_detail = "failed", str(error)[:500]
                 failures += 1
             else:
-                statement = insert(AdjustInstall).values(**fact)
-                updates = {"campaign_id": func.coalesce(AdjustInstall.campaign_id, statement.excluded.campaign_id)}
-                for field in ("source_name", "campaign_name", "adgroup_name", "creative_name", "tracker_name"):
-                    updates[field] = case((AdjustInstall.raw_id == raw.id, getattr(statement.excluded, field)), else_=getattr(AdjustInstall, field))
-                await session.execute(statement.on_conflict_do_update(
-                    index_elements=["install_key"],
-                    set_=updates,
-                ))
+                await handler.load(session, fact)
                 raw.status, raw.error_detail = "processed", None
                 processed += 1
             raw.processed_at = utc_now()
@@ -55,4 +51,4 @@ async def process_callbacks(session, types="auto", start_date=None, end_date=Non
         await session.commit()
     if failures:
         raise HTTPException(422, f"DQ failed: Adjust processed {processed} callbacks; {failures} invalid callbacks retained for manual replay.")
-    return f"Adjust processed {processed} install callbacks."
+    return f"Adjust processed {processed} callbacks."

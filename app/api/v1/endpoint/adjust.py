@@ -10,7 +10,8 @@ from app.core.config import settings
 from app.db.models.adjust import AdjustCallbackRaw
 from app.db.session import get_db
 from app.etl.adjust.pipeline import utc_now
-from app.etl.adjust.transform import payload_hash
+from app.etl.adjust.common import PROFILE_FIELDS, optional_text, payload_hash
+from app.etl.adjust.registry import CALLBACK_HANDLERS
 
 router = APIRouter()
 MAX_BODY_BYTES = 1_048_576
@@ -24,6 +25,8 @@ def _reject_nonfinite(value: str):
 @router.post("/api/adjust/callback", status_code=202)
 async def receive_callback(request: Request, session: Annotated[AsyncSession, Depends(get_db)],
                            token: Annotated[str, Query()] = ""):
+    # SDK custom parameters can be appended to the URL even with a JSON body.
+    profile_params = {key: value for key, value in request.query_params.items() if key != "token"}
     # FastAPI has parsed the credential; redact it before Uvicorn access logging.
     request.scope["query_string"] = b""
     expected = settings.ADJUST_CALLBACK_SECRET
@@ -50,6 +53,9 @@ async def receive_callback(request: Request, session: Annotated[AsyncSession, De
         payload = json.loads(body, parse_constant=_reject_nonfinite)
         if not isinstance(payload, dict) or not payload or any(isinstance(v, (dict, list)) for v in payload.values()):
             raise ValueError("Expected a nonempty flat JSON object")
+        for field, value in profile_params.items():
+            if optional_text(payload.get(field)) is None and optional_text(value) is not None:
+                payload[field] = value
         digest = payload_hash(payload)
     except (ValueError, UnicodeDecodeError):
         raise HTTPException(400, "Expected a nonempty flat JSON object") from None
@@ -57,8 +63,8 @@ async def receive_callback(request: Request, session: Annotated[AsyncSession, De
         raise HTTPException(400, "Unknown Adjust app_token")
     if payload.get("environment") != settings.ADJUST_CALLBACK_ENVIRONMENT:
         raise HTTPException(400, "Unexpected Adjust environment")
-    if payload.get("activity_kind") != "install":
-        raise HTTPException(400, "Only install callbacks are supported")
+    if payload.get("activity_kind") not in CALLBACK_HANDLERS:
+        raise HTTPException(400, "Unsupported Adjust activity_kind")
     try:
         await session.execute(insert(AdjustCallbackRaw).values(payload_hash=digest, payload=payload, received_at=utc_now(), status="pending", attempts=0).on_conflict_do_nothing(index_elements=["payload_hash"]))
         await session.commit()

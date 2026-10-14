@@ -43,6 +43,7 @@ from app.db.models.external_api import (
 from app.db.session import sqlite_async_session
 from app.db.models.adjust import AdjustInstall
 from app.etl.adjust.pipeline import process_callbacks
+from app.etl.adjust.registry import count_callback_facts
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
 from app.etl.run_report import build_quality_report
@@ -610,6 +611,8 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
 
 async def count_source_rows(session, source: str, window_start=None, window_end=None) -> int | None:
     """Count current rows in the target table for one ETL source."""
+    if source == "adjust_callbacks":
+        return await count_callback_facts(session)
     model = SOURCE_MODELS.get(source)
     if model is None:
         return None

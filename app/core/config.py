@@ -222,6 +222,7 @@ class Settings(BaseModel):
                 hosts.add(parsed.hostname)
         internal_hosts = _split_csv(env("INTERNAL_TRUSTED_HOSTS", default="", cast=str))
         hosts.update(internal_hosts)
+        hosts.update(_split_csv(env("EXTRA_TRUSTED_HOSTS", default="", cast=str)))
         return sorted(hosts)
 
     def validate_bootstrap_config(self) -> None:

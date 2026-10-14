@@ -12,7 +12,7 @@ ALL_DATA_SOURCES_LABEL = "All Data Sources"
 
 DATA_SOURCE_OPTIONS = {
     ALL_DATA_SOURCES_LABEL: "__all__",
-    "Adjust Install Callbacks": "adjust_callbacks",
+    "Adjust Callbacks": "adjust_callbacks",
     "Unique Campaign": "unique_campaign",
     "Google Ads (API)": "google_ads",
     "Facebook Ads (API)": "facebook_ads",
@@ -153,7 +153,7 @@ def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]
                 key="update_period",
             )
             if selected_source == "adjust_callbacks":
-                st.caption("Auto processes all pending callbacks. Manual replays callbacks by receipt date (WIB), including failed rows.")
+                st.caption("Auto processes all pending install, lifecycle, attribution, engagement, cost, and business event callbacks. Manual replays callbacks by receipt date (WIB), including failed rows.")
             if report_request_selected:
                 from_date = to_date = dt.date.today()
                 st.info("This only requests the Apple one-time analytics report. Reports usually need 24-48 hours before they can be loaded.")

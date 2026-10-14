@@ -1,1 +1,1 @@
-"""Adjust push ingestion and replayable install processing."""
+"""Adjust push ingestion and sequential, replayable callback processing."""

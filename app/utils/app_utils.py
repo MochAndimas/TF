@@ -23,6 +23,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from uvicorn import run as uvicorn_run
 
 from app.api.v1.endpoint.adjust import router as adjust_router
+from app.api.v1.endpoint.adjust_export import router as adjust_export_router
 from app.api.v1.endpoint.auth import router as auth_router
 from app.api.v1.endpoint.campaign import router as campaign_router
 from app.api.v1.endpoint.subscription import router as subscription_router
@@ -494,6 +495,7 @@ class FastApiApp:
         self.app.include_router(instagram_token_router, tags=["Instagram Token"])
         self.app.include_router(meta_ads_token_router, tags=["Meta Ads Token"])
         self.app.include_router(adjust_router, tags=["Adjust Callbacks"])
+        self.app.include_router(adjust_export_router, tags=["Adjust Export"])
         self.app.include_router(feature_router, tags=["Update Data"])
         self.app.include_router(sqlite_maintenance_router, tags=["SQLite Maintenance"])
         self.app.include_router(overview_router, tags=["Overview Analytics"])

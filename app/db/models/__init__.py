@@ -1,6 +1,6 @@
 """Package initializer for `app.db.models` namespace."""
 
-from app.db.models.adjust import AdjustCallbackRaw, AdjustInstall  # noqa: F401
+from app.db.models.adjust import AdjustCallbackRaw, AdjustInstall, AdjustLifecycle, AdjustAttributionHistory, AdjustEngagement  # noqa: F401
 
 # Ensure all SQLAlchemy models are imported and registered in metadata
 # before schema bootstrap runs.
@@ -42,3 +42,7 @@ from app.db.models.user import (  # noqa: F401
     TfUser,
     UserToken,
 )
+
+from app.db.models.adjust import AdjustRegister, AdjustDeposit, AdjustFirstDeposit, AdjustSubscribeSuccess  # noqa: F401
+
+from app.db.models.adjust import AdjustCost  # noqa: F401
