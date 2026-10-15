@@ -13,6 +13,7 @@ ALL_DATA_SOURCES_LABEL = "All Data Sources"
 DATA_SOURCE_OPTIONS = {
     ALL_DATA_SOURCES_LABEL: "__all__",
     "Adjust Callbacks": "adjust_callbacks",
+    "GPT Ads (Campaign / Ad Group / Ads)": "gpt_ads",
     "Unique Campaign": "unique_campaign",
     "Google Ads (API)": "google_ads",
     "Facebook Ads (API)": "facebook_ads",
@@ -43,6 +44,7 @@ DATA_SOURCE_OPTIONS = {
 
 ALL_DATA_SOURCE_VALUES = [
     "adjust_callbacks",
+    "gpt_ads",
     "google_ads",
     "facebook_ads",
     "tiktok_ads",
@@ -152,8 +154,6 @@ def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]
                 placeholder="Select date range preset",
                 key="update_period",
             )
-            if selected_source == "adjust_callbacks":
-                st.caption("Auto processes all pending install, lifecycle, attribution, engagement, cost, and business event callbacks. Manual replays callbacks by receipt date (WIB), including failed rows.")
             if report_request_selected:
                 from_date = to_date = dt.date.today()
                 st.info("This only requests the Apple one-time analytics report. Reports usually need 24-48 hours before they can be loaded.")
@@ -165,7 +165,9 @@ def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]
                 )
                 auto_date = dt.date.today() - dt.timedelta(days=lag_days)
                 suffix = " (Apple completeness window)" if lag_days == 5 else ""
-                if selected_source != "adjust_callbacks":
+                if selected_source == "gpt_ads":
+                    st.info("Auto refreshes the most recent completed reporting window (31 days by default).")
+                elif selected_source != "adjust_callbacks":
                     st.info(f"Auto mode uses date: `{auto_date.isoformat()}`{suffix}")
             elif preset_key:
                 try:

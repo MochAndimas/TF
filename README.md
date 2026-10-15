@@ -128,6 +128,8 @@ Alur ETL dirakit di:
 Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
 `app/etl/job_runner.py`:
 
+- `adjust_callbacks`
+- `gpt_ads` — ChatGPT Ads API, daily campaign/ad group/ad reports; see [GPT Ads ETL](docs/gpt-ads-etl.md)
 - `google_ads`
 - `facebook_ads`
 - `tiktok_ads`

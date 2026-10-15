@@ -102,6 +102,9 @@ class Settings(BaseModel):
     INITIAL_SUPERADMIN_PASSWORD: str | None = None
     AUTO_INIT_DB_ON_STARTUP: bool = False
     SQLITE_BUSY_TIMEOUT_MS: int = 30000
+    GPT_ADS_API_KEY: str = _read_setting("GPT_ADS_API_KEY", default="", secret=True)
+    GPT_ADS_REPORTING_TIMEZONE: str = env("GPT_ADS_REPORTING_TIMEZONE", default="Asia/Jakarta")
+    GPT_ADS_LOOKBACK_DAYS: int = env("GPT_ADS_LOOKBACK_DAYS", default=31, cast=int)
     ADJUST_CALLBACK_SECRET: str = _read_setting("ADJUST_CALLBACK_SECRET", default="", secret=True)
     ADJUST_APP_TOKENS: str = env("ADJUST_APP_TOKENS", default="")
     ADJUST_CALLBACK_ENVIRONMENT: Literal["sandbox", "production"] = env("ADJUST_CALLBACK_ENVIRONMENT", default="sandbox")

@@ -6,6 +6,7 @@ import textwrap
 
 import pandas as pd
 import streamlit as st
+from app.utils.campaign.sources import GPT_REPORT_LEVEL_BY_DIMENSION
 
 
 def build_performance_dataframe(detail_rows: list[dict], level_column: str) -> pd.DataFrame:
@@ -15,6 +16,10 @@ def build_performance_dataframe(detail_rows: list[dict], level_column: str) -> p
     details_df = pd.DataFrame(detail_rows)
     if details_df.empty:
         return pd.DataFrame()
+    if "report_level" in details_df.columns:
+        details_df = details_df.loc[details_df["report_level"] == GPT_REPORT_LEVEL_BY_DIMENSION[level_column]].copy()
+        if details_df.empty:
+            return pd.DataFrame()
 
     for column in ("spend", "impressions", "clicks", "leads"):
         details_df[column] = pd.to_numeric(details_df.get(column, 0), errors="coerce").fillna(0)
@@ -22,6 +27,9 @@ def build_performance_dataframe(detail_rows: list[dict], level_column: str) -> p
     details_df["campaign_source"] = details_df.get("campaign_source", "N/A").fillna("N/A").replace("", "N/A")
 
     group_columns = ["campaign_source", level_column]
+    if "report_level" in details_df.columns:
+        identity_columns = ["account_id", "campaign_id", "ad_group_id", "ad_id"][:{"campaign_id": 2, "ad_group": 3, "ad_name": 4}[level_column]]
+        group_columns += [column for column in identity_columns if column in details_df.columns and column not in group_columns]
     if level_column == "campaign_id":
         details_df["campaign_name"] = details_df.get("campaign_name", "N/A").fillna("N/A").replace("", "N/A")
         group_columns.append("campaign_name")

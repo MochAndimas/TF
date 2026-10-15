@@ -19,6 +19,8 @@ from app.utils.campaign.frame_builder import CampaignFrameBuilder
 from app.utils.campaign.repository import CampaignRepository
 from app.utils.campaign.serializer import CampaignSerializer
 from app.utils.campaign.types import AdsModel
+from app.utils.campaign.gpt_ads import GptAdsCampaignAdapter
+from app.utils.campaign.sources import GPT_REPORT_LEVEL_BY_DIMENSION
 
 
 class CampaignDataBase:
@@ -42,6 +44,8 @@ class CampaignDataBase:
         self.df_tiktok = pd.DataFrame()
         self.df_depo = pd.DataFrame()
         self._query_lock = asyncio.Lock()
+        self.gpt_ads = GptAdsCampaignAdapter(execute_query=self._execute_query, cache=self.cache_adapter,
+                                              read_register=self._read_daily_register_db, allocator=self.allocator)
 
     @classmethod
     async def load_data(cls, session: AsyncSession, from_date: date, to_date: date):
@@ -177,6 +181,8 @@ class CampaignDataBase:
         to_date: date,
     ) -> pd.DataFrame:
         """Load one ads source dataframe for the requested date range."""
+        if source == "gpt_ads":
+            return await self.gpt_ads.frame(from_date, to_date)
         frame = self._resolve_source_frame(source)
         if from_date < self.from_date or to_date > self.to_date:
             return await self._read_ads_db_with_range(
@@ -226,7 +232,10 @@ class CampaignDataBase:
     ) -> pd.DataFrame:
         """Build daily per-dimension ads metrics with optional campaign type filter."""
         source = data.strip().lower()
-        df = await self._load_ads_source_frame(source=source, from_date=from_date, to_date=to_date)
+        if source == "gpt_ads":
+            df = await self.gpt_ads.frame(from_date, to_date, GPT_REPORT_LEVEL_BY_DIMENSION[dimension])
+        else:
+            df = await self._load_ads_source_frame(source=source, from_date=from_date, to_date=to_date)
         return self.frame_builder.ads_daily_dimension_frame(
             df=df,
             dimension=dimension,
@@ -244,7 +253,7 @@ class CampaignDataBase:
         dimension: str,
         ad_type: str | None = None,
     ) -> pd.DataFrame:
-        base = await self._ads_base_details_dataframe(data=data, from_date=from_date, to_date=to_date, ad_type=ad_type)
+        base = await self._ads_base_details_dataframe(data=data, from_date=from_date, to_date=to_date, ad_type=ad_type, dimension=dimension)
         return self.frame_builder.ads_performance_frame(base=base, dimension=dimension)
 
     async def _ads_metrics_from_sql(self, model: type[AdsModel], from_date: date, to_date: date, ad_type: str | None = None) -> dict[str, float]:
@@ -309,8 +318,10 @@ class CampaignDataBase:
         cached_payload = self.cache_adapter.set(cache_key, pd.DataFrame([payload]))
         return self.serializer.normalize_ads_metrics_payload(cached_payload.iloc[0].to_dict())
 
-    async def _ads_base_details_dataframe(self, data: str, from_date: date, to_date: date, ad_type: str | None = None) -> pd.DataFrame:
+    async def _ads_base_details_dataframe(self, data: str, from_date: date, to_date: date, ad_type: str | None = None, dimension: str | None = None) -> pd.DataFrame:
         source = data.strip().lower()
+        if source == "gpt_ads":
+            return await self.gpt_ads.details(from_date, to_date, report_level=GPT_REPORT_LEVEL_BY_DIMENSION.get(dimension), ad_type=ad_type)
         model = self._resolve_source_model(source)
         return await self.repository.read_ads_base_details(
             model=model,
@@ -332,6 +343,14 @@ class CampaignDataBase:
         if start_date > end_date:
             raise ValueError("from_date cannot be after to_date.")
 
+        if source == "gpt_ads":
+            frame = await self.gpt_ads.frame(start_date, end_date)
+            if ad_type:
+                frame = frame.loc[frame["campaign_type"] == ad_type]
+            return self.serializer.normalize_ads_metrics_payload({
+                "cost": frame["cost"].sum(), "impressions": frame["impressions"].sum(),
+                "clicks": frame["clicks"].sum(), "leads": frame["leads"].sum(),
+            })
         return await self._ads_metrics_from_sql(
             model=self._resolve_source_model(source),
             from_date=start_date,

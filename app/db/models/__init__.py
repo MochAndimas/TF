@@ -46,3 +46,5 @@ from app.db.models.user import (  # noqa: F401
 from app.db.models.adjust import AdjustRegister, AdjustDeposit, AdjustFirstDeposit, AdjustSubscribeSuccess  # noqa: F401
 
 from app.db.models.adjust import AdjustCost  # noqa: F401
+
+from app.db.models.gpt_ads import GptAdsDaily  # noqa: F401

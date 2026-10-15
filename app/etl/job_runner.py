@@ -44,6 +44,9 @@ from app.db.session import sqlite_async_session
 from app.db.models.adjust import AdjustInstall
 from app.etl.adjust.pipeline import process_callbacks
 from app.etl.adjust.registry import count_callback_facts
+from app.etl.gpt_ads.pipeline import run_gpt_ads
+from app.etl.gpt_ads.config import resolve_gpt_ads_window
+from app.db.models.gpt_ads import GptAdsDaily
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
 from app.etl.run_report import build_quality_report
@@ -61,6 +64,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "adjust_callbacks",
+    "gpt_ads",
     "google_ads",
     "facebook_ads",
     "tiktok_ads",
@@ -491,7 +495,12 @@ async def _run_adjust_callbacks(_gsheet, session, types, start_date, end_date, r
     return await process_callbacks(session, types, start_date, end_date, run_id)
 
 
+async def _run_gpt_ads(_gsheet, session, types, start_date, end_date, run_id):
+    return await run_gpt_ads(session, types, start_date, end_date, run_id)
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
+    "gpt_ads": _run_gpt_ads,
     "adjust_callbacks": _run_adjust_callbacks,
     "unique_campaign": _run_unique_campaign,
     "google_ads": _run_google_ads,
@@ -523,6 +532,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
 }
 
 SOURCE_MODELS = {
+    "gpt_ads": GptAdsDaily,
     "adjust_callbacks": AdjustInstall,
     "unique_campaign": Campaign,
     "google_ads": GoogleAds,
@@ -553,6 +563,7 @@ SOURCE_MODELS = {
 }
 
 SOURCE_DATE_COLUMNS = {
+    "gpt_ads": "date",
     "google_ads": "date",
     "facebook_ads": "date",
     "tiktok_ads": "date",
@@ -594,6 +605,8 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
         tuple[Any, Any]: Normalized ``(start_date, end_date)`` pair, or
         ``(None, None)`` for sources that do not operate on date windows.
     """
+    if data == "gpt_ads":
+        return resolve_gpt_ads_window(types, start_date, end_date)
     if data == "adjust_callbacks" and types == "auto":
         return None, None
     if data == "unique_campaign":
@@ -708,7 +721,7 @@ async def execute_update_job(
     async with sqlite_async_session() as session:
         try:
             await _mark_running()
-            gsheet = None if data == "adjust_callbacks" else GoogleSheetApi()
+            gsheet = None if data in {"adjust_callbacks", "gpt_ads"} else GoogleSheetApi()
             executor = PIPELINE_EXECUTORS.get(data)
             if executor is None:
                 raise HTTPException(status_code=404, detail="Please chose one data to update!")
@@ -731,6 +744,7 @@ async def execute_update_job(
                 rows_loaded=rows_loaded,
             )
             if data in {
+                "gpt_ads",
                 "google_ads",
                 "facebook_ads",
                 "tiktok_ads",

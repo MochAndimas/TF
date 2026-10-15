@@ -3,6 +3,7 @@
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import streamlit as st
+from app.utils.campaign.sources import USER_ACQUISITION_SOURCE_OPTIONS
 
 from streamlit_app.functions.charting import campaign_figure_from_payload
 from streamlit_app.functions.metrics import render_campaign_metric_cards
@@ -20,6 +21,7 @@ from streamlit_app.page.campaign_components.user_acquisition import (
 async def show_user_acquisition_page(host: str) -> None:
     start_date, end_date, selected_source = render_campaign_page_filters(
         page_title="User Acquisition",
+        source_options=USER_ACQUISITION_SOURCE_OPTIONS,
         period_key="campaign_ads_period",
         date_range_key="campaign_ads_date_range",
         source_key="campaign_ads_source",
@@ -30,8 +32,10 @@ async def show_user_acquisition_page(host: str) -> None:
         st.warning("Start date cannot be after end date.")
         return
 
-    source_options = {"Google Ads": "google", "Facebook Ads": "facebook", "TikTok Ads": "tiktok"}
+    source_options = USER_ACQUISITION_SOURCE_OPTIONS
     selected_key = source_options[selected_source]
+    if selected_key == "gpt_ads":
+        st.caption("Register berasal dari data registrasi internal berdasarkan campaign ID, bukan conversion API GPT Ads.")
     selected_range = (start_date, end_date) + comparison_cache_key()
     cached_payload = st.session_state.get("campaign_ads_payload", {})
     cached_details = cached_payload.get("data", {}).get("ads_campaign_details", {})

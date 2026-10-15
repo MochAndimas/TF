@@ -6,6 +6,8 @@ Traders Family application.
 
 from __future__ import annotations
 
+from app.utils.campaign.sources import USER_ACQUISITION_SOURCES
+
 import asyncio
 from dataclasses import dataclass
 from datetime import date
@@ -121,7 +123,7 @@ async def fetch_ads_metrics_with_growth_payload(
     end_date: date,
 ) -> dict[str, object]:
     return await _run_source_map(
-        sources=ALL_SOURCES,
+        sources=USER_ACQUISITION_SOURCES,
         task_factory=lambda source: campaign_data.ads_metrics_with_growth(
             data=source,
             from_date=start_date,
@@ -165,7 +167,7 @@ async def fetch_leads_performance_charts_payload(
             task_factory=lambda source: campaign_data.clicks_to_leads_chart(source, start_date, end_date),
         ),
     )
-    return await _run_per_source_task_specs(sources=ALL_SOURCES, task_specs=task_specs)
+    return await _run_per_source_task_specs(sources=USER_ACQUISITION_SOURCES, task_specs=task_specs)
 
 
 async def fetch_ads_campaign_details_tables_payload(
@@ -174,7 +176,7 @@ async def fetch_ads_campaign_details_tables_payload(
     end_date: date,
 ) -> dict[str, object]:
     return await _run_source_map(
-        sources=ALL_SOURCES,
+        sources=USER_ACQUISITION_SOURCES,
         task_factory=lambda source: campaign_data.ads_campaign_details_table(
             source,
             start_date,
@@ -194,7 +196,7 @@ async def fetch_user_acquisition_insight_charts_payload(
     ratio_top_n = 8
 
     ratio_trends_task = _run_nested_metric_tasks(
-        sources=ALL_SOURCES,
+        sources=USER_ACQUISITION_SOURCES,
         dimensions=DEFAULT_DIMENSIONS,
         metrics=UA_RATIO_METRICS,
         task_factory=lambda source, dimension, metric: campaign_data.user_acquisition_ratio_trend_chart(
@@ -249,18 +251,18 @@ async def fetch_user_acquisition_insight_charts_payload(
         ),
     )
     dimension_payload_task = _run_nested_dimension_tasks(
-        sources=ALL_SOURCES,
+        sources=USER_ACQUISITION_SOURCES,
         dimensions=DEFAULT_DIMENSIONS,
         task_specs=dimension_task_specs,
     )
 
     ratio_trends, dimension_payload = await asyncio.gather(ratio_trends_task, dimension_payload_task)
     return {
-        "spend_vs_leads": {source: dimension_payload[source]["spend_vs_leads"] for source in ALL_SOURCES},
-        "top_leads": {source: dimension_payload[source]["top_leads"] for source in ALL_SOURCES},
+        "spend_vs_leads": {source: dimension_payload[source]["spend_vs_leads"] for source in USER_ACQUISITION_SOURCES},
+        "top_leads": {source: dimension_payload[source]["top_leads"] for source in USER_ACQUISITION_SOURCES},
         "ratio_trends": ratio_trends,
-        "cumulative": {source: dimension_payload[source]["cumulative"] for source in ALL_SOURCES},
-        "daily_mix": {source: dimension_payload[source]["daily_mix"] for source in ALL_SOURCES},
+        "cumulative": {source: dimension_payload[source]["cumulative"] for source in USER_ACQUISITION_SOURCES},
+        "daily_mix": {source: dimension_payload[source]["daily_mix"] for source in USER_ACQUISITION_SOURCES},
         "top_n": top_n,
         "pacing_top_n": pacing_top_n,
         "ratio_top_n": ratio_top_n,
