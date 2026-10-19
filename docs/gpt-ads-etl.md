@@ -18,7 +18,7 @@ The table contains parent IDs/names, account currency/timezone, impressions, cli
 
 CTR is stored as a ratio (0.04 = 4%). Monetary fields use major currency units, not budget micros. Preserve API-returned CTR/CPC/CPM rather than recomputing them from recent delivery metrics. Decimal fields use SQLAlchemy Numeric (SQLite numeric affinity); this is suitable for reporting, not an arbitrary-precision financial ledger. Missing nullable metrics remain NULL; missing requested columns fail validation. Conversions are campaign goal conversions with 30-day click, 1-day view, ad_event_time attribution. Goal definitions depend on the ad account configuration; this is not a count of every custom event.
 
-Always filter `report_level` when aggregating. Do not add campaign, ad group and ad totals together: these are three views of the same delivery. Spend/currency cannot be mixed across accounts without currency conversion. Existing Google/Meta/TikTok aggregation and unique_campaign are not modified by this ETL.
+Always filter `report_level` when aggregating. Do not add campaign, ad group and ad totals together: these are three views of the same delivery. Spend/currency cannot be mixed across accounts without currency conversion. Existing Google/Meta/TikTok aggregation is unchanged. Unique Campaign also reads GPT campaign-level rows: names starting with GPT map to ad_source=chatgpt, and - UA - / - BA - / - RM - map to the existing objective labels. Lower-level report rows are excluded from this dimension sync.
 
 ## Reliability
 

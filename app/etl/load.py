@@ -9,6 +9,7 @@ from sqlalchemy import case, delete, literal, select, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.gpt_ads import GptAdsDaily
 from app.db.models.external_api import (
     AllDepo,
     FirstDepo,
@@ -96,6 +97,9 @@ async def rebuild_unique_campaign(session: AsyncSession) -> str:
         select(GoogleAds.campaign_id, GoogleAds.campaign_name),
         select(FacebookAds.campaign_id, FacebookAds.campaign_name),
         select(TikTokAds.campaign_id, TikTokAds.campaign_name),
+        select(GptAdsDaily.campaign_id, GptAdsDaily.campaign_name).where(
+            GptAdsDaily.report_level == "campaign"
+        ),
     ).subquery()
 
     query = select(
@@ -105,6 +109,7 @@ async def rebuild_unique_campaign(session: AsyncSession) -> str:
             (campaign_union.c.campaign_name.like("GG%"), "google_ads"),
             (campaign_union.c.campaign_name.like("FB%"), "facebook_ads"),
             (campaign_union.c.campaign_name.like("TT%"), "tiktok_ads"),
+            (campaign_union.c.campaign_name.like("GPT%"), "chatgpt"),
             else_="unknown",
         ).label("ad_source"),
         case(

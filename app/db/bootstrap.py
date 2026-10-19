@@ -513,6 +513,32 @@ async def _migration_20261005_002_adjust_campaign_id(connection) -> None:
     await connection.execute(text("CREATE INDEX IF NOT EXISTS ix_adjust_install_campaign_id ON adjust_install(campaign_id)"))
 
 
+async def _migration_20261019_001_chatgpt_ua_campaign(connection) -> None:
+    """Correct the existing ChatGPT UA campaign without touching other campaigns."""
+    await connection.execute(
+        text(
+            "UPDATE campaign SET ad_source = :ad_source, ad_type = :ad_type "
+            "WHERE campaign_id = :campaign_id"
+        ),
+        {
+            "campaign_id": "cmpn_1d048d0540fc8193bcee7a294f6ebfe1",
+            "ad_source": "chatgpt",
+            "ad_type": "user_acquisition",
+        },
+    )
+
+
+async def _migration_20261019_002_chatgpt_campaign_name(connection) -> None:
+    """Replace the existing campaign placeholder with its verified GPT Ads name."""
+    await connection.execute(
+        text("UPDATE campaign SET campaign_name = :campaign_name WHERE campaign_id = :campaign_id"),
+        {
+            "campaign_id": "cmpn_1d048d0540fc8193bcee7a294f6ebfe1",
+            "campaign_name": "GPT - UA - BAU- CPC - WEB - ID - OCT 2026",
+        },
+    )
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -626,6 +652,16 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     ),
     ("20261005_001_adjust_callbacks", "Add Adjust callback inbox and install facts.", _migration_20261005_001_adjust_callbacks),
     ("20261005_002_adjust_campaign_id", "Add optional Adjust campaign ID.", _migration_20261005_002_adjust_campaign_id),
+    (
+        "20261019_001_chatgpt_ua_campaign",
+        "Classify the existing ChatGPT campaign as chatgpt / user_acquisition.",
+        _migration_20261019_001_chatgpt_ua_campaign,
+    ),
+    (
+        "20261019_002_chatgpt_campaign_name",
+        "Replace the ChatGPT campaign placeholder name with its verified Ads name.",
+        _migration_20261019_002_chatgpt_campaign_name,
+    ),
 )
 
 
