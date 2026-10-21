@@ -135,6 +135,8 @@ Source ETL terjadwal default, sesuai urutan `DEFAULT_SCHEDULED_SOURCES` di
 - `tiktok_ads`
 - `unique_campaign`
 - `ga4_daily_metrics`
+- `ois_registrations` — OIS user registrations and subscriptions
+- `ga4_user_acquisition` — OIS first-user acquisition
 - `instagram_insights`
 - `instagram_media_insights`
 - `tiktok_insights`

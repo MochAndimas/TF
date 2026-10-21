@@ -134,6 +134,8 @@ class ExternalApiExtractor:
             default="'All Regis'!A:C",
             cast=str,
         ).strip()
+        self.ois_sheet_id = config("OIS_GSHEET_ID", default="", cast=str).strip()
+        self.ois_sheet_range = config("OIS_GSHEET_RANGE", default="", cast=str).strip()
         self.data_socmed_sheet_id = config("DATA_SOCMED_GSHEET", default="", cast=str).strip()
         self.data_socmed_sheet_range = config("DATA_SOCMED_GSHEET_RANGE", default="", cast=str).strip()
         self.first_subs_sheet_range = config("FIRST_SUBS_GSHEET_RANGE", default="", cast=str).strip()
@@ -2937,3 +2939,18 @@ class ExternalApiExtractor:
             ).execute().get("values", [])
 
         return project_data_socmed_rows(await asyncio.to_thread(request))
+
+
+    async def fetch_ois_rows(self) -> list[dict]:
+        """Read configured OIS values with the shared read-only GSheet credentials."""
+        from app.etl.ois.transform import project_rows
+        if self.service is None or not self.ois_sheet_id or not self.ois_sheet_range:
+            raise ValueError("OIS requires GSHEET_SA_CREDS, OIS_GSHEET_ID and OIS_GSHEET_RANGE.")
+
+        def request():
+            return self.service.spreadsheets().values().get(
+                spreadsheetId=self.ois_sheet_id, range=self.ois_sheet_range,
+                valueRenderOption="UNFORMATTED_VALUE", dateTimeRenderOption="FORMATTED_STRING",
+            ).execute(num_retries=3).get("values", [])
+
+        return project_rows(await asyncio.to_thread(request))

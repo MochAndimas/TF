@@ -48,3 +48,7 @@ from app.db.models.adjust import AdjustRegister, AdjustDeposit, AdjustFirstDepos
 from app.db.models.adjust import AdjustCost  # noqa: F401
 
 from app.db.models.gpt_ads import GptAdsDaily  # noqa: F401
+
+from app.db.models.ga4 import Ga4UserAcquisition  # noqa: F401
+
+from app.db.models.ois import OisRegistration  # noqa: F401

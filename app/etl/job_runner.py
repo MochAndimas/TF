@@ -46,6 +46,10 @@ from app.etl.adjust.pipeline import process_callbacks
 from app.etl.adjust.registry import count_callback_facts
 from app.etl.gpt_ads.pipeline import run_gpt_ads
 from app.etl.gpt_ads.config import resolve_gpt_ads_window
+from app.db.models.ois import OisRegistration
+from app.etl.ois.pipeline import run_ois
+from app.db.models.ga4 import Ga4UserAcquisition
+from app.etl.ga4.acquisition import run_acquisition
 from app.db.models.gpt_ads import GptAdsDaily
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
@@ -70,6 +74,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "tiktok_ads",
     "unique_campaign",
     "ga4_daily_metrics",
+    "ga4_user_acquisition",
     "instagram_insights",
     "instagram_media_insights",
     "tiktok_insights",
@@ -88,6 +93,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "all_subscription",
     "first_subs",
     "data_socmed",
+    "ois_registrations",
     "play_console_install_metrics",
     "apple_install",
 )
@@ -499,6 +505,14 @@ async def _run_gpt_ads(_gsheet, session, types, start_date, end_date, run_id):
     return await run_gpt_ads(session, types, start_date, end_date, run_id)
 
 
+async def _run_ga4_user_acquisition(gsheet, session, types, start_date, end_date, run_id):
+    return await run_acquisition(gsheet.extractor, session, types, start_date, end_date, run_id)
+
+
+async def _run_ois_registrations(gsheet, session, types, start_date, end_date, run_id):
+    return await run_ois(gsheet.extractor, session, types, start_date, end_date, run_id)
+
+
 PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "gpt_ads": _run_gpt_ads,
     "adjust_callbacks": _run_adjust_callbacks,
@@ -507,6 +521,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "facebook_ads": _run_facebook_ads,
     "tiktok_ads": _run_tiktok_ads,
     "ga4_daily_metrics": _run_ga4_daily_metrics,
+    "ga4_user_acquisition": _run_ga4_user_acquisition,
     "instagram_insights": _run_instagram_insights,
     "instagram_media_insights": _run_instagram_media_insights,
     "tiktok_insights": _run_tiktok_insights,
@@ -525,6 +540,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "all_subscription": _run_all_subscription,
     "first_subs": _run_first_subs,
     "data_socmed": _run_data_socmed,
+    "ois_registrations": _run_ois_registrations,
     "play_console_install_metrics": _run_play_console_install_metrics,
     "apple_install": _run_apple_install,
     "apple_install_snapshot": _run_apple_install_snapshot,
@@ -539,6 +555,7 @@ SOURCE_MODELS = {
     "facebook_ads": FacebookAds,
     "tiktok_ads": TikTokAds,
     "ga4_daily_metrics": Ga4DailyMetrics,
+    "ga4_user_acquisition": Ga4UserAcquisition,
     "instagram_insights": InstagramInsights,
     "instagram_media_insights": InstagramMediaInsights,
     "tiktok_insights": TikTokInsights,
@@ -557,6 +574,7 @@ SOURCE_MODELS = {
     "all_subscription": AllSubscription,
     "first_subs": FirstSubs,
     "data_socmed": DataSocmed,
+    "ois_registrations": OisRegistration,
     "play_console_install_metrics": PlayConsoleInstallMetrics,
     "apple_install": AppleInstall,
     "apple_install_snapshot": AppleInstall,
@@ -568,6 +586,7 @@ SOURCE_DATE_COLUMNS = {
     "facebook_ads": "date",
     "tiktok_ads": "date",
     "ga4_daily_metrics": "date",
+    "ga4_user_acquisition": "date",
     "instagram_insights": "date",
     "instagram_media_insights": "date",
     "tiktok_insights": "date",
@@ -586,6 +605,7 @@ SOURCE_DATE_COLUMNS = {
     "all_subscription": "date",
     "first_subs": "date",
     "data_socmed": "tgl_regis",
+    "ois_registrations": "registration_date",
     "play_console_install_metrics": "date",
     "apple_install": "date",
     "apple_install_snapshot": "date",

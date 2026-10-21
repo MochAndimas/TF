@@ -147,6 +147,7 @@ PAGE_STYLE = """
 """
 
 SHORTCUT_CONTENT: dict[str, dict[str, str]] = {
+    "ois": {"kicker": "Partnership", "title": "OIS", "description": "Explore OIS acquisition sources, campaigns, engagement and daily performance."},
     "overview": {"kicker": "Overall", "title": "Overview", "description": "High-level campaign performance across active users, ad cost, register, and brand awareness."},
     "user_acquisition": {"kicker": "Campaign", "title": "User Acquisition", "description": "Review campaign breakdown, register efficiency, source mix, and daily performance charts."},
     "brand_awareness": {"kicker": "Campaign", "title": "Brand Awareness", "description": "Track reach, impressions, CTR, CPM, CPC, and spend performance by source platform."},
@@ -206,6 +207,7 @@ def render_quick_access() -> None:
             "facebook",
             "tiktok",
             "youtube",
+            "ois",
             "internal_register",
             "login_activity",
             "install",
