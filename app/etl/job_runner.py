@@ -498,7 +498,14 @@ async def _run_data_socmed(gsheet, session, types, start_date, end_date, run_id)
 
 
 async def _run_adjust_callbacks(_gsheet, session, types, start_date, end_date, run_id):
-    return await process_callbacks(session, types, start_date, end_date, run_id)
+    from app.etl.adjust.sheet_sync import sync_register_sheet
+    result = await process_callbacks(session, types, start_date, end_date, run_id)
+    try:
+        sync_result = await sync_register_sheet(session)
+    except Exception:
+        await session.rollback()
+        raise HTTPException(502, "Adjust callbacks processed; register GSheet sync failed. Retry the Adjust ETL to resume safely.") from None
+    return f"{result} {sync_result}"
 
 
 async def _run_gpt_ads(_gsheet, session, types, start_date, end_date, run_id):

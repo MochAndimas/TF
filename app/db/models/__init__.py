@@ -52,3 +52,4 @@ from app.db.models.gpt_ads import GptAdsDaily  # noqa: F401
 from app.db.models.ga4 import Ga4UserAcquisition  # noqa: F401
 
 from app.db.models.ois import OisRegistration  # noqa: F401
+from app.db.models.adjust_sheet import AdjustRegisterSheetReceipt  # noqa: F401
