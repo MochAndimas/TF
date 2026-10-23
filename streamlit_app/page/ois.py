@@ -10,8 +10,9 @@ from streamlit_app.functions.comparison import select_comparison
 from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth, _campaign_format_number
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
-from streamlit_app.page.ois_components.analysis import LABELS, aggregate, frame, totals
+from streamlit_app.page.ois_components.analysis import LABELS, frame, totals
 from streamlit_app.page.ois_components import charts
+from streamlit_app.page.ois_components.registrations import show_register_revenue
 
 
 def render_period_filter():
@@ -53,16 +54,13 @@ async def show_ois_page(host: str) -> None:
     dates = render_period_filter()
     if dates is None:
         return
-    view = st.segmented_control(
-        "OIS view", ["Performance", "Register & revenue"], default="Performance", key="ois_view")
-    if view == "Register & revenue":
-        from streamlit_app.page.ois_components.registrations import show_register_revenue
-        await show_register_revenue(host, dates)
-        return
-    await show_performance(host, dates)
+    new_users = await show_performance(host, dates)
+    st.divider()
+    st.markdown("## Register & Revenue")
+    await show_register_revenue(host, dates, new_users=new_users)
 
 
-async def show_performance(host: str, dates) -> None:
+async def show_performance(host: str, dates) -> float | None:
     with st.spinner("Loading OIS analytics..."):
         result = await fetch_api_result(st=st, host=host, uri="ois/analytics", params={
             "start_date": dates[0].isoformat(), "end_date": dates[1].isoformat()})
@@ -96,61 +94,39 @@ async def show_performance(host: str, dates) -> None:
     st.markdown("## OIS Overview")
     now, before = totals(current), totals(previous)
     summary = {"previous_period": {"start_date": data["previous_start"], "end_date": data["previous_end"]}}
-    specs = ["new_users", "active_users", "engaged_sessions",
-             "event_count", "key_events", "user_engagement_duration"]
-    for row in (specs[:3], specs[3:]):
-        for column, field in zip(st.columns(3, gap="small"), row):
-            change = (now[field] / before[field] - 1) * 100 if before[field] else None
-            with column, st.container(border=True):
-                _render_metric_with_growth(st, LABELS[field], _campaign_format_number(now[field]),
-                                           delta=_campaign_format_growth(change, summary))
+    specs = ["new_users", "active_users", "engaged_sessions"]
+    for column, field in zip(st.columns(3, gap="small"), specs):
+        change = (now[field] / before[field] - 1) * 100 if before[field] else None
+        with column, st.container(border=True):
+            _render_metric_with_growth(st, LABELS[field], _campaign_format_number(now[field]),
+                                       delta=_campaign_format_growth(change, summary))
     st.markdown("## Acquisition Performance")
     with st.container(border=True):
-        field = st.selectbox("Performance Metric", ["new_users", "engaged_sessions", "event_count", "key_events"],
+        field = st.selectbox("Performance Metric", ["new_users", "engaged_sessions"],
                              format_func=LABELS.get, key="ois_acquisition_metric")
     render_chart(charts.trend(current, field, *dates), "ois_trend")
-    left, right = st.columns(2, gap="small")
+    left, middle, right = st.columns(3, gap="small")
     with left:
         render_chart(charts.mix(current, field), "ois_mix")
+    with middle:
+        render_chart(charts.contribution(current, "first_user_campaign_name",
+                     field, "Top Campaigns · up to 12"), "ois_campaign")
     with right:
-        render_chart(charts.contribution(current, "platform", field,
-                     "Platform Contribution"), "ois_platform_chart")
-    render_chart(charts.contribution(current, "first_user_campaign_name",
-                 field, "Top Campaigns · up to 12"), "ois_campaign")
-    left, right = st.columns(2, gap="small")
-    with left:
         render_chart(charts.contribution(current, "first_user_medium",
                      field, "Medium Contribution"), "ois_medium")
-    with right:
-        render_chart(charts.heatmap(current, field), "ois_weekday")
     st.markdown("## Source Performance")
-    render_table(aggregate(current, ["first_user_source"]))
-    st.markdown("## Engagement & Activity")
-    with st.container(border=True):
-        field = st.selectbox("Activity metric", ["active_users", "total_users", "user_engagement_duration",
-                                                 "engagement_seconds_per_active_user_day", "sessions_per_active_user_day"],
-                             format_func=LABELS.get, key="ois_engagement_metric")
-    left, right = st.columns(2, gap="small")
-    with left:
-        render_chart(charts.trend(current, field, *dates), "ois_engagement_trend")
-    with right:
-        render_chart(charts.quality(current), "ois_quality")
-    st.markdown("## Performance Breakdown")
-    with st.container(border=True):
-        dimension = st.selectbox("Group by", ["first_user_campaign_name", "platform", "first_user_medium", "first_user_source"],
-                                 format_func=LABELS.get, key="ois_grouping")
-        grouped = aggregate(current, [dimension]).sort_values("new_users", ascending=False)
-    render_table(grouped)
-    st.markdown("## Daily Details")
-    with st.container(border=True):
-        display = current.sort_values(["date", "first_user_source"], ascending=[False, True]).copy()
-        display["average_engagement_seconds"] = display.user_engagement_duration / \
-            display.active_users.replace(0, float("nan"))
-        display["engaged_sessions_per_active_user"] = display.engaged_sessions / \
-            display.active_users.replace(0, float("nan"))
-        labels = {**LABELS, "active_users": "Daily active users", "total_users": "Daily total users",
-                  "average_engagement_seconds": "Avg engagement / active user (s)",
-                  "engaged_sessions_per_active_user": "Engaged sessions / active user"}
+    source_metrics = ["new_users", "active_users", "total_users", "engaged_sessions"]
+    source_summary = pd.DataFrame([{
+        "first_user_source": "OIS",
+        **{metric: float(current[metric].sum()) for metric in source_metrics},
+    }])
+    render_table(source_summary)
+    with st.expander("Daily Traffic Details"):
+        columns = ["date", "platform", "first_user_source", "first_user_medium",
+                   "first_user_campaign_name", "new_users", "active_users", "total_users",
+                   "engaged_sessions"]
+        display = current.sort_values(["date", "first_user_source"], ascending=[False, True])[columns]
+        labels = {**LABELS, "active_users": "Daily active users", "total_users": "Daily total users"}
         st.dataframe(display.rename(columns=labels), hide_index=True, width="stretch", column_config={
-            "User key event rate": st.column_config.NumberColumn(format="percent"),
             "Date": st.column_config.DatetimeColumn(format="DD MMM YYYY")})
+    return now["new_users"]

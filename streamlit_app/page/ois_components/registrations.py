@@ -52,7 +52,7 @@ def chart(figure, key):
         st.plotly_chart(figure, width="stretch", key=key)
 
 
-async def show_register_revenue(host, dates):
+async def show_register_revenue(host, dates, *, new_users=None):
     with st.spinner("Loading OIS register & revenue..."):
         result = await fetch_api_result(st=st, host=host, uri="ois/registrations", params={
             "start_date": dates[0].isoformat(), "end_date": dates[1].isoformat()})
@@ -66,7 +66,7 @@ async def show_register_revenue(host, dates):
         return
     combined = pd.concat([current, previous], ignore_index=True)
     with st.container(border=True):
-        for column, field in zip(st.columns(3, gap="small"), ("utm_source", "utm_medium", "utm_campaign")):
+        for column, field in zip(st.columns(2, gap="small"), ("utm_medium", "utm_campaign")):
             options = sorted(combined[field].dropna().unique().tolist())
             key = f"ois_reg_filter_{field}"
             st.session_state[key] = [value for value in st.session_state.get(key, []) if value in options]
@@ -90,6 +90,15 @@ async def show_register_revenue(host, dates):
             with column, st.container(border=True):
                 _render_metric_with_growth(st, LABELS[field], value, delta=_campaign_format_growth(change, comparison),
                                            help="Users grouped by registration date; subscription values reflect the latest synced record." if 'revenue' in field else None)
+    if new_users is not None:
+        st.markdown("## Acquisition Funnel")
+        figure = go.Figure(go.Funnel(
+            y=["New users", "Register"], x=[new_users, now["register"]],
+            textinfo="value", marker=dict(color=["#6875f5", "#22b895"]),
+            hovertemplate="%{y}: %{x:,.0f}<extra></extra>"))
+        chart(style(figure, "New users → Register"), "ois_acquisition_funnel")
+        st.caption("New users dari GA4 dan register dari data internal pada periode yang dipilih. "
+                   "Masing-masing mengikuti filter bagiannya; angka ini bukan pelacakan user yang sama antar tahap.")
     st.markdown("## Registration Trends")
     daily = breakdown(current, ["registration_date", "utm_source"])
     timeline = pd.date_range(*dates)
@@ -106,15 +115,11 @@ async def show_register_revenue(host, dates):
                     color="utm_source", color_discrete_map=COLORS, labels=LABELS)
     chart(style(figure, "First Subs Revenue by Register Date"), "ois_reg_revenue")
     st.markdown("## Acquisition Breakdown")
-    left, right = st.columns(2, gap="small")
-    for column, field in ((left, "utm_source"), (right, "utm_campaign")):
-        grouped = breakdown(current, [field]).sort_values("register", ascending=False).head(12)
-        with column:
-            figure = px.bar(grouped, x=field, y="register", labels=LABELS,
-                            color_discrete_sequence=["#6875f5"])
-            chart(style(figure, f"Register by {LABELS[field]}"), f"ois_reg_{field}")
-    st.markdown("## Daily Register Details")
-    with st.container(border=True):
+    grouped = breakdown(current, ["utm_campaign"]).sort_values("register", ascending=False).head(12)
+    figure = px.bar(grouped, x="utm_campaign", y="register", labels=LABELS,
+                    color_discrete_sequence=["#6875f5"])
+    chart(style(figure, "Register by Campaign"), "ois_reg_utm_campaign")
+    with st.expander("Daily Register Details"):
         daily = daily.sort_values("registration_date", ascending=False)
         st.dataframe(daily.rename(columns=LABELS), hide_index=True, width="stretch", column_config={
             "Register Date": st.column_config.DatetimeColumn(format="DD MMM YYYY")})

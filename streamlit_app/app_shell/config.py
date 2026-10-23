@@ -141,11 +141,12 @@ NAV_GROUPS: dict[str, list[str]] = {
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "superadmin": ["export_data_adjust", "home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "register", "update_data", "database_maintenance", "meta_ads_token", "instagram_token", "youtube_token", "tiktok_token", "terms", "privacy", "ois"],
     "analyst": ["home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "ois"],
-    "admin": ["export_data_adjust", "home", "subscription", "deposit_revenue", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "ois"],
-    "digital_marketing": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "ois"],
+    "admin": ["export_data_adjust", "home", "subscription", "deposit_revenue", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
+    "digital_marketing": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity"],
     "finance": ["home", "subscription", "deposit_revenue", "overview", "user_acquisition", "brand_awareness", "remarketing", "deposit_report", "deposit_ba", "remarketing_deposit"],
     "social_media": ["home", "instagram", "facebook", "tiktok", "youtube"],
-    "tech_it": ["home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "ois"],
+    "tech_it": ["home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
+    "ois": ["ois"],
     "sales": [],
 }
 

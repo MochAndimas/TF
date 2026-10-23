@@ -18,11 +18,14 @@ ALLOWED_ROLES: Final[set[str]] = {
     "social_media",
     "sales",
     "tech_it",
+    "ois",
     *LEGACY_ROLE_ALIASES,
 }
 ROLE_CREATION_POLICY: Final[dict[str, set[str]]] = {
     "superadmin": ALLOWED_ROLES,
 }
+
+OIS_ANALYTICS_ROLES: Final[tuple[str, ...]] = ("superadmin", "analyst", "ois")
 
 ANALYTICS_ROLES: Final[tuple[str, ...]] = (
     "superadmin",

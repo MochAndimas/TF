@@ -9,6 +9,7 @@ import pandas as pd
 from streamlit_app.functions.api import fetch_api_result
 
 ROLE_LABELS: dict[str, str] = {
+    "ois": "OIS",
     "superadmin": "Super Admin",
     "analyst": "Analyst",
     "digital_marketing": "Digital Marketing",
@@ -20,6 +21,7 @@ ROLE_LABELS: dict[str, str] = {
 }
 
 ROLE_OPTIONS: dict[str, str] = {
+    "OIS": "ois",
     "Super Admin": "superadmin",
     "Analyst": "analyst",
     "Digital Marketing": "digital_marketing",

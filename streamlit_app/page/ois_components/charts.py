@@ -15,32 +15,33 @@ def style(figure, title):
 
 
 def trend(df, field, start, end):
-    daily = aggregate(df, ["date", "first_user_source"])
+    daily = aggregate(df, ["date"])
     figure = go.Figure()
     timeline = pd.date_range(start, end)
-    for source in df.first_user_source.unique():
-        series = daily[daily.first_user_source == source].set_index("date")[field].reindex(timeline)
-        figure.add_trace(go.Scatter(x=timeline, y=series, name=source, mode="lines+markers",
-                                    connectgaps=False, line=dict(color=COLORS[source], width=2.5)))
+    series = daily.set_index("date")[field].reindex(timeline)
+    figure.add_trace(go.Scatter(x=timeline, y=series, name=LABELS[field], mode="lines+markers",
+                                connectgaps=False, line=dict(color="#6875f5", width=2.5)))
+    figure.update_layout(showlegend=False)
     figure.update_layout(hovermode="x unified", yaxis_title=LABELS[field])
     return style(figure, LABELS[field] + " over time")
 
 
 def contribution(df, dimension, field, title):
-    grouped = aggregate(df, [dimension, "first_user_source"])
+    grouped = aggregate(df, [dimension])
     order = grouped.groupby(dimension)[field].sum().nlargest(12).index
     grouped = grouped[grouped[dimension].isin(order)]
-    figure = px.bar(grouped, x=field, y=dimension, color="first_user_source", orientation="h",
-                    color_discrete_map=COLORS, labels=LABELS, category_orders={dimension: list(order)})
+    figure = px.bar(grouped, x=field, y=dimension, orientation="h",
+                    color_discrete_sequence=["#6875f5"], labels=LABELS,
+                    category_orders={dimension: list(order)})
     return style(figure, title)
 
 
 def mix(df, field):
-    grouped = aggregate(df, ["first_user_source"])
-    figure = px.pie(grouped, names="first_user_source", values=field, color="first_user_source",
-                    color_discrete_map=COLORS, hole=.65)
+    grouped = aggregate(df, ["first_user_campaign_name"])
+    figure = px.pie(grouped, names="first_user_campaign_name", values=field,
+                    color="first_user_campaign_name", labels=LABELS, hole=.65)
     figure.update_traces(textinfo="percent+label")
-    return style(figure, LABELS[field] + " share")
+    return style(figure, LABELS[field] + " share by campaign")
 
 
 def heatmap(df, field):
