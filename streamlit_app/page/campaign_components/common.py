@@ -64,6 +64,34 @@ async def fetch_legacy_campaign_payload(
     return None
 
 
+def render_period_filter(key_prefix: str) -> tuple[dt.date, dt.date] | None:
+    """Render the standalone period panel used by overview pages."""
+    presets = campaign_preset_ranges(dt.date.today())
+    period_key = f"{key_prefix}_period"
+    date_range_key = f"{key_prefix}_date_range"
+    st.session_state.setdefault(period_key, "This Month")
+    st.session_state.setdefault(date_range_key, presets["This Month"])
+
+    with st.container(border=True):
+        period = st.selectbox("Periods", options=list(presets), key=period_key)
+        select_comparison(period)
+        if period == "Custom Range":
+            selected = st.date_input("Select Date Range", key=date_range_key)
+            if not isinstance(selected, tuple) or len(selected) != 2:
+                st.warning("Please select a valid date range.")
+                return None
+            start_date, end_date = selected
+        else:
+            start_date, end_date = presets[period]
+            if st.session_state[date_range_key] != (start_date, end_date):
+                st.session_state[date_range_key] = (start_date, end_date)
+
+    if start_date > end_date:
+        st.warning("Start date cannot be after end date.")
+        return None
+    return start_date, end_date
+
+
 def render_campaign_page_filters(
     *,
     page_title: str,

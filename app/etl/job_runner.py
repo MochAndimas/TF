@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 
 from app.db.models.external_api import (
     AllDepo,
+    ToolsFixedCost,
     FirstDepo,
     AllSubscription,
     FirstSubs,
@@ -54,6 +55,7 @@ from app.db.models.gpt_ads import GptAdsDaily
 from app.etl.load import rebuild_unique_campaign
 from app.etl.pipelines import GoogleSheetApi
 from app.etl.run_report import build_quality_report
+from app.etl.tools_fixed_cost import resolve_tools_fixed_cost_window, run_tools_fixed_cost
 from app.etl.transform import resolve_date_window
 from app.utils.analytics_cache import clear_campaign_analytics_cache
 from app.utils.etl_run_utils import (
@@ -89,6 +91,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "first_deposit_ba",
     "ms_deposit",
     "all_depo",
+    "tools_fixed_cost",
     "first_depo",
     "all_subscription",
     "first_subs",
@@ -543,6 +546,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "first_deposit_ba": _run_first_deposit_ba,
     "ms_deposit": _run_ms_deposit,
     "all_depo": _run_all_depo,
+    "tools_fixed_cost": run_tools_fixed_cost,
     "first_depo": _run_first_depo,
     "all_subscription": _run_all_subscription,
     "first_subs": _run_first_subs,
@@ -577,6 +581,7 @@ SOURCE_MODELS = {
     "first_deposit_ba": DataDepoBa,
     "ms_deposit": DataMsDeposit,
     "all_depo": AllDepo,
+    "tools_fixed_cost": ToolsFixedCost,
     "first_depo": FirstDepo,
     "all_subscription": AllSubscription,
     "first_subs": FirstSubs,
@@ -608,6 +613,7 @@ SOURCE_DATE_COLUMNS = {
     "first_deposit_ba": "tanggal_regis",
     "ms_deposit": "last_activity",
     "all_depo": "date",
+    "tools_fixed_cost": "date",
     "first_depo": "date",
     "all_subscription": "date",
     "first_subs": "date",
@@ -632,6 +638,8 @@ def resolve_run_window(data: str, types: str, start_date, end_date) -> tuple[Any
         tuple[Any, Any]: Normalized ``(start_date, end_date)`` pair, or
         ``(None, None)`` for sources that do not operate on date windows.
     """
+    if data == "tools_fixed_cost":
+        return resolve_tools_fixed_cost_window(types, start_date, end_date)
     if data == "gpt_ads":
         return resolve_gpt_ads_window(types, start_date, end_date)
     if data == "adjust_callbacks" and types == "auto":

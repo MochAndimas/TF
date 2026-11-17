@@ -8,6 +8,15 @@ import httpx
 import streamlit as st
 
 
+async def historical_csv_request(host: str, access_token: str, *, apply: bool = False) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=60) as client:
+        return await client.request(
+            "POST" if apply else "GET",
+            f"{host}/api/feature-data/overall-daily-csv",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+
 async def trigger_update_job(host: str, access_token: str, payload: dict[str, object]) -> dict[str, object]:
     """Send the update request and normalize the initial backend response."""
     async with httpx.AsyncClient(timeout=600) as client:

@@ -9,6 +9,7 @@ import streamlit as st
 from streamlit_app.functions.dates import get_date_range
 
 ALL_DATA_SOURCES_LABEL = "All Data Sources"
+HISTORICAL_CSV_SOURCE = "overall_daily_csv"
 
 DATA_SOURCE_OPTIONS = {
     ALL_DATA_SOURCES_LABEL: "__all__",
@@ -34,6 +35,7 @@ DATA_SOURCE_OPTIONS = {
     "First Deposit BA (GSheet)": "first_deposit_ba",
     "MS Deposit (GSheet)": "ms_deposit",
     "All Depo (GSheet)": "all_depo",
+    "Tools Fixed Cost (GSheet)": "tools_fixed_cost",
     "First Depo Revenue (GSheet)": "first_depo",
     "All Subscription (GSheet)": "all_subscription",
     "First Subscription (GSheet)": "first_subs",
@@ -67,6 +69,7 @@ ALL_DATA_SOURCE_VALUES = [
     "first_deposit_ba",
     "ms_deposit",
     "all_depo",
+    "tools_fixed_cost",
     "first_depo",
     "all_subscription",
     "first_subs",
@@ -125,16 +128,31 @@ def resolve_date_input(mode: str, preset_key: str, presets: dict[str, tuple[dt.d
     return from_date, to_date
 
 
-def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]:
+def render_update_form(*, snapshot_completed: bool = False, historical_csv_available: bool = False) -> dict[str, object]:
     """Render the update-data form and return normalized selections."""
     presets = date_presets(dt.date.today())
     source_options = data_source_options(snapshot_completed=snapshot_completed)
+    if historical_csv_available:
+        source_options["Import Historical CSV (2022–2025)"] = HISTORICAL_CSV_SOURCE
     from_date = to_date = None
     with st.container(border=True):
         left_col, right_col = st.columns(2)
         with left_col:
             source_label = st.selectbox("Data Source", options=list(source_options.keys()), index=None, placeholder="Select a data source", key="update_data_source")
             selected_source = source_options.get(source_label or "")
+            if selected_source == HISTORICAL_CSV_SOURCE:
+                with right_col:
+                    st.caption("Imports missing dates from the bundled Overall Daily Data CSVs.")
+                return {
+                    "submitted": st.button("Run Import", type="primary", width="stretch", key="update_submit"),
+                    "source_label": source_label,
+                    "source_options": source_options,
+                    "mode": "manual",
+                    "preset_key": None,
+                    "presets": presets,
+                    "from_date": None,
+                    "to_date": None,
+                }
             snapshot_selected = selected_source == "apple_install_snapshot"
             report_request_selected = selected_source == "apple_report_request"
             mode = st.radio(
@@ -171,6 +189,8 @@ def render_update_form(*, snapshot_completed: bool = False) -> dict[str, object]
                 suffix = " (Apple completeness window)" if lag_days == 5 else ""
                 if selected_source == "gpt_ads":
                     st.info("Auto refreshes the most recent completed reporting window (31 days by default).")
+                elif selected_source == "tools_fixed_cost":
+                    st.info("Auto refreshes the current and previous calendar months.")
                 elif selected_source != "adjust_callbacks":
                     st.info(f"Auto mode uses date: `{auto_date.isoformat()}`{suffix}")
             elif preset_key:

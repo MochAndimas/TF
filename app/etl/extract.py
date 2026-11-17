@@ -141,6 +141,9 @@ class ExternalApiExtractor:
         self.first_subs_sheet_range = config("FIRST_SUBS_GSHEET_RANGE", default="", cast=str).strip()
         self.all_subscription_sheet_range = config("ALL_SUBS_GSHEET_RANGE", default="", cast=str).strip()
         self.overview_sheet_id = config("OVERVIEW_GSHEET_ID", default="", cast=str).strip()
+        self.summary_cost_sheet_range = config(
+            "SUMMARY_COST_GHSHEET_RANGE", default="'Summary - Cost'!A:P", cast=str,
+        ).strip()
         self.first_depo_sheet_range = config("FIRST_DEPO_GSHEET_RANGE", default="", cast=str).strip()
         self.all_depo_sheet_range = config("ALL_DEPO_GSHEET_RANGE", default="", cast=str).strip()
         self.ga4_property_id = config("GA4_PROPERTY_ID", default=None, cast=str)
@@ -2856,6 +2859,21 @@ class ExternalApiExtractor:
         text = _decode_play_console_csv_payload(payload)
         return list(csv.DictReader(io.StringIO(text)))
 
+
+    async def fetch_tools_fixed_cost_rows(self) -> list:
+        """Read numeric allocations and serial-date headers from Summary - Cost."""
+        if self.service is None or not self.overview_sheet_id or not self.summary_cost_sheet_range:
+            raise ValueError("Tools Fixed Cost requires GSHEET_SA_CREDS, OVERVIEW_GSHEET_ID and SUMMARY_COST_GHSHEET_RANGE.")
+
+        def request():
+            return self.service.spreadsheets().values().get(
+                spreadsheetId=self.overview_sheet_id,
+                range=self.summary_cost_sheet_range,
+                valueRenderOption="UNFORMATTED_VALUE",
+                dateTimeRenderOption="SERIAL_NUMBER",
+            ).execute().get("values", [])
+
+        return await asyncio.to_thread(request)
 
     async def fetch_all_depo_rows(self) -> list:
         """Read daily aggregates using the shared Sheets service account."""

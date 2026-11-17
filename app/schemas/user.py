@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, SecretStr
 
 from app.schemas.responses import ApiResponseV1
 
@@ -64,6 +64,11 @@ class AccountListResponse(ApiResponseV1):
     """Response wrapper for account listing endpoints."""
 
     data: list[AccountSummary]
+
+
+class AccountPasswordResetRequest(BaseModel):
+    password: SecretStr
+    confirm_password: SecretStr
 
 
 class AccountUpdateRequest(BaseModel):

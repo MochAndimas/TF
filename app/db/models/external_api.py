@@ -806,6 +806,16 @@ class ManagedSecret(SqliteBase):
     updated_at = Column("updated_at", DateTime, nullable=False)
 
 
+class ToolsFixedCost(SqliteBase):
+    """One IDR allocation per calendar month and tool."""
+
+    __tablename__ = "tools_fixed_cost"
+    date = Column(Date, primary_key=True)  # First day of the calendar month.
+    tool_name = Column(String, primary_key=True)
+    amount_idr = Column(Float, nullable=False)
+    pull_date = Column(Date, nullable=False)
+
+
 class AllDepo(SqliteBase):
     """Daily aggregate deposit metrics imported from the ALL DEPO sheet."""
 

@@ -15,6 +15,7 @@ ALLOWED_ROLES: Final[set[str]] = {
     "analyst",
     "digital_marketing",
     "finance",
+    "management",
     "social_media",
     "sales",
     "tech_it",
@@ -26,6 +27,7 @@ ROLE_CREATION_POLICY: Final[dict[str, set[str]]] = {
 }
 
 OIS_ANALYTICS_ROLES: Final[tuple[str, ...]] = ("superadmin", "analyst", "ois")
+MANAGEMENT_ANALYTICS_ROLES: Final[tuple[str, ...]] = ("superadmin", "management")
 
 ANALYTICS_ROLES: Final[tuple[str, ...]] = (
     "superadmin",

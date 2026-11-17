@@ -1,16 +1,14 @@
 """Streamlit renderer for the main Overview page."""
 
-from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
+from streamlit_app.functions.comparison import comparison_cache_key
 
 import asyncio
-import datetime as dt
 
 import pandas as pd
 import streamlit as st
 
 from streamlit_app.functions.api import ApiClientResult, fetch_api_result
 from streamlit_app.functions.charting import campaign_figure_from_payload
-from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import (
     _render_metric_with_growth,
     _campaign_format_growth,
@@ -21,6 +19,7 @@ from streamlit_app.functions.metrics import (
     render_overview_leads_metric_cards,
     render_overview_metric_cards,
 )
+from streamlit_app.page.campaign_components.common import render_period_filter
 from streamlit_app.page.install import _build_daily_figure as build_install_daily_figure
 from streamlit_app.page.install import _combine_install_data as combine_install_data
 from streamlit_app.page.install import _daily_dataframe as install_daily_dataframe
@@ -283,32 +282,12 @@ async def _ensure_overview_payloads(host: str, start_date, end_date, selected_ra
 
 async def show_overview_page(host: str) -> None:
     st.markdown(PAGE_STYLE, unsafe_allow_html=True)
-    st.markdown('<div class="campaign-title">Overview</div>', unsafe_allow_html=True)
+    st.markdown('<div class="campaign-title">Overview Ads</div>', unsafe_allow_html=True)
 
-    presets = campaign_preset_ranges(dt.date.today())
-    date_range_key = "overview_date_range"
-    if date_range_key not in st.session_state:
-        st.session_state[date_range_key] = presets["This Month"]
-    if "overview_period" not in st.session_state:
-        st.session_state["overview_period"] = "This Month"
-
-    with st.container(border=True):
-        period_key = st.selectbox("Periods", options=list(presets.keys()), key="overview_period")
-        select_comparison(period_key)
-        if period_key == "Custom Range":
-            selected = st.date_input("Select Date Range", key=date_range_key)
-            if not isinstance(selected, tuple) or len(selected) != 2:
-                st.warning("Please select a valid date range.")
-                return
-            start_date, end_date = selected
-        else:
-            start_date, end_date = presets[period_key]
-            if st.session_state.get(date_range_key) != (start_date, end_date):
-                st.session_state[date_range_key] = (start_date, end_date)
-
-    if start_date > end_date:
-        st.warning("Start date cannot be after end date.")
+    selected_dates = render_period_filter("overview")
+    if selected_dates is None:
         return
+    start_date, end_date = selected_dates
 
     selected_range = (start_date, end_date) + comparison_cache_key()
     if not await _ensure_overview_payloads(host, start_date, end_date, selected_range):

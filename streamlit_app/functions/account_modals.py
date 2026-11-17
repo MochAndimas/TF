@@ -187,6 +187,30 @@ def edit_account_modal(host, user, token):
             except Exception as error:
                 st.error(f"Error updating account: {error}")
 
+    if st.session_state.get("role") == "superadmin":
+        with st.expander("Reset Password"):
+            with st.form("reset_password", clear_on_submit=True):
+                password = st.text_input("New Password", type="password")
+                confirmation = st.text_input("Confirm New Password", type="password")
+                submitted = st.form_submit_button("Reset Password")
+            if submitted:
+                if not password or password != confirmation:
+                    st.error("Enter matching passwords.")
+                else:
+                    try:
+                        with httpx.Client(timeout=120) as client:
+                            response = client.post(
+                                f"{host}/api/accounts/{user.user_id}/reset-password",
+                                json={"password": password, "confirm_password": confirmation},
+                                headers=_auth_headers(token),
+                            )
+                            response.raise_for_status()
+                        st.success("Password reset. Active sessions were signed out.")
+                    except httpx.HTTPStatusError as error:
+                        st.error(_format_error_detail(error.response.json().get("detail")))
+                    except httpx.RequestError:
+                        st.error("Could not reach the server to reset the password.")
+
     confirm_delete_key = f"confirm_delete_user_{user.user_id}"
     if not st.session_state.get(confirm_delete_key):
         if st.button("Delete User", type="primary", key=f"delete_user_{user.user_id}"):

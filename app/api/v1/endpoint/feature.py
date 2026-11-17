@@ -32,12 +32,40 @@ from app.utils.etl_run_utils import (
     start_run,
     summarize_runs,
 )
+from app.utils.analytics_cache import clear_campaign_analytics_cache
+from import_overall_daily_csv import CSV_DIRECTORY, EXPORT_NAME, backfill, read_exports
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 SuperadminUser = Annotated[TfUser, Depends(require_roles_dep("superadmin"))]
+
+
+@router.get("/api/feature-data/overall-daily-csv")
+async def overall_daily_csv_status(current_user: SuperadminUser):
+    """Show the import option only when bundled CSV dates are missing."""
+    if not any(EXPORT_NAME.fullmatch(path.name) for path in CSV_DIRECTORY.glob("*.csv")):
+        return {"available": False}
+    try:
+        datasets = await asyncio.to_thread(read_exports, CSV_DIRECTORY)
+    except (OSError, ValueError):
+        logger.exception("Could not read Overall Daily Data CSVs")
+        raise HTTPException(422, "Historical CSV files could not be validated.") from None
+    return {"available": bool(await backfill(datasets, apply=False))}
+
+
+@router.post("/api/feature-data/overall-daily-csv")
+async def import_overall_daily_csv(current_user: SuperadminUser):
+    """Insert missing dates from the bundled historical exports."""
+    try:
+        datasets = await asyncio.to_thread(read_exports, CSV_DIRECTORY)
+    except (OSError, ValueError):
+        logger.exception("Could not read Overall Daily Data CSVs")
+        raise HTTPException(422, "Historical CSV files could not be validated.") from None
+    inserted = await backfill(datasets, apply=True)
+    clear_campaign_analytics_cache()
+    return {"inserted": inserted}
 
 
 def _serialize_etl_run(run: EtlRun) -> EtlRunSummary:

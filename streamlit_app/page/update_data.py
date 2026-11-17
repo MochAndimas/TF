@@ -9,6 +9,7 @@ import streamlit as st
 
 from streamlit_app.page.update_data_components.api import (
     has_successful_snapshot,
+    historical_csv_request,
     poll_update_job,
     trigger_update_job,
 )
@@ -16,6 +17,7 @@ from streamlit_app.page.update_data_components.form import (
     ALL_DATA_SOURCES_LABEL,
     ALL_DATA_SOURCE_VALUES,
     DATA_SOURCE_OPTIONS,
+    HISTORICAL_CSV_SOURCE,
     render_update_form,
     resolve_date_input,
 )
@@ -109,11 +111,25 @@ async def show_update_page(host):
     st.caption("Trigger manual or automatic synchronization for campaign, GA4, register, and first deposit datasets.")
 
     access_token = st.session_state.get("access_token")
+    if (message := st.session_state.pop("historical_csv_import_message", None)) is not None:
+        st.success(message)
     snapshot_completed = False
+    historical_csv_available = False
     if access_token:
         snapshot_completed = await has_successful_snapshot(host, access_token)
+        try:
+            response = await historical_csv_request(host, access_token)
+            if response.is_success:
+                historical_csv_available = response.json()["available"]
+            elif response.status_code != 404:
+                st.warning("Could not check historical CSV import status.")
+        except httpx.RequestError:
+            st.warning("Could not check historical CSV import status.")
 
-    form_state = render_update_form(snapshot_completed=snapshot_completed)
+    form_state = render_update_form(
+        snapshot_completed=snapshot_completed,
+        historical_csv_available=historical_csv_available,
+    )
     submitted = form_state["submitted"]
     source_label = form_state["source_label"]
     source_options = form_state["source_options"]
@@ -128,6 +144,21 @@ async def show_update_page(host):
     if not source_label:
         st.warning("Please select a data source before running update.")
         return
+
+    if source_options[source_label] == HISTORICAL_CSV_SOURCE:
+        try:
+            with st.spinner("Importing historical CSVs..."):
+                response = await historical_csv_request(host, access_token, apply=True)
+            if not response.is_success:
+                message = response.json().get("detail") if response.headers.get("content-type", "").startswith("application/json") else None
+                st.error(message or "Historical CSV import failed.")
+                return
+            inserted = response.json()["inserted"]
+            st.session_state["historical_csv_import_message"] = f"Historical CSV import complete. Rows inserted: {inserted:,}."
+        except httpx.RequestError:
+            st.error("Could not reach the server to import historical CSVs.")
+            return
+        st.rerun()
 
     if mode == "auto":
         from_date, to_date = resolve_date_input(mode, "Yesterday", presets)

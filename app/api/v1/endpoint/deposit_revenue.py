@@ -6,14 +6,30 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoint.common import build_analytics_response, require_roles_dep
-from app.api.v1.functions.fetch_deposit_revenue import fetch_deposit_revenue_payload
+from app.api.v1.functions.fetch_deposit_revenue import fetch_deposit_revenue_payload, fetch_register_total
 from app.db.models.user import TfUser
 from app.db.session import get_db
 from app.schemas.responses import AnalyticsResponse
-from app.utils.rbac import FINANCE_ANALYTICS_ROLES
+from app.utils.rbac import FINANCE_ANALYTICS_ROLES, MANAGEMENT_ANALYTICS_ROLES
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.get("/api/deposit-revenue/register-total", response_model=AnalyticsResponse)
+async def deposit_register_total(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(require_roles_dep(*MANAGEMENT_ANALYTICS_ROLES)),
+):
+    return await build_analytics_response(
+        loader=lambda: fetch_register_total(session, start_date, end_date),
+        success_message="Register total generated.",
+        logger=logger,
+        failure_log_message="Failed to generate register total",
+        failure_detail_message="An internal error occurred while generating the register total.",
+    )
 
 
 @router.get("/api/deposit-revenue/analytics", response_model=AnalyticsResponse)

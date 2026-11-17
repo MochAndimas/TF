@@ -32,12 +32,14 @@ from app.utils.user_utils import (
     get_current_user,
     list_accounts,
     list_deleted_accounts,
+    reset_account_password,
     restore_account,
     update_account,
     validate_role_assignment,
 )
 from app.schemas.user import (
     AccountListResponse,
+    AccountPasswordResetRequest,
     AccountUpdateRequest,
     AccountUpdateResponse,
     DeleteAccountResponse,
@@ -55,6 +57,27 @@ from app.schemas.user import (
 
 
 router = APIRouter()
+
+
+@router.post("/api/accounts/{user_id}/reset-password", response_model=MessageResponse)
+async def reset_password(
+    user_id: str,
+    payload: AccountPasswordResetRequest,
+    session: AsyncSession = Depends(get_db),
+    current_user: TfUser = Depends(require_roles_dep("superadmin")),
+):
+    password = payload.password.get_secret_value()
+    if password != payload.confirm_password.get_secret_value():
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+    try:
+        updated = await reset_account_password(
+            session, actor=current_user, user_id=user_id, password=password,
+        )
+    except ValueError as error:
+        raise_bad_request(error)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return MessageResponse(success=True, message="Password reset. Active sessions were signed out.")
 
 
 @router.post("/api/register", response_model=RegisterResponse)

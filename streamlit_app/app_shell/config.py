@@ -19,6 +19,7 @@ from streamlit_app.page import (
     login,
     meta_ads_token,
     overview,
+    overview_management,
     ois,
     register,
     subscription,
@@ -40,7 +41,8 @@ PageHandler = Callable[[str], Awaitable[None]]
 PAGE_LABELS: dict[str, str] = {
     "home": "Home",
     "ois": "OIS",
-    "overview": "Overview",
+    "overview": "Overview Ads",
+    "overview_management": "Overview Management",
     "install": "Install",
     "user_acquisition": "User Acquisition",
     "brand_awareness": "Brand Awareness",
@@ -70,6 +72,7 @@ PAGE_SLUGS: dict[str, str] = {
     "home": "home",
     "ois": "ois",
     "overview": "overview",
+    "overview_management": "overview-management",
     "install": "install",
     "user_acquisition": "user-acquisition",
     "brand_awareness": "brand-awareness",
@@ -101,6 +104,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
     "home": "secondary",
     "ois": "tertiary",
     "overview": "tertiary",
+    "overview_management": "tertiary",
     "install": "tertiary",
     "user_acquisition": "tertiary",
     "brand_awareness": "tertiary",
@@ -128,7 +132,7 @@ PAGE_BUTTON_TYPES: dict[str, str] = {
 
 NAV_GROUPS: dict[str, list[str]] = {
     "Portal": ["home"],
-    "Overall": ["overview"],
+    "Overall": ["overview", "overview_management"],
     "Revenue": ["deposit_revenue", "subscription"],
     "Ads Revenue": ["deposit_report", "deposit_ba", "remarketing_deposit"],
     "Campaign": ["user_acquisition", "brand_awareness", "remarketing"],
@@ -139,7 +143,7 @@ NAV_GROUPS: dict[str, list[str]] = {
 }
 
 ROLE_PAGE_ACCESS: dict[str, list[str]] = {
-    "superadmin": ["export_data_adjust", "home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "register", "update_data", "database_maintenance", "meta_ads_token", "instagram_token", "youtube_token", "tiktok_token", "terms", "privacy", "ois"],
+    "superadmin": ["export_data_adjust", "home", "subscription", "deposit_revenue", "overview", "overview_management", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "register", "update_data", "database_maintenance", "meta_ads_token", "instagram_token", "youtube_token", "tiktok_token", "terms", "privacy", "ois"],
     "analyst": ["home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit", "ois"],
     "admin": ["export_data_adjust", "home", "subscription", "deposit_revenue", "overview", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
     "digital_marketing": ["home", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity"],
@@ -147,6 +151,7 @@ ROLE_PAGE_ACCESS: dict[str, list[str]] = {
     "social_media": ["home", "instagram", "facebook", "tiktok", "youtube"],
     "tech_it": ["home", "subscription", "deposit_revenue", "overview", "install", "user_acquisition", "brand_awareness", "remarketing", "instagram", "facebook", "tiktok", "youtube", "internal_register", "login_activity", "deposit_report", "deposit_ba", "remarketing_deposit"],
     "ois": ["ois"],
+    "management": ["overview_management"],
     "sales": [],
 }
 
@@ -154,6 +159,7 @@ PAGE_HANDLERS: dict[str, PageHandler] = {
     "home": home.show_home_page,
     "ois": ois.show_ois_page,
     "overview": overview.show_overview_page,
+    "overview_management": overview_management.show_overview_management_page,
     "install": install.show_install_page,
     "user_acquisition": user_acquisition.show_user_acquisition_page,
     "brand_awareness": brand_awareness.show_brand_awareness_page,

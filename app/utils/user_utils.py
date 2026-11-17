@@ -356,6 +356,25 @@ async def update_account(
     return target_user
 
 
+async def reset_account_password(
+    session: AsyncSession, *, actor: TfUser, user_id: str, password: str,
+) -> bool:
+    """Change the password and revoke active sessions in one transaction."""
+    require_roles(actor, "superadmin")
+    validate_password_policy(password)
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Password must be at most 72 bytes.")
+
+    target = await get_user_by_id(user_id=user_id, session=session)
+    if target is None:
+        return False
+    target.password = pwd_context.hash(password)
+    target.updated_at = now()
+    await logout_all_sessions(session, actor=actor, target_user_id=user_id, auto_commit=False)
+    await session.commit()
+    return True
+
+
 async def get_home_context(
     session: AsyncSession,
     *,
