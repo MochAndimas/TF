@@ -1,5 +1,7 @@
 """Streamlit page for the deposit report."""
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
@@ -130,6 +132,7 @@ async def render_deposit_page(
         st.session_state[f"{state_prefix}_daily_range"] = selected_range
 
     report = st.session_state.get(f"{state_prefix}_daily_payload", {}).get("data", {}).get("report", {})
+    compare = ChartComparison(host, (start_date, end_date), "deposit_" + str(selected_type), uri, {"report": report}, params={"campaign_type": selected_type})
     st.markdown(f'<div class="metric-section-title">{title} Summary</div>', unsafe_allow_html=True)
     currency_wrap_left, currency_wrap_mid, currency_wrap_right = st.columns([2.2, 2.6, 2.2], gap="small")
     with currency_wrap_mid:
@@ -140,10 +143,10 @@ async def render_deposit_page(
             currency_unit = st.radio("Currency", options=["USD", "IDR"], horizontal=True, key=f"{state_prefix}_currency_unit", label_visibility="collapsed")
 
     render_metric_cards(report, currency_unit=currency_unit)
-    daily_amount_figure = build_daily_deposit_amount_figure(report, currency_unit=currency_unit)
-    qty_aov_figure = build_daily_deposit_qty_aov_figure(report, currency_unit=currency_unit)
+    daily_amount_figure = compare.figure(lambda data, dates: build_daily_deposit_amount_figure(data.get("report", {}), currency_unit=currency_unit))
+    qty_aov_figure = compare.figure(lambda data, dates: build_daily_deposit_qty_aov_figure(data.get("report", {}), currency_unit=currency_unit))
     deposit_method_pie_figure = build_deposit_method_pie_figure(report, currency_unit=currency_unit)
-    top_campaign_figure = build_top_campaign_deposit_figure(report, currency_unit=currency_unit)
+    top_campaign_figure = compare.figure(lambda data, dates: build_top_campaign_deposit_figure(data.get("report", {}), currency_unit=currency_unit))
     campaign_heatmap_figure = build_campaign_deposit_amount_heatmap_figure(report, currency_unit=currency_unit)
     for figure, height in [(daily_amount_figure, 420), (qty_aov_figure, 420), (deposit_method_pie_figure, 320), (top_campaign_figure, 480), (campaign_heatmap_figure, 560)]:
         figure.update_layout(height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
@@ -151,18 +154,18 @@ async def render_deposit_page(
     for column, figure in zip(st.columns(2, gap="small"), [daily_amount_figure, qty_aov_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
     table_col, chart_col = st.columns(2, gap="small")
     with table_col:
         with st.container(border=True):
             render_deposit_method_table(report, currency_unit=currency_unit, height=320)
     with chart_col:
         with st.container(border=True):
-            st.plotly_chart(deposit_method_pie_figure, width="stretch")
+            await compare.render(deposit_method_pie_figure, width="stretch")
     with st.container(border=True):
-        st.plotly_chart(top_campaign_figure, width="stretch")
+        await compare.render(top_campaign_figure, width="stretch")
     with st.container(border=True):
-        st.plotly_chart(campaign_heatmap_figure, width="stretch")
+        await compare.render(campaign_heatmap_figure, width="stretch")
     st.markdown(f'<div class="metric-section-title">{title} by Campaign</div>', unsafe_allow_html=True)
     with st.container(border=True):
         render_campaign_deposit_table(report, currency_unit=currency_unit, height=420)

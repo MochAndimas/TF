@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from streamlit_app.functions.chart_comparison import ChartComparison
 from streamlit_app.functions.api import fetch_api_result
 from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth, _campaign_format_number
 from streamlit_app.page.ois_components.charts import COLORS, style
@@ -47,9 +48,9 @@ def breakdown(df, fields):
     return pd.DataFrame(result, columns=[*fields, *summarize(df)])
 
 
-def chart(figure, key):
+async def chart(figure, key, compare):
     with st.container(border=True):
-        st.plotly_chart(figure, width="stretch", key=key)
+        await compare.render(figure, width="stretch", key=key)
 
 
 async def show_register_revenue(host, dates, *, new_users=None):
@@ -65,18 +66,27 @@ async def show_register_revenue(host, dates, *, new_users=None):
         st.info("No registrations for this period. Sync OIS Registrations (GSheet) in Update Data or choose another period.")
         return
     combined = pd.concat([current, previous], ignore_index=True)
+    selections = {}
     with st.container(border=True):
         for column, field in zip(st.columns(2, gap="small"), ("utm_medium", "utm_campaign")):
             options = sorted(combined[field].dropna().unique().tolist())
             key = f"ois_reg_filter_{field}"
             st.session_state[key] = [value for value in st.session_state.get(key, []) if value in options]
             selected = column.multiselect(LABELS[field], options, placeholder="All", key=key)
+            selections[field] = selected
             if selected:
                 current = current[current[field].isin(selected)]
                 previous = previous[previous[field].isin(selected)]
     if current.empty:
         st.info("No registrations match these filters.")
         return
+    compare = ChartComparison(host, dates, "ois_registrations", "ois/registrations", data)
+    def comparison_figure(payload, period, kind):
+        records = prepare(payload["current_rows"])
+        for field, values in selections.items():
+            if values:
+                records = records[records[field].isin(values)]
+        return registration_figure(records, period, kind)
     st.markdown("## Register & Revenue Overview")
     now, before = summarize(current), summarize(previous)
     comparison = {"previous_period": {"start_date": data["previous_start"], "end_date": data["previous_end"]}}
@@ -96,32 +106,44 @@ async def show_register_revenue(host, dates, *, new_users=None):
             y=["New users", "Register"], x=[new_users, now["register"]],
             textinfo="value", marker=dict(color=["#6875f5", "#22b895"]),
             hovertemplate="%{y}: %{x:,.0f}<extra></extra>"))
-        chart(style(figure, "New users → Register"), "ois_acquisition_funnel")
+        await chart(style(figure, "New users → Register"), "ois_acquisition_funnel", compare)
         st.caption("New users dari GA4 dan register dari data internal pada periode yang dipilih. "
                    "Masing-masing mengikuti filter bagiannya; angka ini bukan pelacakan user yang sama antar tahap.")
     st.markdown("## Registration Trends")
     daily = breakdown(current, ["registration_date", "utm_source"])
-    timeline = pd.date_range(*dates)
-    figure = go.Figure()
-    for source in current.utm_source.unique():
-        series = daily[daily.utm_source == source].set_index(
-            "registration_date")["register"].reindex(timeline, fill_value=0)
-        figure.add_trace(go.Scatter(x=timeline, y=series, name=source,
-                         mode="lines+markers", line=dict(color=COLORS[source])))
-    figure.update_layout(hovermode="x unified", yaxis_title="Register", yaxis_rangemode="tozero")
-    chart(style(figure, "Daily Register"), "ois_reg_trend")
-    st.markdown("## Subscription Revenue")
-    figure = px.bar(daily, x="registration_date", y="first_revenue",
-                    color="utm_source", color_discrete_map=COLORS, labels=LABELS)
-    chart(style(figure, "First Subs Revenue by Register Date"), "ois_reg_revenue")
-    st.markdown("## Acquisition Breakdown")
-    grouped = breakdown(current, ["utm_campaign"]).sort_values("register", ascending=False).head(12)
-    figure = px.bar(grouped, x="utm_campaign", y="register", labels=LABELS,
-                    color_discrete_sequence=["#6875f5"])
-    chart(style(figure, "Register by Campaign"), "ois_reg_utm_campaign")
+    for kind, key in (("trend", "ois_reg_trend"), ("revenue", "ois_reg_revenue"), ("campaign", "ois_reg_utm_campaign")):
+        if kind == "revenue":
+            st.markdown("## Subscription Revenue")
+        elif kind == "campaign":
+            st.markdown("## Acquisition Breakdown")
+        figure = registration_figure(current, dates, kind)
+        object.__setattr__(figure, "_comparison_builder",
+                           lambda data, dates, kind=kind: comparison_figure(data, dates, kind))
+        await chart(figure, key, compare)
     with st.expander("Daily Register Details"):
         daily = daily.sort_values("registration_date", ascending=False)
         st.dataframe(daily.rename(columns=LABELS), hide_index=True, width="stretch", column_config={
             "Register Date": st.column_config.DatetimeColumn(format="DD MMM YYYY")})
 
     render_contacts(data.get("contact_rows", []), set(current.tf_id), dates)
+
+
+def registration_figure(records, dates, kind):
+    daily = breakdown(records, ["registration_date", "utm_source"])
+    if kind == "trend":
+        figure = go.Figure()
+        timeline = pd.date_range(*dates)
+        for source in records.utm_source.unique():
+            series = daily[daily.utm_source == source].set_index("registration_date")["register"].reindex(timeline, fill_value=0)
+            figure.add_trace(go.Scatter(x=timeline, y=series, name=source,
+                                       mode="lines+markers", line=dict(color=COLORS[source])))
+        figure.update_layout(hovermode="x unified", yaxis_title="Register", yaxis_rangemode="tozero")
+        return style(figure, "Daily Register")
+    if kind == "revenue":
+        figure = px.bar(daily, x="registration_date", y="first_revenue",
+                        color="utm_source", color_discrete_map=COLORS, labels=LABELS)
+        return style(figure, "First Subs Revenue by Register Date")
+    grouped = breakdown(records, ["utm_campaign"]).sort_values("register", ascending=False).head(12)
+    figure = px.bar(grouped, x="utm_campaign", y="register", labels=LABELS,
+                    color_discrete_sequence=["#6875f5"])
+    return style(figure, "Register by Campaign")

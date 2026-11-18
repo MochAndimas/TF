@@ -1,8 +1,11 @@
 """Revenue / Deposit: daily aggregate deposit analysis from ALL DEPO."""
+
+from streamlit_app.functions.chart_comparison import ChartComparison
 import datetime as dt
 
 import pandas as pd
 import plotly.graph_objects as go
+import asyncio
 import streamlit as st
 
 from streamlit_app.functions.api import fetch_api_result
@@ -146,7 +149,7 @@ def closing_breakdown(metrics, prefix, measure='amount'):
     return labels, amounts
 
 
-def render_report(data):
+async def render_report_with_comparison(data, compare):
     if not data.get('daily_rows'):
         st.info('No deposit data for this period. Run All Depo from Update Data to populate this report.')
         return
@@ -168,15 +171,16 @@ def render_report(data):
     frame = daily_frame(data)
     st.markdown('## Deposit Trends')
     with st.container(border=True):
-        st.plotly_chart(trend_figure(frame, ('total_deposit_amount','first_deposit_amount','top_up_amount'),
-            'Daily Deposit Amount', bars=True, amount=True), width='stretch')
+        await compare.render(compare.figure(lambda data, dates: trend_figure(daily_frame(data),
+            ('total_deposit_amount','first_deposit_amount','top_up_amount'), 'Daily Deposit Amount',
+            bars=True, amount=True)), width='stretch')
     cols = st.columns(2, gap='small')
     for col, fields, title, amount in [
         (cols[0], ('total_deposit_user_qty','total_deposit_qty','first_deposit_qty','top_up_qty'), 'Daily Deposit Activity', False),
         (cols[1], ('average_deposit','average_first_deposit','average_top_up'), 'Average Amount per Deposit', True),
     ]:
         with col, st.container(border=True):
-            st.plotly_chart(trend_figure(frame,fields,title,amount=amount),width='stretch')
+            await compare.render(compare.figure(lambda data, dates: trend_figure(daily_frame(data), fields, title, amount=amount)), width='stretch')
     st.markdown('## Closing Method')
     closing_cards = [
         [
@@ -247,4 +251,10 @@ async def show_deposit_revenue_page(host: str):
     if not result.ok:
         st.error(result.message or 'Failed to fetch deposit analytics.')
         return
-    render_report(result.data)
+    await render_report_with_comparison(result.data, ChartComparison(host, dates, "deposit", "deposit-revenue/analytics", result.data))
+
+
+def render_report(data):
+    asyncio.run(render_report_with_comparison(
+        data, ChartComparison(None, None, "deposit", "", data)
+    ))

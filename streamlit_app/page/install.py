@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
@@ -126,7 +128,8 @@ def _daily_dataframe(rows: list[dict[str, object]]) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"]).dt.date
     for column in ("installers", "uninstallers", "net_installs", "active_devices"):
-        df[column] = pd.to_numeric(df[column], errors="coerce").fillna(0).astype(int)
+        values = pd.to_numeric(df[column], errors="coerce")
+        df[column] = values.astype(float) if column == "active_devices" else values.fillna(0).astype(int)
     return df.sort_values("date")
 
 
@@ -236,6 +239,12 @@ def _combine_install_data(play: dict[str, object], apple: dict[str, object]) -> 
             uninstallers=("uninstallers", "sum"),
             active_devices=("active_devices", "sum"),
         )
+        # Combined active devices are available only when both platforms report.
+        play_dates = {str(row["date"])[:10] for row in play.get("daily_rows", [])}
+        apple_dates = {str(row["date"])[:10] for row in normalized_apple.get("daily_rows", [])}
+        complete_dates = play_dates & apple_dates
+        incomplete = ~daily["date"].astype(str).str[:10].isin(complete_dates)
+        daily.loc[incomplete, "active_devices"] = float("nan")
         daily["net_installs"] = daily["installers"] - daily["uninstallers"]
         daily["churn_rate"] = daily.apply(
             lambda row: round((row["uninstallers"] / row["installers"]) * 100, 2) if row["installers"] else 0.0,
@@ -370,7 +379,7 @@ def _build_active_device_trend_figure(df: pd.DataFrame) -> go.Figure:
     return figure
 
 
-def _render_overview(play: dict[str, object], apple: dict[str, object]) -> None:
+async def _render_overview(play: dict[str, object], apple: dict[str, object], compare) -> None:
     normalized_apple = _normalize_apple_data(apple)
     st.markdown("### Google Play")
     _render_metrics(play.get("metrics", {}), play.get("all_time", {}))
@@ -378,15 +387,15 @@ def _render_overview(play: dict[str, object], apple: dict[str, object]) -> None:
     _render_metrics(normalized_apple.get("metrics", {}), normalized_apple.get("all_time", {}))
 
     overview_df = _overview_platform_frame(play, apple)
-    figure = set_transparent_chart_background(_build_overview_figure(overview_df))
+    figure = set_transparent_chart_background(compare.figure(lambda data, dates: _build_overview_figure(_overview_platform_frame(data, data.get("apple", {})))))
     figure.update_layout(height=460)
     with st.container(border=True):
-        st.plotly_chart(figure, width="stretch")
+        await compare.render(figure, width="stretch")
 
-    trend_figure = set_transparent_chart_background(_build_active_device_trend_figure(overview_df))
+    trend_figure = set_transparent_chart_background(compare.figure(lambda data, dates: _build_active_device_trend_figure(_overview_platform_frame(data, data.get("apple", {})))))
     trend_figure.update_layout(height=420)
     with st.container(border=True):
-        st.plotly_chart(trend_figure, width="stretch")
+        await compare.render(trend_figure, width="stretch")
 
     st.markdown("### Install Details - All Platforms")
     if overview_df.empty:
@@ -465,13 +474,13 @@ def _build_daily_figure(df: pd.DataFrame) -> go.Figure:
     return figure
 
 
-def _render_install_analytics(data: dict[str, object], *, title: str) -> None:
+async def _render_install_analytics(data: dict[str, object], compare, *, title: str) -> None:
     _render_metrics(data.get("metrics", {}), data.get("all_time", {}))
     daily_df = _daily_dataframe(data.get("daily_rows", []))
-    daily_figure = set_transparent_chart_background(_build_daily_figure(daily_df))
+    daily_figure = set_transparent_chart_background(compare.figure(lambda payload, dates: _build_daily_figure(_daily_dataframe((_normalize_apple_data(payload.get("apple", {})) if title == "Apple App Store" else payload).get("daily_rows", [])))))
     daily_figure.update_layout(title=f"Daily Installs - {title}", height=440)
     with st.container(border=True):
-        st.plotly_chart(daily_figure, width="stretch")
+        await compare.render(daily_figure, width="stretch")
 
     st.markdown(f"### Install Details - {title}")
     details_df = _details_dataframe(data.get("details", []))
@@ -543,9 +552,10 @@ async def show_install_page(host: str) -> None:
         st.session_state["install_range"] = selected_range
 
     data = st.session_state.get("install_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "install", "install/analytics", data, params={"package_name": package_name, "country": country})
     if platform == "Apple App Store":
-        _render_install_analytics(_normalize_apple_data(data.get("apple", {})), title="Apple App Store")
+        await _render_install_analytics(_normalize_apple_data(data.get("apple", {})), compare, title="Apple App Store")
     elif platform == "Overview":
-        _render_overview(data, data.get("apple", {}))
+        await _render_overview(data, data.get("apple", {}), compare)
     else:
-        _render_install_analytics(data, title="Google Play")
+        await _render_install_analytics(data, compare, title="Google Play")

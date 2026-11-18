@@ -1,5 +1,7 @@
 """Streamlit page for Remarketing analytics."""
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import streamlit as st
@@ -58,6 +60,7 @@ async def show_remarketing_page(host: str) -> None:
         st.session_state["remarketing_campaign_range"] = selected_range
 
     overview_data = st.session_state.get("remarketing_campaign_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "remarketing", "campaign/remarketing", overview_data)
     st.markdown(
         f'<div class="metric-section-title">{selected_source} - Remarketing</div>',
         unsafe_allow_html=True,
@@ -76,7 +79,7 @@ async def show_remarketing_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [spend_figure, performance_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     detail_rows = overview_data.get("details", {}).get(selected_key, {}).get("rows", [])
     selected_level, level_column, level_label, display_df = build_performance_table(detail_rows)
@@ -101,7 +104,7 @@ async def show_remarketing_page(host: str) -> None:
     for column, figure in zip(st.columns(3, gap="small"), trend_figures):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     st.markdown(f"### {selected_level}")
     render_performance_table(level_label, display_df)

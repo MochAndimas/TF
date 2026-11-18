@@ -9,6 +9,7 @@ def campaign_figure_from_payload(payload: dict | None, title: str) -> go.Figure:
     """Convert serialized Plotly payload into a display-ready figure object."""
     if payload and isinstance(payload, dict):
         figure = go.Figure(payload)
+        object.__setattr__(figure, "_comparison_source", payload)
         if figure.data and isinstance(figure.data[0], go.Table):
             table_trace = figure.data[0]
             header_values = [str(value).strip().lower() for value in (table_trace.header.values or [])]

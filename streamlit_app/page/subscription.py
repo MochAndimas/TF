@@ -1,12 +1,15 @@
 """Subscription revenue analytics using the shared analytics visual style."""
 from __future__ import annotations
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
 
 import pandas as pd
 import plotly.graph_objects as go
+import asyncio
 import streamlit as st
 
 from streamlit_app.functions.api import fetch_api_result
@@ -56,6 +59,9 @@ def render_filters():
 
 def build_daily_figure(frame, fields, title, *, currency=False):
     figure = go.Figure()
+    if frame.empty:
+        figure.update_layout(title=title)
+        return figure
     for field, color in zip(fields, COLORS):
         figure.add_trace(go.Scatter(
             x=frame["date"], y=frame[field], name={**LABELS, **FIRST_LABELS}[field],
@@ -72,7 +78,17 @@ def build_daily_figure(frame, fields, title, *, currency=False):
     return set_transparent_chart_background(figure)
 
 
-def render_all_report(data):
+def _comparison_daily_frame(data, rows_key):
+    rows = pd.DataFrame(data.get(rows_key, []))
+    if rows.empty:
+        return rows
+    rows["date"] = pd.to_datetime(rows["date"])
+    return rows.set_index("date").reindex(
+        pd.date_range(data["start_date"], data["end_date"])
+    ).rename_axis("date").reset_index()
+
+
+async def render_all_report_with_comparison(data, compare):
     rows = data.get("daily_rows", [])
     if not rows:
         st.info("No subscription data for the selected period. Update All Subscription from the Update Data page.")
@@ -103,9 +119,9 @@ def render_all_report(data):
     ]
     for column, (fields, title, currency) in zip(st.columns(2, gap="small"), specs):
         with column, st.container(border=True):
-            st.plotly_chart(build_daily_figure(daily, fields, title, currency=currency), width="stretch")
+            await compare.render(compare.figure(lambda data, dates: build_daily_figure(_comparison_daily_frame(data, "daily_rows"), fields, title, currency=currency)), width="stretch")
     with st.container(border=True):
-        st.plotly_chart(build_daily_figure(daily, ("unique_subscribers", "new_subscription_qty"), "Daily Unique Users and New Subscriptions"), width="stretch")
+        await compare.render(compare.figure(lambda data, dates: build_daily_figure(_comparison_daily_frame(data, "daily_rows"), ("unique_subscribers", "new_subscription_qty"), "Daily Unique Users and New Subscriptions")), width="stretch")
     st.markdown('<div class="metric-section-title">Subscription Daily Details</div>', unsafe_allow_html=True)
     details = frame[["date", *LABELS]].rename(columns={"date": "Date", **LABELS})
     details["Date"] = details["Date"].dt.date
@@ -119,7 +135,7 @@ def render_all_report(data):
         })
 
 
-def render_first_report(data):
+async def render_first_report_with_comparison(data, compare):
     st.markdown('<div class="metric-section-title">First Subscription</div>', unsafe_allow_html=True)
     rows = data.get("first_daily_rows", [])
     if not rows:
@@ -178,7 +194,7 @@ def render_first_report(data):
                 }, na_rep="—"), hide_index=True, width="stretch")
         for col, (fields, title, currency) in zip(st.columns(2, gap="small"), specs[offset:offset+2]):
             with col, st.container(border=True):
-                st.plotly_chart(build_daily_figure(daily, fields, title, currency=currency), width="stretch")
+                await compare.render(compare.figure(lambda data, dates: build_daily_figure(_comparison_daily_frame(data, "first_daily_rows"), fields, title, currency=currency)), width="stretch")
     st.markdown('<div class="metric-section-title">First Subscription Daily Details</div>', unsafe_allow_html=True)
     details = frame[["date", *FIRST_LABELS]].rename(columns={"date": "Date", **FIRST_LABELS})
     st.dataframe(details.sort_values("Date", ascending=False).style.format(
@@ -186,7 +202,7 @@ def render_first_report(data):
         hide_index=True, width="stretch", column_config={"Date": st.column_config.DateColumn(format="DD MMM YYYY")})
 
 
-def render_report(data):
+async def render_report_with_comparison(data, compare):
     if st.session_state.get("subscription_view") not in {"Subscription", "First Subscription", None}:
         st.session_state["subscription_view"] = "Subscription"
     view = st.segmented_control(
@@ -196,9 +212,9 @@ def render_report(data):
         key="subscription_view",
     ) or "Subscription"
     if view == "Subscription":
-        render_all_report(data)
+        await render_all_report_with_comparison(data, compare)
     else:
-        render_first_report(data)
+        await render_first_report_with_comparison(data, compare)
 
 
 async def show_subscription_page(host: str) -> None:
@@ -216,4 +232,23 @@ async def show_subscription_page(host: str) -> None:
     if not result.ok:
         st.error(result.message or "Failed to fetch subscription analytics.")
         return
-    render_report(result.data)
+    await render_report_with_comparison(result.data, ChartComparison(host, dates, "subscription", "subscription/analytics", result.data))
+
+
+def render_report(data):
+    """Render a standalone report for existing callers without comparison controls."""
+    asyncio.run(render_report_with_comparison(
+        data, ChartComparison(None, None, "subscription", "", data)
+    ))
+
+
+def render_all_report(data):
+    asyncio.run(render_all_report_with_comparison(
+        data, ChartComparison(None, None, "subscription", "", data)
+    ))
+
+
+def render_first_report(data):
+    asyncio.run(render_first_report_with_comparison(
+        data, ChartComparison(None, None, "subscription", "", data)
+    ))

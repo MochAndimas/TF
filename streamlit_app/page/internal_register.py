@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
@@ -55,28 +57,7 @@ def _render_filters() -> tuple[dt.date | None, dt.date | None, str | None]:
     return start_date, end_date, selected_view
 
 
-async def _render_all_source(host: str, start_date, end_date) -> None:
-    """Render All Source with the same card-and-panel layout as Campaign."""
-    response = await fetch_legacy_activity_payload(
-        host=host, uri="campaign/all-source-register", start_date=start_date, end_date=end_date,
-        source="all", fallback_message="Failed to fetch all source register data.",
-    )
-    if response is None:
-        return
-    data = response.get("data", {})
-    metrics = data.get("metrics", {})
-    cols = st.columns(4, gap="small")
-    metric_specs = [
-        ("Total Register", "total_register", _fmt_int(metrics.get("total_register"))),
-        ("Avg Daily", "avg_daily_register", _fmt_float(metrics.get("avg_daily_register"))),
-        ("Active Sources", "active_sources", _fmt_int(metrics.get("active_sources"))),
-        ("Peak Day Register", "peak_day_register", _fmt_int(metrics.get("peak_day_register"))),
-    ]
-    for column, (label, _key, value) in zip(cols, metric_specs):
-        with column:
-            with st.container(border=True):
-                st.metric(label, value, help=f"Peak day: {metrics.get('peak_day') or '-'}" if label == "Peak Day Register" else None)
-    daily = pd.DataFrame(data.get("daily_rows", []))
+def _all_source_figures(data):
     sources = pd.DataFrame(data.get("source_rows", [])).head(10)
     details = pd.DataFrame(data.get("details", []))
     daily_figure = go.Figure()
@@ -102,19 +83,49 @@ async def _render_all_source(host: str, start_date, end_date) -> None:
     source_figure.update_layout(title="Top 10 Register by Source", xaxis_title="Source", yaxis_title="Register")
     source_figure = set_transparent_chart_background(source_figure)
     source_figure.update_layout(height=440)
+    return daily_figure, source_figure
+
+
+async def _render_all_source(host: str, start_date, end_date) -> None:
+    """Render All Source with the same card-and-panel layout as Campaign."""
+    response = await fetch_legacy_activity_payload(
+        host=host, uri="campaign/all-source-register", start_date=start_date, end_date=end_date,
+        source="all", fallback_message="Failed to fetch all source register data.",
+    )
+    if response is None:
+        return
+    data = response.get("data", {})
+    metrics = data.get("metrics", {})
+    cols = st.columns(4, gap="small")
+    metric_specs = [
+        ("Total Register", "total_register", _fmt_int(metrics.get("total_register"))),
+        ("Avg Daily", "avg_daily_register", _fmt_float(metrics.get("avg_daily_register"))),
+        ("Active Sources", "active_sources", _fmt_int(metrics.get("active_sources"))),
+        ("Peak Day Register", "peak_day_register", _fmt_int(metrics.get("peak_day_register"))),
+    ]
+    for column, (label, _key, value) in zip(cols, metric_specs):
+        with column:
+            with st.container(border=True):
+                st.metric(label, value, help=f"Peak day: {metrics.get('peak_day') or '-'}" if label == "Peak Day Register" else None)
+    daily = pd.DataFrame(data.get("daily_rows", []))
+    sources = pd.DataFrame(data.get("source_rows", [])).head(10)
+    details = pd.DataFrame(data.get("details", []))
+    compare = ChartComparison(host, (start_date, end_date), "register_all", "campaign/all-source-register", data)
+    daily_figure = compare.figure(lambda data, dates: _all_source_figures(data)[0])
+    source_figure = compare.figure(lambda data, dates: _all_source_figures(data)[1])
     left, right = st.columns(2, gap="small")
     with left:
         with st.container(border=True):
             if daily.empty:
                 st.info("No All Source data for selected date range.")
             else:
-                st.plotly_chart(daily_figure, width="stretch")
+                await compare.render(daily_figure, width="stretch")
     with right:
         with st.container(border=True):
             if sources.empty:
                 st.info("No source data for selected date range.")
             else:
-                st.plotly_chart(source_figure, width="stretch")
+                await compare.render(source_figure, width="stretch")
     with st.container(border=True):
         if details.empty:
             st.info("No All Source data for selected date range.")
@@ -300,6 +311,7 @@ async def show_internal_register_page(host: str) -> None:
         st.session_state["internal_register_range"] = selected_range
 
     data = st.session_state.get("internal_register_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "internal_register", "campaign/internal-register", data, params={"source": source_key})
     _render_metrics(data.get("metrics", {}))
 
     charts = data.get("charts", {})
@@ -325,18 +337,18 @@ async def show_internal_register_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [daily_figure, cumulative_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     for column, figure in zip(st.columns(2, gap="small"), [source_figure, type_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     with st.container(border=True):
-        st.plotly_chart(top_figure, width="stretch")
+        await compare.render(top_figure, width="stretch")
 
     with st.container(border=True):
-        st.plotly_chart(heatmap_figure, width="stretch")
+        await compare.render(heatmap_figure, width="stretch")
 
     st.markdown("### Campaign Register Details")
     details_df = _details_dataframe(data.get("details", []))

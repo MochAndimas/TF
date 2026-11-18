@@ -1,5 +1,7 @@
 """Streamlit page for User Acquisition analytics."""
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import streamlit as st
@@ -61,6 +63,7 @@ async def show_user_acquisition_page(host: str) -> None:
         st.session_state["campaign_ads_range"] = selected_range
 
     overview_data = st.session_state.get("campaign_ads_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "user_acquisition", "campaign/user-acquisition", overview_data)
     render_campaign_metric_cards(st, overview_data.get("ads_metrics_with_growth", {}).get(selected_key, {}), selected_source)
 
     selected_charts = overview_data.get("leads_performance_charts", {}).get(selected_key, {})
@@ -77,7 +80,7 @@ async def show_user_acquisition_page(host: str) -> None:
     for column, figure in zip(st.columns(3, gap="small"), figures):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     selected_details = overview_data.get("ads_campaign_details", {}).get(selected_key, {})
     detail_rows = selected_details.get("rows", [])
@@ -103,7 +106,7 @@ async def show_user_acquisition_page(host: str) -> None:
     for column, figure in zip(st.columns(3, gap="small"), trend_figures):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     top_n = int(ua_insight_charts.get("top_n", 10) or 10)
     scatter_figure = set_transparent_chart_background(
@@ -123,7 +126,7 @@ async def show_user_acquisition_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [scatter_figure, top_n_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     st.markdown("### Daily Pacing Insights")
     cumulative_figure = set_transparent_chart_background(
@@ -143,7 +146,7 @@ async def show_user_acquisition_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [cumulative_figure, daily_mix_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     st.markdown(f"### {selected_level}")
     render_performance_table(level_label, display_df)

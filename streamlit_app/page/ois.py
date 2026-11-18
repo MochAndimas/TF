@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 
+from streamlit_app.functions.chart_comparison import ChartComparison
 from streamlit_app.functions.api import fetch_api_result
 from streamlit_app.functions.comparison import select_comparison
 from streamlit_app.functions.dates import campaign_preset_ranges
@@ -36,10 +37,10 @@ def render_period_filter():
     return dates
 
 
-def render_chart(figure, key):
+async def render_chart(figure, key, compare):
     """Give every chart the standard analytics panel and spacing."""
     with st.container(border=True):
-        st.plotly_chart(figure, width="stretch", key=key)
+        await compare.render(figure, width="stretch", key=key)
 
 
 def render_table(data):
@@ -91,6 +92,13 @@ async def show_performance(host: str, dates) -> float | None:
     if current.empty:
         st.info("No records match these filters.")
         return
+    compare = ChartComparison(host, dates, "ois", "ois/analytics", data)
+    def filtered_frame(payload):
+        result = frame(payload["current_rows"])
+        for column, values in selections.items():
+            if values:
+                result = result[result[column].isin(values)]
+        return result
     st.markdown("## OIS Overview")
     now, before = totals(current), totals(previous)
     summary = {"previous_period": {"start_date": data["previous_start"], "end_date": data["previous_end"]}}
@@ -104,16 +112,16 @@ async def show_performance(host: str, dates) -> float | None:
     with st.container(border=True):
         field = st.selectbox("Performance Metric", ["new_users", "engaged_sessions"],
                              format_func=LABELS.get, key="ois_acquisition_metric")
-    render_chart(charts.trend(current, field, *dates), "ois_trend")
+    await render_chart(compare.figure(lambda data, dates: charts.trend(filtered_frame(data), field, *dates)), "ois_trend", compare)
     left, middle, right = st.columns(3, gap="small")
     with left:
-        render_chart(charts.mix(current, field), "ois_mix")
+        await render_chart(charts.mix(current, field), "ois_mix", compare)
     with middle:
-        render_chart(charts.contribution(current, "first_user_campaign_name",
-                     field, "Top Campaigns · up to 12"), "ois_campaign")
+        await render_chart(compare.figure(lambda data, dates: charts.contribution(filtered_frame(data), "first_user_campaign_name",
+                     field, "Top Campaigns · up to 12")), "ois_campaign", compare)
     with right:
-        render_chart(charts.contribution(current, "first_user_medium",
-                     field, "Medium Contribution"), "ois_medium")
+        await render_chart(compare.figure(lambda data, dates: charts.contribution(filtered_frame(data), "first_user_medium",
+                     field, "Medium Contribution")), "ois_medium", compare)
     st.markdown("## Source Performance")
     source_metrics = ["new_users", "active_users", "total_users", "engaged_sessions"]
     source_summary = pd.DataFrame([{

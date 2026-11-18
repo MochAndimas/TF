@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+from streamlit_app.page.overview_components.management_compare import comparison_rows, add_comparison_line
 from streamlit_app.functions.api import fetch_api_result
 from streamlit_app.functions.metrics import (
     _campaign_format_currency,
@@ -42,52 +43,65 @@ async def show_overview_management_page(host: str) -> None:
         st.error(result.message or "Failed to fetch the register total.")
         return
 
-    st.markdown('<div class="metric-section-title">Register</div>', unsafe_allow_html=True)
-    cards = (
-        ("Total Register", "total_register", "growth_percentage"),
-        ("Ads Register", "ads_register", "ads_growth_percentage"),
-        ("Socmed Register", "socmed_register", "socmed_growth_percentage"),
-        ("Organic Register", "organic_register", "organic_growth_percentage"),
-    )
-    for card, (label, total_key, growth_key) in zip(st.columns(len(cards), gap="small"), cards):
-        total = result.data[total_key]
-        growth = result.data[growth_key]
-        with card, st.container(border=True):
-            _render_metric_with_growth(
-                st,
-                label,
-                f"{total:,}" if total is not None else "—",
-                delta=_campaign_format_growth(growth, result.data) if growth is not None else None,
-            )
+    with st.container(border=True, key="management_section_register"):
+        st.markdown('<div class="metric-section-title">Register</div>', unsafe_allow_html=True)
+        cards = (
+            ("Total Register", "total_register", "growth_percentage"),
+            ("Ads Register", "ads_register", "ads_growth_percentage"),
+            ("Socmed Register", "socmed_register", "socmed_growth_percentage"),
+            ("Organic Register", "organic_register", "organic_growth_percentage"),
+        )
+        for card, (label, total_key, growth_key) in zip(st.columns(len(cards), gap="small"), cards):
+            total = result.data[total_key]
+            growth = result.data[growth_key]
+            with card, st.container(border=True):
+                _render_metric_with_growth(
+                    st,
+                    label,
+                    f"{total:,}" if total is not None else "—",
+                    delta=_campaign_format_growth(growth, result.data) if growth is not None else None,
+                )
 
-    _render_daily_register(result.data["daily_register"], start_date, end_date)
-    _render_register_breakdown(result.data)
-    _render_first_deposit(result.data)
-    _render_first_deposit_chart(result.data["daily_first_deposit"])
-    _render_first_deposit_breakdown(result.data)
-    st.markdown('<div class="metric-section-title">First Subscription</div>', unsafe_allow_html=True)
-    _render_amount_qty_cards(result.data, "first_subscription", "Total First Subscription", "Average First Subscription")
-    with st.container(border=True):
-        _render_amount_qty_chart(result.data["daily_first_subscription"], "Daily First Subscription")
+        await _render_daily_register(result.data["daily_register"], start_date, end_date, host)
+        _render_register_breakdown(result.data)
 
-    st.markdown('<div class="metric-section-title">Topup</div>', unsafe_allow_html=True)
-    _render_amount_qty_cards(result.data, "topup", "Total Topup", "Average Topup")
-    with st.container(border=True):
-        _render_amount_qty_chart(result.data["daily_topup"], "Daily Topup")
+    with st.container(border=True, key="management_section_all_deposit"):
+        st.markdown('<div class="metric-section-title">All Deposit</div>', unsafe_allow_html=True)
+        _render_amount_qty_cards(result.data, "all_deposit", "Total Deposit", "Average Deposit")
+        with st.container(border=True):
+            comparison = await comparison_rows(host, dates, "all_deposit", ("daily_all_deposit",))
+            _render_amount_qty_chart(result.data["daily_all_deposit"], "Daily All Deposit", comparison, dates)
 
-    st.markdown('<div class="metric-section-title">All Deposit</div>', unsafe_allow_html=True)
-    _render_amount_qty_cards(result.data, "all_deposit", "Total Deposit", "Average Deposit")
-    with st.container(border=True):
-        _render_amount_qty_chart(result.data["daily_all_deposit"], "Daily All Deposit")
+    with st.container(border=True, key="management_section_all_subscription"):
+        st.markdown('<div class="metric-section-title">All Subscription</div>', unsafe_allow_html=True)
+        _render_amount_qty_cards(result.data, "all_subscription", "Total Subscription", "Average Subscription")
+        with st.container(border=True):
+            comparison = await comparison_rows(host, dates, "all_subscription", ("daily_all_subscription",))
+            _render_amount_qty_chart(result.data["daily_all_subscription"], "Daily All Subscription", comparison, dates)
 
-    st.markdown('<div class="metric-section-title">All Subscription</div>', unsafe_allow_html=True)
-    _render_amount_qty_cards(result.data, "all_subscription", "Total Subscription", "Average Subscription")
-    with st.container(border=True):
-        _render_amount_qty_chart(result.data["daily_all_subscription"], "Daily All Subscription")
-    _render_cost_to_revenue(result.data["cost_to_revenue"])
+    with st.container(border=True, key="management_section_first_deposit"):
+        _render_first_deposit(result.data)
+        await _render_first_deposit_chart(result.data["daily_first_deposit"], host, dates)
+        _render_first_deposit_breakdown(result.data)
 
+    with st.container(border=True, key="management_section_first_subscription"):
+        st.markdown('<div class="metric-section-title">First Subscription</div>', unsafe_allow_html=True)
+        _render_amount_qty_cards(result.data, "first_subscription", "Total First Subscription", "Average First Subscription")
+        with st.container(border=True):
+            comparison = await comparison_rows(host, dates, "first_subscription", ("daily_first_subscription",))
+            _render_amount_qty_chart(result.data["daily_first_subscription"], "Daily First Subscription", comparison, dates)
 
-def _render_cost_to_revenue(data: dict) -> None:
+    with st.container(border=True, key="management_section_topup"):
+        st.markdown('<div class="metric-section-title">Topup</div>', unsafe_allow_html=True)
+        _render_amount_qty_cards(result.data, "topup", "Total Topup", "Average Topup")
+        with st.container(border=True):
+            comparison = await comparison_rows(host, dates, "topup", ("daily_topup",))
+            _render_amount_qty_chart(result.data["daily_topup"], "Daily Topup", comparison, dates)
+
+    with st.container(border=True, key="management_section_cost_to_revenue"):
+        await _render_cost_to_revenue(result.data["cost_to_revenue"], host, dates)
+
+async def _render_cost_to_revenue(data: dict, host, dates) -> None:
     st.markdown('<div class="metric-section-title">Cost to Revenue</div>', unsafe_allow_html=True)
     with st.container(horizontal=True, horizontal_alignment="center"):
         currency = render_currency_toggle("management_cost_revenue_currency")
@@ -95,7 +109,7 @@ def _render_cost_to_revenue(data: dict) -> None:
     cards = (
         ("Overall Cost", "cost_to_revenue_cost", "Ads spend plus daily allocations of monthly Tools Fixed Cost."),
         ("Overall Revenue", "revenue", "All Deposit Amount plus All Subscription Amount."),
-        ("Overall Revenue / Cost", "cost_to_revenue_pct", None),
+        ("Cost to Revenue", "cost_to_revenue_pct", "Overall Cost ÷ Overall Revenue × 100%"),
     )
     for column, (label, key, help_text) in zip(st.columns(len(cards), gap="small"), cards):
         value = metrics[key]
@@ -117,6 +131,7 @@ def _render_cost_to_revenue(data: dict) -> None:
             _render_metric_with_growth(
                 st, label, display, help=help_text,
                 delta=_campaign_format_growth(growth, data) if growth is not None else None,
+                delta_color="inverse" if key == "cost_to_revenue_pct" else "normal",
             )
 
     if data["missing_tools_months"]:
@@ -125,11 +140,44 @@ def _render_cost_to_revenue(data: dict) -> None:
 
     rows = data["daily_rows"]
     ratio = build_cost_to_deposit_ratio_figure(rows, "Overall Revenue")
+    ratio.update_layout(title="Cost to Revenue (%) Per Hari")
     if rows:
-        ratio.data[0].y = [row["revenue_idr"] / row["cost"] * 100 if row["cost"] else None for row in rows]
+        ratio.data[0].y = [row["cost"] / row["revenue_idr"] * 100 if row["revenue_idr"] else None for row in rows]
+        ratio.data[0].name = "Cost to Revenue"
+        ratio.data[0].hovertemplate = "<b>%{x}</b><br>Cost to Revenue: %{y:.2f}%<extra></extra>"
     figures = (build_cost_vs_deposit_figure(rows, currency, "Overall Revenue"), ratio)
     for column, figure in zip(st.columns(2, gap="small"), figures):
         with column, st.container(border=True):
+            if figure is ratio:
+                comparison = await comparison_rows(host, dates, "cost_revenue_ratio", ("cost_to_revenue", "daily_rows"))
+                # The existing chart uses date labels. Use actual dates for aligned overlays.
+                figure.data[0].x = pd.to_datetime([row["date"] for row in rows])
+                figure.update_xaxes(type="date")
+                add_comparison_line(figure, comparison, dates, "revenue_idr", "Cost to Revenue", "#ff6248", ratio=True)
+            else:
+                comparison = await comparison_rows(host, dates, "cost_revenue_bars", ("cost_to_revenue", "daily_rows"))
+                if comparison is not None:
+                    for trace in figure.data:
+                        trace.x = pd.to_datetime([row["date"] for row in rows])
+                    figure.update_xaxes(type="date")
+                    for field, name, color, axis in (
+                        ("cost", "Cost", "#6176ff", "y"),
+                        ("revenue_idr", "Overall Revenue", "#13c39c", "y2"),
+                    ):
+                        values = [row.get(field) for row in comparison]
+                        if currency == "USD":
+                            values = [convert_idr_to_usd(value) if value is not None else None for value in values]
+                        figure.add_trace(go.Bar(
+                            x=pd.date_range(dates[0], periods=len(comparison)),
+                            y=values,
+                            name=f"{name} ({currency}, comparison)",
+                            marker_color=color,
+                            opacity=0.4,
+                            yaxis=axis,
+                            offsetgroup=f"{field}_comparison",
+                            customdata=[row["date"] for row in comparison],
+                            hovertemplate="Comparison: %{customdata}<br>%{y:,.2f}<extra>%{fullData.name}</extra>",
+                        ))
             st.plotly_chart(set_transparent_chart_background(figure), width="stretch")
 
 
@@ -196,7 +244,7 @@ def _render_amount_qty_cards(data: dict, section: str, label_prefix: str, averag
             )
 
 
-def _render_first_deposit_chart(daily_deposits: dict) -> None:
+async def _render_first_deposit_chart(daily_deposits: dict, host, dates) -> None:
     with st.container(border=True):
         category = st.selectbox(
             "First Deposit Source",
@@ -204,10 +252,11 @@ def _render_first_deposit_chart(daily_deposits: dict) -> None:
             format_func=lambda source: f"{source} First Deposit",
             key="management_first_deposit_source",
         )
-        _render_amount_qty_chart(daily_deposits[category], f"Daily {category} First Deposit")
+        comparison = await comparison_rows(host, dates, "first_deposit", ("daily_first_deposit", category))
+        _render_amount_qty_chart(daily_deposits[category], f"Daily {category} First Deposit", comparison, dates)
 
 
-def _render_amount_qty_chart(rows: list, title: str) -> None:
+def _render_amount_qty_chart(rows: list, title: str, comparison=None, dates=None) -> None:
     if not rows:
         st.info("No data for the selected period.")
         return
@@ -215,6 +264,7 @@ def _render_amount_qty_chart(rows: list, title: str) -> None:
     figure = make_subplots(specs=[[{"secondary_y": True}]])
     figure.add_trace(go.Bar(
         x=daily["date"], y=daily["amount"], name="Amount", marker_color="#6176ff",
+        offsetgroup="current",
         hovertemplate="Rp %{y:,.2f}<extra>Amount</extra>",
     ), secondary_y=False)
     figure.add_trace(go.Scatter(
@@ -222,15 +272,28 @@ def _render_amount_qty_chart(rows: list, title: str) -> None:
         line={"color": "#2dd4bf"},
         hovertemplate="%{y:,}<extra>Qty</extra>",
     ), secondary_y=True)
-    figure.update_layout(title=title, hovermode="x unified")
+    if comparison is not None:
+        figure.add_trace(go.Bar(
+            x=pd.date_range(dates[0], periods=len(comparison)),
+            y=[row.get("amount") for row in comparison],
+            name="Amount (comparison)",
+            marker_color="#6176ff",
+            opacity=0.4,
+            offsetgroup="comparison",
+            customdata=[row["date"] for row in comparison],
+            hovertemplate="Comparison: %{customdata}<br>Rp %{y:,.2f}<extra>Amount (comparison)</extra>",
+        ), secondary_y=False)
+    add_comparison_line(figure, comparison, dates, "qty", "Qty", "#2dd4bf", secondary_y=True)
+    figure.update_layout(title=title, hovermode="x unified", barmode="group")
     figure.update_xaxes(type="date", title_text="Date")
     figure.update_yaxes(title_text="Amount (IDR)", tickprefix="Rp ", secondary_y=False)
     figure.update_yaxes(title_text="Qty", tickformat=",d", secondary_y=True)
     st.plotly_chart(set_transparent_chart_background(figure), width="stretch")
 
 
-def _render_daily_register(daily_register, start_date, end_date) -> None:
+async def _render_daily_register(daily_register, start_date, end_date, host) -> None:
     with st.container(border=True):
+        comparison = await comparison_rows(host, (start_date, end_date), "register", ("daily_register",))
         if not daily_register:
             st.info("No total register data for the selected period.")
             return
@@ -246,12 +309,13 @@ def _render_daily_register(daily_register, start_date, end_date) -> None:
             line={"color": "#6176ff"},
             hovertemplate="%{x|%d %b %Y}<br>Total Register: %{y:,}<extra></extra>",
         ))
+        add_comparison_line(figure, comparison, (start_date, end_date), "total_register", "Total Register", "#6176ff")
         figure.update_layout(
             title="Daily Total Register",
             xaxis_title="Date",
             yaxis_title="Total Register",
             yaxis_rangemode="tozero",
-            showlegend=False,
+            showlegend=comparison is not None,
         )
         st.plotly_chart(set_transparent_chart_background(figure), width="stretch")
 

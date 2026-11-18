@@ -1,5 +1,7 @@
 """Streamlit renderer for the main Overview page."""
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import comparison_cache_key
 
 import asyncio
@@ -303,12 +305,13 @@ async def show_overview_page(host: str) -> None:
 
     selected_source_key = source_options[selected_source]
     active_data = st.session_state.get("overview_active_users_payload_by_source", {}).get(selected_source_key, {}).get("data", {})
+    compare = ChartComparison(host, selected_dates, "overview_active", "overview/active-users", active_data, params={"source": selected_source_key})
     stickiness_summary = active_data.get("stickiness_with_growth", {})
     active_chart_figure = set_transparent_chart_background(campaign_figure_from_payload(active_data.get("active_users_chart", {}).get("figure"), f"FireBase Active User {selected_source.upper()}"))
     active_chart_figure.update_layout(height=430)
     render_overview_metric_cards(st, stickiness_summary)
     with st.container(border=True):
-        st.plotly_chart(active_chart_figure, width="stretch")
+        await compare.render(active_chart_figure, width="stretch")
 
     if "install" in st.session_state.get("allowed_pages", []):
         st.markdown('<div class="metric-section-title">App Install</div>', unsafe_allow_html=True)
@@ -338,10 +341,16 @@ async def show_overview_page(host: str) -> None:
             install_data = install_payload
         _render_install_metric_cards(install_data)
         install_daily_df = install_daily_dataframe(install_data.get("daily_rows", []))
-        install_daily_figure = set_transparent_chart_background(build_install_daily_figure(install_daily_df))
+        install_compare = ChartComparison(host, selected_dates, "overview_install", "install/analytics", install_payload)
+        install_daily_figure = install_compare.figure(lambda data, dates: build_install_daily_figure(install_daily_dataframe(
+            (combine_install_data(data, data.get("apple", {})) if selected_install_platform_key == "overall"
+             else normalize_apple_install_data(data.get("apple", {})) if selected_install_platform_key == "apple_app_store"
+             else data).get("daily_rows", [])
+        )))
+        install_daily_figure = set_transparent_chart_background(install_daily_figure)
         install_daily_figure.update_layout(title=f"Daily Installs - {selected_install_platform}", height=440)
         with st.container(border=True):
-            st.plotly_chart(install_daily_figure, width="stretch")
+            await install_compare.render(install_daily_figure, width="stretch")
 
     overview_data = st.session_state.get("overview_campaign_cost_payload", {}).get("data", {})
     cost_summary = overview_data.get("cost_metrics_with_growth", {})
@@ -359,7 +368,7 @@ async def show_overview_page(host: str) -> None:
     for column, figure in zip(st.columns(4, gap="small"), pie_figures):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     leads_data = st.session_state.get("overview_leads_payload", {}).get("data", {})
     brand_data = st.session_state.get("overview_brand_payload", {}).get("data", {})
@@ -371,6 +380,7 @@ async def show_overview_page(host: str) -> None:
         selected_performance_label = st.selectbox("Campaign Performance Type", options=list(performance_options.keys()), index=0, key="overview_campaign_performance_type")
 
     if performance_options[selected_performance_label] == "brand_awareness":
+        compare = ChartComparison(host, selected_dates, "overview_brand", "overview/brand-awareness", brand_data)
         render_brand_awareness_metric_cards(st, brand_data.get("metrics_with_growth", {}), "")
         _render_overall_source_breakdown(brand_data, title_prefix="Brand Awareness")
         brand_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(brand_data.get("spend_chart", {}).get("figure"), "Overall Brand Awareness Spend - All Platforms"))
@@ -380,8 +390,9 @@ async def show_overview_page(host: str) -> None:
         for column, figure in zip(st.columns(2, gap="small"), [brand_spend_figure, brand_performance_figure]):
             with column:
                 with st.container(border=True):
-                    st.plotly_chart(figure, width="stretch")
+                    await compare.render(figure, width="stretch")
     elif performance_options[selected_performance_label] == "remarketing":
+        compare = ChartComparison(host, selected_dates, "overview_remarketing", "overview/remarketing", remarketing_data)
         render_brand_awareness_metric_cards(st, remarketing_data.get("metrics_with_growth", {}), "")
         _render_overall_source_breakdown(remarketing_data, title_prefix="Remarketing")
         remarketing_spend_figure = set_transparent_chart_background(campaign_figure_from_payload(remarketing_data.get("spend_chart", {}).get("figure"), "Overall Remarketing Spend - All Platforms"))
@@ -391,8 +402,9 @@ async def show_overview_page(host: str) -> None:
         for column, figure in zip(st.columns(2, gap="small"), [remarketing_spend_figure, remarketing_performance_figure]):
             with column:
                 with st.container(border=True):
-                    st.plotly_chart(figure, width="stretch")
+                    await compare.render(figure, width="stretch")
     else:
+        compare = ChartComparison(host, selected_dates, "overview_leads", "overview/leads-acquisition", leads_data)
         leads_currency_unit = "IDR"
         render_overview_leads_metric_cards(st, leads_data.get("metrics_with_growth", {}), currency_unit=leads_currency_unit)
 
@@ -428,7 +440,7 @@ async def show_overview_page(host: str) -> None:
         for column, figure in zip(st.columns(2, gap="small"), [cost_vs_leads_figure, leads_per_day_figure]):
             with column:
                 with st.container(border=True):
-                    st.plotly_chart(figure, width="stretch")
+                    await compare.render(figure, width="stretch")
 
     st.markdown('<div class="metric-section-title">Cost to Revenue</div>', unsafe_allow_html=True)
     cost_to_revenue_options = {
@@ -480,11 +492,17 @@ async def show_overview_page(host: str) -> None:
     )
 
     cost_to_revenue_rows = (selected_cost_to_revenue_payload.get("chart") or leads_data.get("cost_to_revenue_chart", {})).get("rows", [])
-    cost_vs_deposit_figure = set_transparent_chart_background(build_cost_vs_deposit_figure(rows=cost_to_revenue_rows, currency_unit=cost_to_revenue_currency_unit, revenue_label=selected_cost_to_revenue["revenue_label"]))
-    cost_to_deposit_ratio_figure = set_transparent_chart_background(build_cost_to_deposit_ratio_figure(rows=cost_to_revenue_rows, revenue_label=selected_cost_to_revenue["revenue_label"]))
+    compare = ChartComparison(host, selected_dates, "overview_cost_revenue", "overview/leads-acquisition", leads_data)
+    def comparison_revenue_rows(data):
+        return (data.get("cost_to_revenue_modes", {}).get(selected_cost_to_revenue["key"], {}).get("chart")
+                or data.get("cost_to_revenue_chart", {})).get("rows", [])
+    cost_vs_deposit_figure = compare.figure(lambda data, dates: build_cost_vs_deposit_figure(
+        comparison_revenue_rows(data), cost_to_revenue_currency_unit, selected_cost_to_revenue["revenue_label"]))
+    cost_to_deposit_ratio_figure = compare.figure(lambda data, dates: build_cost_to_deposit_ratio_figure(
+        comparison_revenue_rows(data), selected_cost_to_revenue["revenue_label"]))
     cost_vs_deposit_figure.update_layout(height=460)
     cost_to_deposit_ratio_figure.update_layout(height=460)
     for column, figure in zip(st.columns(2, gap="small"), [cost_vs_deposit_figure, cost_to_deposit_ratio_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")

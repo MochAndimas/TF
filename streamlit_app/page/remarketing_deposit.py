@@ -1,5 +1,7 @@
 """Streamlit page for the remarketing deposit report."""
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
@@ -94,6 +96,7 @@ async def show_remarketing_deposit_page(host: str) -> None:
         st.session_state["remarketing_deposit_range"] = selected_range
 
     report = st.session_state.get("remarketing_deposit_payload", {}).get("data", {}).get("report", {})
+    compare = ChartComparison(host, (start_date, end_date), "remarketing_deposit_" + str(selected_type), "deposit/remarketing-report", {"report": report}, params={"campaign_type": selected_type})
     deposit_label = "Remarketing Deposit"
     st.markdown('<div class="metric-section-title">Remarketing Deposit Summary</div>', unsafe_allow_html=True)
     currency_wrap_left, currency_wrap_mid, currency_wrap_right = st.columns([2.2, 2.6, 2.2], gap="small")
@@ -111,24 +114,9 @@ async def show_remarketing_deposit_page(host: str) -> None:
             )
 
     render_metric_cards(report, currency_unit=currency_unit, deposit_label=deposit_label, split_by_user=False)
-    daily_amount_figure = build_daily_deposit_amount_figure(
-        report,
-        currency_unit=currency_unit,
-        deposit_label=deposit_label,
-        split_by_user=False,
-    )
-    qty_aov_figure = build_daily_deposit_qty_aov_figure(
-        report,
-        currency_unit=currency_unit,
-        deposit_label=deposit_label,
-        split_by_user=False,
-    )
-    top_campaign_figure = build_top_campaign_deposit_figure(
-        report,
-        currency_unit=currency_unit,
-        deposit_label=deposit_label,
-        split_by_user=False,
-    )
+    daily_amount_figure = compare.figure(lambda data, dates: build_daily_deposit_amount_figure(data.get("report", {}), currency_unit=currency_unit, deposit_label=deposit_label, split_by_user=False))
+    qty_aov_figure = compare.figure(lambda data, dates: build_daily_deposit_qty_aov_figure(data.get("report", {}), currency_unit=currency_unit, deposit_label=deposit_label, split_by_user=False))
+    top_campaign_figure = compare.figure(lambda data, dates: build_top_campaign_deposit_figure(data.get("report", {}), currency_unit=currency_unit, deposit_label=deposit_label, split_by_user=False))
     campaign_heatmap_figure = build_campaign_deposit_amount_heatmap_figure(
         report,
         currency_unit=currency_unit,
@@ -140,11 +128,11 @@ async def show_remarketing_deposit_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [daily_amount_figure, qty_aov_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
     with st.container(border=True):
-        st.plotly_chart(top_campaign_figure, width="stretch")
+        await compare.render(top_campaign_figure, width="stretch")
     with st.container(border=True):
-        st.plotly_chart(campaign_heatmap_figure, width="stretch")
+        await compare.render(campaign_heatmap_figure, width="stretch")
     st.markdown('<div class="metric-section-title">Remarketing Deposit by Campaign</div>', unsafe_allow_html=True)
     with st.container(border=True):
         render_campaign_deposit_table(report, currency_unit=currency_unit, height=420)

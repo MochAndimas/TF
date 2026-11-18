@@ -1,5 +1,7 @@
 """Streamlit page for Brand Awareness analytics."""
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import streamlit as st
@@ -57,6 +59,7 @@ async def show_brand_awareness_page(host: str) -> None:
         st.session_state["brand_awareness_range"] = selected_range
 
     overview_data = st.session_state.get("brand_awareness_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "brand_awareness", "campaign/brand-awareness", overview_data)
     render_brand_awareness_metric_cards(st, overview_data.get("metrics_with_growth", {}).get(selected_key, {}), selected_source)
 
     selected_charts = overview_data.get("charts", {}).get(selected_key, {})
@@ -67,7 +70,7 @@ async def show_brand_awareness_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [spend_figure, performance_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     selected_level, level_column, level_label, display_df = build_performance_table(
         overview_data.get("details", {}).get(selected_key, {}).get("rows", [])
@@ -92,7 +95,7 @@ async def show_brand_awareness_page(host: str) -> None:
     for column, figure in zip(st.columns(3, gap="small"), trend_figures):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     st.markdown(f"### {selected_level}")
     render_performance_table(level_label, display_df)

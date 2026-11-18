@@ -91,7 +91,7 @@ def _conversion_figure(frame: pd.DataFrame) -> go.Figure:
     return set_transparent_chart_background(figure)
 
 
-def render_revenue(metrics: dict | None) -> None:
+def render_revenue(metrics: dict | None, *, charts: bool = True) -> None:
     st.markdown("## Revenue")
     if metrics is None:
         st.info("Revenue data is unavailable. Please reload the page.")
@@ -117,10 +117,24 @@ def render_revenue(metrics: dict | None) -> None:
                 _render_metric_with_growth(st, label, value, delta=_campaign_format_growth(change).replace("from last period", comparison_label),
                           delta_color="off" if change == 0 else "normal")
 
-    daily_frame = _daily_revenue_frame(metrics)
-    for column, figure in zip(
+    if charts:
+        daily_frame = _daily_revenue_frame(metrics)
+        for column, figure in zip(
+            st.columns(2, gap="small"),
+            [_registration_deposit_figure(daily_frame), _conversion_figure(daily_frame)],
+        ):
+            with column, st.container(border=True):
+                st.plotly_chart(figure, width="stretch")
+
+
+async def render_revenue_with_comparison(metrics, compare):
+    render_revenue(metrics, charts=False)
+    if metrics is None:
+        return
+    for column, builder in zip(
         st.columns(2, gap="small"),
-        [_registration_deposit_figure(daily_frame), _conversion_figure(daily_frame)],
+        (_registration_deposit_figure, _conversion_figure),
     ):
         with column, st.container(border=True):
-            st.plotly_chart(figure, width="stretch")
+            figure = compare.figure(lambda data, dates: builder(_daily_revenue_frame(data.get("revenue") or {})))
+            await compare.render(figure, width="stretch")

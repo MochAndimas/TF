@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
@@ -136,6 +138,7 @@ async def show_login_activity_page(host: str) -> None:
         st.session_state["login_activity_range"] = selected_range
 
     data = st.session_state.get("login_activity_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "login_activity", "campaign/login-activity", data, params={"source": source_key})
     _render_metrics(data.get("metrics", {}))
     charts = data.get("charts", {})
     daily_figure = set_transparent_chart_background(campaign_figure_from_payload(charts.get("daily_trend", {}).get("figure"), "Daily Login"))
@@ -154,18 +157,18 @@ async def show_login_activity_page(host: str) -> None:
     for column, figure in zip(st.columns(2, gap="small"), [daily_figure, cumulative_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     for column, figure in zip(st.columns(2, gap="small"), [source_figure, type_figure]):
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     with st.container(border=True):
-        st.plotly_chart(top_figure, width="stretch")
+        await compare.render(top_figure, width="stretch")
 
     with st.container(border=True):
-        st.plotly_chart(heatmap_figure, width="stretch")
+        await compare.render(heatmap_figure, width="stretch")
 
     st.markdown("### Campaign Login Details")
     details_df = _details_dataframe(data.get("details", []))

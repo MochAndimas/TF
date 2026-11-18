@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from streamlit_app.functions.chart_comparison import ChartComparison
+
 from streamlit_app.functions.comparison import select_comparison, comparison_cache_key
 
 import datetime as dt
@@ -14,7 +16,7 @@ from streamlit_app.functions.dates import campaign_preset_ranges
 from streamlit_app.functions.metrics import _render_metric_with_growth, _campaign_format_growth
 from streamlit_app.page.campaign_components.common import PAGE_STYLE
 from streamlit_app.page.socmed_components.api import fetch_legacy_socmed_payload
-from streamlit_app.page.socmed_components.revenue import render_revenue, revenue_comparison_for_period
+from streamlit_app.page.socmed_components.revenue import render_revenue_with_comparison, revenue_comparison_for_period
 
 
 def _render_filters() -> tuple[dt.date | None, dt.date | None]:
@@ -437,33 +439,34 @@ async def show_tiktok_page(host: str) -> None:
         st.session_state["tiktok_analytics_range"] = selected_range
 
     payload = st.session_state.get("tiktok_analytics_payload", {}).get("data", {})
+    compare = ChartComparison(host, (start_date, end_date), "tiktok", "tiktok/analytics", payload, params={"revenue_comparison": revenue_comparison})
     daily_df = _daily_dataframe(payload.get("daily_rows", []))
     media_daily_df = _media_daily_dataframe(payload.get("media_daily_rows", []))
     media_df = _media_dataframe(payload.get("media_rows", []))
 
-    render_revenue(payload.get("revenue"))
+    await render_revenue_with_comparison(payload.get("revenue"), compare)
     st.markdown("## Account insights")
     _render_metrics(payload.get("metrics", {}))
-    followers_figure = _build_followers_figure(daily_df)
-    performance_figure = _build_account_performance_figure(daily_df)
+    followers_figure = compare.figure(lambda data, dates: _build_followers_figure(_daily_dataframe(data.get("daily_rows", []))))
+    performance_figure = compare.figure(lambda data, dates: _build_account_performance_figure(_daily_dataframe(data.get("daily_rows", []))))
     for column, figure in zip(st.columns(2, gap="small"), [followers_figure, performance_figure]):
         figure.update_layout(height=440)
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     with st.container(border=True):
         _render_daily_table(daily_df)
 
     st.markdown("## Media Insights")
     _render_media_metrics(payload.get("media_summary", {}))
-    media_daily_figure = _build_media_daily_figure(media_daily_df)
-    top_media_figure = _build_top_media_figure(media_df)
+    media_daily_figure = compare.figure(lambda data, dates: _build_media_daily_figure(_media_daily_dataframe(data.get("media_daily_rows", []))))
+    top_media_figure = compare.figure(lambda data, dates: _build_top_media_figure(_media_dataframe(data.get("media_rows", []))))
     for column, figure in zip(st.columns(2, gap="small"), [media_daily_figure, top_media_figure]):
         figure.update_layout(height=440)
         with column:
             with st.container(border=True):
-                st.plotly_chart(figure, width="stretch")
+                await compare.render(figure, width="stretch")
 
     with st.container(border=True):
         _render_media_table(media_df)

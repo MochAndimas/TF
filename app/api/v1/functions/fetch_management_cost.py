@@ -66,7 +66,7 @@ async def fetch_management_cost(
         return {
             "cost_to_revenue_cost": float(cost_total),
             "revenue": float(revenue_total),
-            "cost_to_revenue_pct": float(revenue_total / cost_total * 100) if cost_total else None,
+            "cost_to_revenue_pct": float(cost_total / revenue_total * 100) if revenue_total else None,
         }, rows, sorted(missing_tools_months)
 
     metrics, rows, missing = summarize(current)
