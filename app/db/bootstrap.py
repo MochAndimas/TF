@@ -539,6 +539,11 @@ async def _migration_20261019_002_chatgpt_campaign_name(connection) -> None:
     )
 
 
+async def _migration_20261118_001_adjust_campaign_id_backfill(connection) -> None:
+    from app.etl.adjust.backfill import backfill_campaign_ids
+    await backfill_campaign_ids(connection)
+
+
 SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
     (
         "20260624_001_auth_indexes",
@@ -661,6 +666,11 @@ SCHEMA_MIGRATIONS: tuple[tuple[str, str, MigrationHandler], ...] = (
         "20261019_002_chatgpt_campaign_name",
         "Replace the ChatGPT campaign placeholder name with its verified Ads name.",
         _migration_20261019_002_chatgpt_campaign_name,
+    ),
+    (
+        "20261118_001_adjust_campaign_id_backfill",
+        "Fill missing Adjust campaign IDs using stored attribution and raw callbacks.",
+        _migration_20261118_001_adjust_campaign_id_backfill,
     ),
 )
 

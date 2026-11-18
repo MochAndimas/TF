@@ -116,7 +116,7 @@ def normalize_context(payload):
         campaign_id if campaign_id and "{" not in campaign_id and "}" not in campaign_id else None
     )
     row["source_name"] = normalize_source_name(row.pop("network_name"))
-    if row["campaign_id"] is None and row["source_name"] == "google":
+    if row["campaign_id"] is None and row["source_name"] in {"google", "facebook", "tiktok"}:
         match = re.search(r"\((\d+)\)\s*$", row["campaign_name"] or "")
         if match:
             row["campaign_id"] = match.group(1)
