@@ -802,6 +802,24 @@ def parse_first_deposit_dataframe(
     return parsed
 
 
+def parse_app_first_deposit_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
+    """Map app attribution to deposit tags using an exact source allowlist."""
+    if not raw_rows:
+        return pd.DataFrame()
+    required = {"source_name", "campaign_id"}
+    missing = required.difference(pd.DataFrame(raw_rows).columns)
+    if missing:
+        raise ValueError(f"Missing app first deposit columns: {sorted(missing)}")
+    mapped = [
+        {**row, "tag": str(row.get("source_name") or "").strip().lower(),
+         "campaignid": row.get("campaign_id")}
+        for row in raw_rows
+    ]
+    return parse_first_deposit_dataframe(
+        mapped, tag_pattern=r"^(?:google|facebook|off_facebook)$"
+    )
+
+
 def parse_first_deposit_ba_dataframe(raw_rows: list[dict]) -> pd.DataFrame:
     """Parse BA first-deposit rows into a load-ready dataframe."""
     return parse_first_deposit_dataframe(raw_rows, tag_pattern=r"^NUBAAON1$")

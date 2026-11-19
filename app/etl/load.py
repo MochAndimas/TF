@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 import pandas as pd
-from sqlalchemy import case, delete, literal, select, union_all
+from sqlalchemy import func, case, delete, literal, select, union_all
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1044,10 +1044,17 @@ async def delete_first_deposit_rows_in_window(
     *,
     window_start: date,
     window_end: date,
+    app_source: bool = False,
 ) -> int:
-    """Delete first-deposit rows whose registration date falls in a window."""
+    """Replace only the selected source's rows within the registration window."""
+    app_tag = func.lower(func.trim(func.coalesce(DataDepo.tag, ""))).in_(
+        ("google", "facebook", "off_facebook")
+    )
     result = await session.execute(
-        delete(DataDepo).where(DataDepo.tanggal_regis.between(window_start, window_end))
+        delete(DataDepo).where(
+            DataDepo.tanggal_regis.between(window_start, window_end),
+            app_tag if app_source else ~app_tag,
+        )
     )
     return int(result.rowcount or 0)
 

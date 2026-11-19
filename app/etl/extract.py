@@ -109,6 +109,11 @@ class ExternalApiExtractor:
             default="'RAW Regis'!A:T",
             cast=str,
         ).strip()
+        self.app_first_deposit_sheet_range = config(
+            "APP_FIRST_DEPOSIT_GSHEET_RANGE",
+            default="'App Install'!A:W",
+            cast=str,
+        ).strip()
         self.ms_deposit_sheet_range = config(
             "MS_DEPOSIT_SHEET_RANGE",
             default="'RAW Regis'!A:W",
@@ -2247,6 +2252,16 @@ class ExternalApiExtractor:
 
     async def fetch_first_deposit_records(self) -> list[dict]:
         """Fetch raw first-deposit rows from the configured Google Sheet."""
+        return await self._fetch_first_deposit_sheet_records(self.first_deposit_sheet_range)
+
+    async def fetch_app_first_deposit_records(self) -> list[dict]:
+        """Read app deposits from the shared Summary Ads spreadsheet."""
+        if not self.app_first_deposit_sheet_range:
+            raise ValueError("APP_FIRST_DEPOSIT_GSHEET_RANGE is required")
+        return await self._fetch_first_deposit_sheet_records(self.app_first_deposit_sheet_range)
+
+    async def _fetch_first_deposit_sheet_records(self, sheet_range: str) -> list[dict]:
+        """Read shared deposit fields, excluding tracker tokens."""
         if self.service is None or not self.first_deposit_sheet_id:
             raise ValueError(
                 "First deposit Google Sheet credentials are not fully configured. "
@@ -2256,7 +2271,7 @@ class ExternalApiExtractor:
         def _request():
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.first_deposit_sheet_id,
-                range=self.first_deposit_sheet_range,
+                range=sheet_range,
             ).execute()
             return result.get("values", [])
 
@@ -2273,6 +2288,8 @@ class ExternalApiExtractor:
             "tgl_regis",
             "tag",
             "campaignid",
+            "campaign_id",
+            "source_name",
             "protection",
             "Status\nNew / Existing",
             "Assign Date",
@@ -2285,6 +2302,12 @@ class ExternalApiExtractor:
             "Cabang",
             "Pool",
         }
+        required = {"id", "email", "tgl_regis", "Status\nNew / Existing", "First Depo $"}
+        required.add("source_name" if sheet_range == self.app_first_deposit_sheet_range else "tag")
+        required.add("campaign_id" if sheet_range == self.app_first_deposit_sheet_range else "campaignid")
+        missing = required.difference(headers)
+        if missing:
+            raise ValueError(f"Missing first deposit sheet columns: {sorted(missing)}")
         records: list[dict] = []
         for row in values[1:]:
             padded_row = list(row) + [""] * (len(headers) - len(row))

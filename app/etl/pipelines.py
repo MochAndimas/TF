@@ -129,6 +129,7 @@ from app.etl.transform import (
     parse_facebook_page_insights_dataframe,
     parse_facebook_page_media_insights_dataframe,
     parse_first_deposit_dataframe,
+    parse_app_first_deposit_dataframe,
     parse_first_deposit_ba_dataframe,
     parse_ms_deposit_dataframe,
     parse_play_console_install_dataframe,
@@ -1303,6 +1304,40 @@ class GoogleSheetApi(DateWindowPipelineRunner):
             end_date=end_date,
             types=types,
             run_id=run_id,
+        )
+
+    async def app_first_deposit(
+        self, session: AsyncSession, start_date=None, end_date=None,
+        types: str = "auto", run_id: str | None = None,
+    ) -> str:
+        """Load App Install paid-source deposits into the shared data_depo table."""
+        async def extract(_start, _end):
+            return await self.extractor.fetch_app_first_deposit_records()
+
+        async def stage(session_, raw_rows, run_id_):
+            return await stage_first_deposit_raw(
+                session=session_, raw_rows=raw_rows, run_id=run_id_,
+                source="app_first_deposit",
+            )
+
+        async def delete_window(session_, target_start, target_end):
+            return await delete_first_deposit_rows_in_window(
+                session=session_, window_start=target_start, window_end=target_end,
+                app_source=True,
+            )
+
+        spec = DateWindowPipelineSpec(
+            label="app_first_deposit", source="app_first_deposit",
+            empty_metric_name="App first deposit", date_column="tanggal_regis",
+            auto_skip_model=DataDepo, extract=extract, stage=stage,
+            parse=parse_app_first_deposit_dataframe,
+            validate=validate_first_deposit_dataframe,
+            build_rows=self._build_first_deposit_models,
+            delete_window=delete_window, load_rows=upsert_first_deposit_rows,
+        )
+        return await self._run_date_window_pipeline(
+            spec=spec, session=session, start_date=start_date, end_date=end_date,
+            types=types, run_id=run_id,
         )
 
     async def first_deposit_ba(

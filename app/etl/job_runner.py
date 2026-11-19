@@ -89,6 +89,7 @@ DEFAULT_SCHEDULED_SOURCES: tuple[str, ...] = (
     "regis_utm_daily",
     "first_deposit",
     "first_deposit_ba",
+    "app_first_deposit",
     "ms_deposit",
     "all_depo",
     "tools_fixed_cost",
@@ -385,6 +386,13 @@ async def _run_ms_deposit(
     )
 
 
+async def _run_app_first_deposit(gsheet, session, types, start_date, end_date, run_id) -> str:
+    return await gsheet.app_first_deposit(
+        session=session, types=types, start_date=start_date,
+        end_date=end_date, run_id=run_id,
+    )
+
+
 async def _run_first_deposit_ba(
     gsheet: GoogleSheetApi,
     session,
@@ -544,6 +552,7 @@ PIPELINE_EXECUTORS: dict[str, PipelineExecutor] = {
     "regis_utm_daily": _run_regis_utm_daily,
     "first_deposit": _run_first_deposit,
     "first_deposit_ba": _run_first_deposit_ba,
+    "app_first_deposit": _run_app_first_deposit,
     "ms_deposit": _run_ms_deposit,
     "all_depo": _run_all_depo,
     "tools_fixed_cost": run_tools_fixed_cost,
@@ -579,6 +588,7 @@ SOURCE_MODELS = {
     "regis_utm_daily": RegisUtmDaily,
     "first_deposit": DataDepo,
     "first_deposit_ba": DataDepoBa,
+    "app_first_deposit": DataDepo,
     "ms_deposit": DataMsDeposit,
     "all_depo": AllDepo,
     "tools_fixed_cost": ToolsFixedCost,
@@ -611,6 +621,7 @@ SOURCE_DATE_COLUMNS = {
     "regis_utm_daily": "date",
     "first_deposit": "tanggal_regis",
     "first_deposit_ba": "tanggal_regis",
+    "app_first_deposit": "tanggal_regis",
     "ms_deposit": "last_activity",
     "all_depo": "date",
     "tools_fixed_cost": "date",
@@ -668,6 +679,11 @@ async def count_source_rows(session, source: str, window_start=None, window_end=
     date_column_name = SOURCE_DATE_COLUMNS.get(source)
     if window_start is not None and window_end is not None and date_column_name is not None:
         query = query.where(getattr(model, date_column_name).between(window_start, window_end))
+    if source in {"first_deposit", "app_first_deposit"}:
+        app_tag = func.lower(func.trim(func.coalesce(DataDepo.tag, ""))).in_(
+            ("google", "facebook", "off_facebook")
+        )
+        query = query.where(app_tag if source == "app_first_deposit" else ~app_tag)
     result = await session.execute(query)
     return int(result.scalar_one())
 
@@ -787,6 +803,7 @@ async def execute_update_job(
                 "regis_utm_daily",
                 "first_deposit",
                 "first_deposit_ba",
+                "app_first_deposit",
                 "ms_deposit",
                 "play_console_install_metrics",
                 "apple_install",
